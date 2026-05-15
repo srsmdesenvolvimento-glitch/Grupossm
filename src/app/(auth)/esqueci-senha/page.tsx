@@ -19,13 +19,13 @@ type FormData = z.infer<typeof schema>
 
 export default function EsqueciSenhaPage() {
   const [enviado, setEnviado] = useState(false)
-  const supabase = createClient()
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
 
   async function onSubmit(data: FormData) {
+    const supabase = createClient()
     const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
       redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/atualizar-senha`,
     })
