@@ -63,10 +63,12 @@ const FEATURES = [
 ]
 
 // ── Animation helpers ──────────────────────────────────────────────────────
+const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1]
+
 const fadeUp = (delay: number) => ({
   initial:  { opacity: 0, y: 28, filter: 'blur(8px)' },
   animate:  { opacity: 1, y: 0,  filter: 'blur(0px)' },
-  transition: { delay, duration: 0.9, ease: [0.16, 1, 0.3, 1] },
+  transition: { delay, duration: 0.9, ease: EASE },
 })
 
 // SRSM gold in 0-1 normalized for WebGL shader
@@ -126,7 +128,7 @@ function LoginForm() {
           <motion.div
             initial={{ opacity: 0, y: -20, filter: 'blur(10px)' }}
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            transition={{ duration: 1.1, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 1.1, delay: 0.2, ease: EASE }}
             className="flex flex-col items-center gap-1 mb-1"
           >
             <span
@@ -151,7 +153,7 @@ function LoginForm() {
                     hidden: { opacity: 0, y: 28, filter: 'blur(6px)' },
                     show:   { opacity: 1, y: 0,  filter: 'blur(0px)' },
                   }}
-                  transition={{ duration: 0.85, ease: [0.16, 1, 0.3, 1] }}
+                  transition={{ duration: 0.85, ease: EASE }}
                   style={{
                     background: 'linear-gradient(160deg,#F5CC55 0%,#D4A528 45%,#A07010 100%)',
                     WebkitBackgroundClip: 'text',
@@ -167,7 +169,7 @@ function LoginForm() {
             <motion.div
               initial={{ scaleX: 0, opacity: 0 }}
               animate={{ scaleX: 1, opacity: 1 }}
-              transition={{ delay: 1.2, duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ delay: 1.2, duration: 0.9, ease: EASE }}
               className="h-px w-16 origin-left"
               style={{ background: 'linear-gradient(90deg,#D4A528,rgba(212,165,40,0.1))' }}
             />
@@ -193,7 +195,7 @@ function LoginForm() {
                 initial={{ opacity: 0, y: -10, scale: 0.92 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.92 }}
-                transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                transition={{ duration: 0.45, ease: EASE }}
                 className="flex items-center gap-2.5 px-4 py-2.5 rounded-full mb-8"
                 style={{
                   background: 'rgba(212,165,40,0.07)',
