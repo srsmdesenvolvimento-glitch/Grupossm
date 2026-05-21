@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHelp } from '@/components/shared/PageHelp'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { StatusBadge } from '@/components/shared/StatusBadge'
@@ -279,6 +280,22 @@ export default function VendasPage() {
   return (
     <AppShell empresa="emporio" titulo="Vendas">
       <div className="space-y-6">
+        <PageHelp
+          storageKey="help.emporio.vendas.v1"
+          titulo="Vendas"
+          oQueE="Registre e acompanhe todas as vendas do empório: à vista, a prazo ou orçamentos. Cada venda gera automaticamente as parcelas a receber quando necessário."
+          passos={[
+            'Clique em "Nova Venda" para registrar uma venda ou criar um orçamento.',
+            'Use a busca para localizar uma venda pelo número ou nome do cliente.',
+            'Filtre por status: Em aberto, Pago, Cancelado.',
+            'Clique em uma venda para ver detalhes, parcelas e imprimir.',
+          ]}
+          dicas={[
+            'Vendas a prazo geram parcelas automaticamente na seção "A Receber".',
+            'Orçamentos não afetam o estoque até serem confirmados como venda.',
+            'Use o botão de impressão na venda para gerar o comprovante.',
+          ]}
+        />
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard

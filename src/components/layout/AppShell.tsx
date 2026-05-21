@@ -31,7 +31,7 @@ export function AppShell({ children, empresa: empresaProp, titulo }: AppShellPro
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F9FAFB]">
+    <div className="flex h-screen overflow-hidden bg-muted/30 dark:bg-background">
       {/* Mobile overlay */}
       <AnimatePresence>
         {sidebarOpen && (

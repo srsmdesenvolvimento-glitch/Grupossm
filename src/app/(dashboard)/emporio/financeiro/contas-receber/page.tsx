@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHelp } from '@/components/shared/PageHelp'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { SearchInput } from '@/components/shared/SearchInput'
@@ -376,6 +377,22 @@ export default function ContasReceberPage() {
 
   return (
     <AppShell titulo="Contas a Receber" empresa="emporio">
+      <PageHelp
+        storageKey="help.emporio.contas-receber.v1"
+        titulo="Contas a Receber"
+        oQueE="Acompanhe todas as parcelas e valores a receber das vendas a prazo. Registre pagamentos, veja o que está em atraso e o fluxo de recebimentos."
+        passos={[
+          'Veja os cards de resumo: total a receber, vencendo hoje, em atraso.',
+          'Use a busca para localizar pelo nome do cliente ou número da venda.',
+          'Clique em "Receber" para registrar o pagamento de uma parcela.',
+          'Parcelas em vermelho estão vencidas — entre em contato com o cliente.',
+        ]}
+        dicas={[
+          'Parcelas vencidas há mais de 30 dias podem gerar multa — configure nas definições.',
+          'Use o filtro de datas para ver o que vence esta semana.',
+          'Exporte em CSV para conciliar com seu banco ou planilha financeira.',
+        ]}
+      />
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard

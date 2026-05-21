@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHelp } from '@/components/shared/PageHelp'
+import { TipsBanner } from '@/components/shared/TipsBanner'
 import { StatCard } from '@/components/shared/StatCard'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { toast } from 'sonner'
@@ -246,6 +248,23 @@ export default function EmporioDashboard() {
   return (
     <AppShell empresa="emporio" titulo="Dashboard">
       <div className="space-y-6">
+        <TipsBanner />
+        <PageHelp
+          storageKey="help.emporio.dashboard.v1"
+          titulo="Dashboard — Empório"
+          oQueE="Visão geral do empório: vendas do dia, estoque, contas a receber e situação financeira do mês. Tudo em um único painel."
+          passos={[
+            'Veja os cards de resumo para uma visão rápida das métricas do dia.',
+            'Acompanhe os gráficos de vendas e faturamento mensal.',
+            'Confira os produtos com estoque baixo e providencie reposição.',
+            'Use o menu lateral para acessar vendas, produtos, clientes e financeiro.',
+          ]}
+          dicas={[
+            'Os cards em amarelo indicam atenção (ex: estoque abaixo do mínimo).',
+            'Clique em qualquer item da lista para ir direto aos detalhes.',
+            'O dashboard atualiza automaticamente — não precisa recarregar a página.',
+          ]}
+        />
         {/* ── StatCards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard

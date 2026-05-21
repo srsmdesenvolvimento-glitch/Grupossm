@@ -3,35 +3,44 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
+import Image from 'next/image'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { LogOut, Loader2, ArrowRight, ShoppingBag, Building2 } from 'lucide-react'
+import { LogOut, Loader2, ArrowUpRight } from 'lucide-react'
 import type { EmpresaInfo } from '@/lib/types/shared'
 
-const EMPRESA_META = {
+const EMPRESA_META: Record<string, {
+  cardBg: string
+  cardBorder: string
+  textColor: string
+  mutedColor: string
+  arrowColor: string
+  labelColor: string
+  logo: string
+  desc: string
+  tag: string
+}> = {
   emporio: {
-    gradient: 'linear-gradient(135deg, #1A1A2E 0%, #2D1B00 100%)',
-    accent: '#D4A528',
-    accentLight: 'rgba(212,165,40,0.15)',
-    accentBorder: 'rgba(212,165,40,0.35)',
-    accentHover: 'rgba(212,165,40,0.25)',
-    icon: ShoppingBag,
-    iconBg: 'rgba(212,165,40,0.12)',
-    tag: 'Móveis & Decoração',
-    desc: 'Gerencie estoque, vendas, clientes e crediário da loja',
-    badge: '🪑',
+    cardBg: '#FFFFFF',
+    cardBorder: 'rgba(0,0,0,0.08)',
+    textColor: '#111111',
+    mutedColor: 'rgba(0,0,0,0.42)',
+    arrowColor: 'rgba(0,0,0,0.3)',
+    labelColor: 'rgba(0,0,0,0.32)',
+    logo: '/logos/emporio.png',
+    desc: 'Curadoria de móveis com história — peças que carregam tradição, artesania e sofisticação.',
+    tag: 'EMPRESA 02',
   },
   factoring: {
-    gradient: 'linear-gradient(135deg, #0D1B2A 0%, #0F1F3D 100%)',
-    accent: '#60A5FA',
-    accentLight: 'rgba(96,165,250,0.12)',
-    accentBorder: 'rgba(96,165,250,0.30)',
-    accentHover: 'rgba(96,165,250,0.20)',
-    icon: Building2,
-    iconBg: 'rgba(96,165,250,0.10)',
-    tag: 'Financeiro',
-    desc: 'Empréstimos, parcelas, score de crédito e inadimplentes',
-    badge: '💰',
+    cardBg: '#0B1628',
+    cardBorder: 'rgba(255,255,255,0.07)',
+    textColor: '#FFFFFF',
+    mutedColor: 'rgba(255,255,255,0.42)',
+    arrowColor: 'rgba(255,255,255,0.35)',
+    labelColor: 'rgba(255,255,255,0.35)',
+    logo: '/logos/factoring.png',
+    desc: 'Soluções financeiras — fomento mercantil, antecipação de recebíveis e crédito empresarial.',
+    tag: 'EMPRESA 01',
   },
 }
 
@@ -45,76 +54,67 @@ function EmpresaCard({
   onClick: () => void
 }) {
   const meta = EMPRESA_META[empresa.tipo] ?? EMPRESA_META.factoring
-  const Icon = meta.icon
 
   return (
     <motion.button
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: 0.1 + index * 0.12, ease: [0.4, 0, 0.2, 1] }}
+      initial={{ opacity: 0, y: 32, filter: 'blur(6px)' }}
+      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+      transition={{ duration: 0.55, delay: 0.15 + index * 0.15, ease: [0.16, 1, 0.3, 1] }}
       onClick={onClick}
-      className="group relative overflow-hidden rounded-2xl text-left w-full focus:outline-none focus-visible:ring-2"
+      className="group relative rounded-3xl text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D4A528] overflow-hidden"
       style={{
-        background: meta.gradient,
-        border: `1.5px solid ${meta.accentBorder}`,
+        background: meta.cardBg,
+        border: `1px solid ${meta.cardBorder}`,
+        boxShadow: empresa.tipo === 'emporio'
+          ? '0 8px 48px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08)'
+          : '0 8px 48px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)',
       }}
-      whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
-      whileTap={{ scale: 0.98 }}
+      whileHover={{ scale: 1.025, transition: { duration: 0.22 } }}
+      whileTap={{ scale: 0.975 }}
     >
-      {/* Glow on hover */}
-      <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-        style={{ background: `radial-gradient(ellipse at 30% 30%, ${meta.accentLight} 0%, transparent 70%)` }}
-      />
-
-      {/* Shimmer line */}
-      <div
-        className="absolute top-0 left-0 right-0 h-px opacity-60"
-        style={{ background: `linear-gradient(90deg, transparent, ${meta.accent}, transparent)` }}
-      />
-
-      <div className="relative p-8">
-        {/* Logo / icon */}
-        <div className="flex items-start justify-between mb-6">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl"
-            style={{ backgroundColor: meta.iconBg, border: `1px solid ${meta.accentBorder}` }}
-          >
-            {empresa.logo_url ? (
-              <img src={empresa.logo_url} alt={empresa.nome} className="w-10 h-10 object-contain rounded-lg" />
-            ) : (
-              <span>{meta.badge}</span>
-            )}
-          </div>
-          <span
-            className="text-[11px] font-semibold px-2.5 py-1 rounded-full uppercase tracking-wide"
-            style={{ backgroundColor: meta.accentLight, color: meta.accent }}
-          >
-            {meta.tag}
-          </span>
-        </div>
-
-        {/* Name */}
-        <h2 className="text-xl font-bold text-white mb-2 leading-tight">
-          {empresa.nome}
-        </h2>
-
-        {/* Description */}
-        <p className="text-sm leading-relaxed mb-8" style={{ color: 'rgba(255,255,255,0.45)' }}>
-          {meta.desc}
-        </p>
-
-        {/* CTA */}
-        <div
-          className="flex items-center gap-2 text-sm font-semibold"
-          style={{ color: meta.accent }}
+      {/* Top row: label + arrow */}
+      <div className="flex items-center justify-between px-7 pt-7 pb-0">
+        <span
+          className="text-[11px] font-semibold tracking-[0.14em] uppercase"
+          style={{ color: meta.labelColor }}
         >
-          Acessar sistema
-          <ArrowRight
-            size={16}
-            className="group-hover:translate-x-1.5 transition-transform duration-200"
+          {meta.tag}
+        </span>
+        <ArrowUpRight
+          size={18}
+          className="transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+          style={{ color: meta.arrowColor }}
+        />
+      </div>
+
+      {/* Logo — centered, prominent */}
+      <div className="flex items-center justify-center px-8 py-8">
+        <div className="relative w-full flex items-center justify-center" style={{ minHeight: 160 }}>
+          <Image
+            src={empresa.logo_url ?? meta.logo}
+            alt={empresa.nome}
+            width={200}
+            height={160}
+            className="object-contain transition-transform duration-300 group-hover:scale-[1.04]"
+            style={{ maxHeight: 160, width: 'auto' }}
           />
         </div>
+      </div>
+
+      {/* Name + description */}
+      <div className="px-7 pb-8">
+        <h2
+          className="text-[22px] font-bold leading-tight mb-2"
+          style={{ color: meta.textColor }}
+        >
+          {empresa.nome}
+        </h2>
+        <p
+          className="text-sm leading-relaxed"
+          style={{ color: meta.mutedColor }}
+        >
+          {meta.desc}
+        </p>
       </div>
     </motion.button>
   )
@@ -158,28 +158,26 @@ export default function SelecionarEmpresaPage() {
 
         {/* Header */}
         <motion.div
-          initial={{ opacity: 0, y: -16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
-          className="text-center mb-12"
+          initial={{ opacity: 0, y: -20, filter: 'blur(8px)' }}
+          animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+          transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+          className="text-center mb-10"
         >
-          {/* Logo mark */}
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black"
-              style={{
-                background: 'linear-gradient(135deg, #D4A528, #B8860B)',
-                boxShadow: '0 0 24px rgba(212,165,40,0.35)',
-              }}
-            >
-              G
-            </div>
-          </div>
-
-          <h1 className="text-3xl font-black text-white tracking-tight mb-1">
-            Grupo <span style={{ color: '#D4A528' }}>SRSM</span>
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em] mb-2" style={{ color: 'rgba(212,165,40,0.5)' }}>
+            Sistema de Gestão
+          </p>
+          <h1 className="text-4xl font-black tracking-tight text-white mb-1">
+            Grupo{' '}
+            <span style={{
+              background: 'linear-gradient(160deg,#F5CC55 0%,#D4A528 45%,#A07010 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}>
+              SRSM
+            </span>
           </h1>
-          <p className="text-sm" style={{ color: 'rgba(255,255,255,0.4)' }}>
+          <p className="text-sm" style={{ color: 'rgba(255,255,255,0.35)' }}>
             Selecione a empresa para continuar
           </p>
         </motion.div>
@@ -194,13 +192,13 @@ export default function SelecionarEmpresaPage() {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-center py-16 rounded-2xl border border-white/10 bg-white/[0.03] px-8"
+            className="text-center py-16 rounded-3xl border border-white/10 bg-white/[0.03] px-8"
           >
             <p className="text-white/50 mb-2 font-medium">Nenhuma empresa disponível</p>
             <p className="text-white/25 text-sm">Seu usuário não tem acesso a nenhuma empresa. Entre em contato com o administrador.</p>
           </motion.div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             {empresas.map((e, i) => (
               <EmpresaCard key={e.id} empresa={e} index={i} onClick={() => handleSelecionar(e)} />
             ))}
@@ -212,24 +210,28 @@ export default function SelecionarEmpresaPage() {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.5, duration: 0.4 }}
-            className="mt-10 flex items-center justify-between px-4 py-3 rounded-xl border border-white/8 bg-white/[0.03]"
+            transition={{ delay: 0.6, duration: 0.5 }}
+            className="mt-8 flex items-center justify-between px-4 py-3 rounded-2xl"
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
           >
             <div className="flex items-center gap-3">
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-                style={{ backgroundColor: 'rgba(212,165,40,0.2)', color: '#D4A528' }}
+                style={{ backgroundColor: 'rgba(212,165,40,0.18)', color: '#D4A528' }}
               >
                 {(perfil?.nome ?? user.email ?? 'U').charAt(0).toUpperCase()}
               </div>
               <div>
                 <p className="text-white text-xs font-semibold leading-none">{perfil?.nome ?? 'Usuário'}</p>
-                <p className="text-white/30 text-[11px] mt-0.5">{user.email}</p>
+                <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>{user.email}</p>
               </div>
             </div>
             <button
               onClick={signOut}
-              className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/70 transition-colors px-2 py-1 rounded-lg hover:bg-white/5"
+              className="flex items-center gap-1.5 text-xs transition-colors px-3 py-1.5 rounded-lg"
+              style={{ color: 'rgba(255,255,255,0.3)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.7)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.3)')}
             >
               <LogOut size={13} />
               Sair

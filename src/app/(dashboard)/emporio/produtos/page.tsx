@@ -3,6 +3,10 @@
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHelp } from '@/components/shared/PageHelp'
+import { exportarCSV } from '@/lib/utils/export'
+import { usePermissao } from '@/hooks/usePermissao'
+import { Download } from 'lucide-react'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { SearchInput } from '@/components/shared/SearchInput'
@@ -122,6 +126,7 @@ function EstoqueBadge({
 export default function ProdutosPage() {
   const supabase = createClient()
   const { empresaAtual } = useEmpresa()
+  const { temPermissao } = usePermissao()
   const router = useRouter()
 
   const [loading, setLoading] = useState(true)
@@ -437,6 +442,22 @@ export default function ProdutosPage() {
 
   return (
     <AppShell empresa="emporio" titulo="Produtos">
+      <PageHelp
+        storageKey="help.emporio.produtos.v1"
+        titulo="Produtos"
+        oQueE="Catálogo completo de produtos do empório com controle de estoque. Cadastre produtos, defina preços, categorias e controle a quantidade disponível."
+        passos={[
+          'Clique em "Novo Produto" para adicionar um produto ao catálogo.',
+          'Use a busca para localizar pelo nome ou código (SKU).',
+          'Clique em um produto para editar ou registrar uma movimentação de estoque.',
+          'Produtos em vermelho estão com estoque abaixo do mínimo.',
+        ]}
+        dicas={[
+          'Defina sempre o estoque mínimo para receber alertas automáticos.',
+          'O SKU é o código único do produto — use o código do fornecedor se houver.',
+          'Produtos do catálogo público ficam visíveis para clientes no site.',
+        ]}
+      />
       {/* Stat Cards */}
       <div className="flex flex-wrap gap-3 mb-6">
         <StatCard
@@ -542,14 +563,39 @@ export default function ProdutosPage() {
           </button>
         </div>
 
-        <Button
-          onClick={() => router.push('/emporio/produtos/novo')}
-          className="text-white font-semibold shadow-sm hover:opacity-90 transition-opacity"
-          style={{ backgroundColor: '#D4A528' }}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Novo Produto
-        </Button>
+        <div className="flex items-center gap-2">
+          {temPermissao('financeiro') && produtosFiltrados.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => exportarCSV('produtos-emporio', produtosFiltrados.map((p: Produto) => ({
+                nome: p.nome,
+                sku: p.sku ?? '',
+                categoria: p.categorias_produto?.nome ?? '',
+                preco_venda: p.preco,
+                estoque: p.estoque,
+              })), [
+                { key: 'nome', label: 'Nome' },
+                { key: 'sku', label: 'SKU' },
+                { key: 'categoria', label: 'Categoria' },
+                { key: 'preco_venda', label: 'Preço Venda' },
+                { key: 'estoque', label: 'Estoque' },
+              ])}
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </Button>
+          )}
+          <Button
+            onClick={() => router.push('/emporio/produtos/novo')}
+            className="text-white font-semibold shadow-sm hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: '#D4A528' }}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Novo Produto
+          </Button>
+        </div>
       </div>
 
       {/* Content */}

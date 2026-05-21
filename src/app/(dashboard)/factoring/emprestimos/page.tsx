@@ -18,6 +18,10 @@ import {
 } from '@/components/ui/select'
 import { formatarMoeda, formatarData, formatarCPF, iniciais } from '@/lib/utils/formatters'
 import type { Emprestimo, ClienteFactoring } from '@/lib/types/database'
+import { PageHelp } from '@/components/shared/PageHelp'
+import { exportarCSV } from '@/lib/utils/export'
+import { usePermissao } from '@/hooks/usePermissao'
+import { Download } from 'lucide-react'
 
 type EmprestimoComCliente = Emprestimo & {
   cliente?: Pick<ClienteFactoring, 'id' | 'nome' | 'cpf'>
@@ -27,6 +31,7 @@ type EmprestimoComCliente = Emprestimo & {
 export default function EmprestimosPage() {
   const router = useRouter()
   const { empresaAtual } = useEmpresa()
+  const { temPermissao } = usePermissao()
   const supabase = createClient()
 
   const [emprestimos, setEmprestimos] = useState<EmprestimoComCliente[]>([])
@@ -180,6 +185,22 @@ export default function EmprestimosPage() {
   return (
     <AppShell empresa="factoring" titulo="Empréstimos">
       <div className="space-y-6">
+        <PageHelp
+          storageKey="help.factoring.emprestimos.v1"
+          titulo="Empréstimos"
+          oQueE="Gerencie todos os contratos de empréstimo da empresa. Cadastre novos contratos, acompanhe status e visualize o progresso de cada um."
+          passos={[
+            'Clique em "Novo Empréstimo" para cadastrar um contrato.',
+            'Use a busca para encontrar pelo nome do cliente ou número do contrato.',
+            'Filtre por status para ver ativos, inadimplentes, quitados, etc.',
+            'Clique em qualquer linha para abrir os detalhes e gerenciar parcelas.',
+          ]}
+          dicas={[
+            'Contratos marcados como "Inadimplente" têm parcelas vencidas — priorize o contato.',
+            'Use o Simulador (menu lateral) para calcular parcelas antes de fechar um contrato.',
+            'O saldo devedor atualiza automaticamente conforme os pagamentos são registrados.',
+          ]}
+        />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard titulo="Contratos ativos" valor={ativos.length} icone={Banknote} corIcone="#1E5AA8" />
           <StatCard titulo="Capital na rua" valor={formatarMoeda(capitalNaRua)} icone={TrendingUp} corIcone="#D4A528" />
@@ -209,6 +230,33 @@ export default function EmprestimosPage() {
                 <SelectItem value="cancelado">Cancelado</SelectItem>
               </SelectContent>
             </Select>
+            {temPermissao('financeiro') && filtrados.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                onClick={() => exportarCSV('emprestimos', filtrados.map(e => ({
+                  numero_contrato: e.numero_contrato,
+                  cliente: e.cliente?.nome ?? '',
+                  valor_principal: e.valor_principal,
+                  taxa_juros: `${e.taxa_juros}%`,
+                  prazo_meses: e.prazo_meses,
+                  status: e.status,
+                  saldo_devedor: e.saldo_devedor,
+                })), [
+                  { key: 'numero_contrato', label: 'Contrato' },
+                  { key: 'cliente', label: 'Cliente' },
+                  { key: 'valor_principal', label: 'Valor Principal' },
+                  { key: 'taxa_juros', label: 'Taxa Juros' },
+                  { key: 'prazo_meses', label: 'Prazo (meses)' },
+                  { key: 'status', label: 'Status' },
+                  { key: 'saldo_devedor', label: 'Saldo Devedor' },
+                ])}
+              >
+                <Download size={14} />
+                CSV
+              </Button>
+            )}
             <Button
               size="sm"
               className="h-8 gap-1.5 text-white"

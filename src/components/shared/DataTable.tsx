@@ -46,12 +46,12 @@ export function DataTable<T>({
 
   return (
     <div>
-      <div className="rounded-lg border border-slate-200 overflow-hidden">
+      <div className="rounded-lg border border-border overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="bg-slate-50 hover:bg-slate-50">
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
               {columns.map(col => (
-                <TableHead key={col.key} className={cn('text-slate-600 font-semibold text-xs uppercase tracking-wide', col.className)}>
+                <TableHead key={col.key} className={cn('text-muted-foreground font-semibold text-xs uppercase tracking-wide', col.className)}>
                   {col.header}
                 </TableHead>
               ))}
@@ -60,7 +60,7 @@ export function DataTable<T>({
           <TableBody>
             {slice.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="text-center text-slate-400 py-12">
+                <TableCell colSpan={columns.length} className="text-center text-muted-foreground py-12">
                   {emptyMessage}
                 </TableCell>
               </TableRow>
@@ -69,8 +69,8 @@ export function DataTable<T>({
                 <TableRow
                   key={keyExtractor(row)}
                   className={cn(
-                    idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50',
-                    onRowClick && 'cursor-pointer hover:bg-blue-50/50 transition-colors'
+                    idx % 2 === 0 ? 'bg-card' : 'bg-muted/20',
+                    onRowClick && 'cursor-pointer hover:bg-accent transition-colors'
                   )}
                   onClick={() => onRowClick?.(row)}
                 >
@@ -88,7 +88,7 @@ export function DataTable<T>({
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4 px-1">
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-muted-foreground">
             {(page - 1) * perPage + 1}–{Math.min(page * perPage, data.length)} de {data.length}
           </p>
           <div className="flex items-center gap-2">
@@ -100,7 +100,7 @@ export function DataTable<T>({
             >
               <ChevronLeft size={16} />
             </Button>
-            <span className="text-sm text-slate-600">{page} / {totalPages}</span>
+            <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
             <Button
               variant="outline"
               size="sm"

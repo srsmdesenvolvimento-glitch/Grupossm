@@ -136,6 +136,57 @@ export function calcularCET(valor: number, totalPagar: number, meses: number): n
   return Math.round(((Math.pow(totalPagar / valor, 1 / meses) - 1) * 100) * 100) / 100
 }
 
+// Juros compostos: taxa mensal → anual equivalente   ex: 5% a.m. → 79,59% a.a.
+export function taxaMensalParaAnual(taxaMensal: number): number {
+  return Math.round((Math.pow(1 + taxaMensal / 100, 12) - 1) * 10000) / 100
+}
+
+// Juros compostos: taxa anual → mensal equivalente   ex: 79,59% a.a. → 5% a.m.
+export function taxaAnualParaMensal(taxaAnual: number): number {
+  return Math.round((Math.pow(1 + taxaAnual / 100, 1 / 12) - 1) * 10000) / 100
+}
+
+// SAC — Sistema de Amortização Constante com juros compostos
+// Amortização é fixa; juros decrescem conforme o saldo cai
+export function calcularSAC(
+  valor: number,
+  taxaMensal: number,
+  meses: number,
+  dataInicio: Date = new Date(),
+  valorEntrada = 0,
+): ResultadoCalculo {
+  const principal = valor - valorEntrada
+  if (principal <= 0 || meses <= 0) return { valor_parcela: 0, total_juros: 0, total_pagar: 0, tabela: [] }
+
+  const r = taxaMensal / 100
+  const amortizacao = Math.round((principal / meses) * 100) / 100
+  let saldo = principal
+  const tabela: ParcelaTabela[] = []
+
+  for (let i = 1; i <= meses; i++) {
+    const juros = Math.round(saldo * r * 100) / 100
+    const amortParcela = i < meses ? amortizacao : saldo
+    const totalParcela = Math.round((amortParcela + juros) * 100) / 100
+    saldo = Math.max(0, Math.round((saldo - amortParcela) * 100) / 100)
+    tabela.push({
+      numero_parcela: i,
+      data_vencimento: formatISO(addMonths(dataInicio, i)),
+      valor_principal: amortParcela,
+      valor_juros: juros,
+      valor_parcela: totalParcela,
+      saldo_devedor: saldo,
+    })
+  }
+
+  const total_pagar = tabela.reduce((s, p) => s + p.valor_parcela, 0)
+  return {
+    valor_parcela: tabela[0]?.valor_parcela ?? 0,
+    total_juros: Math.round((total_pagar - principal) * 100) / 100,
+    total_pagar: Math.round(total_pagar * 100) / 100,
+    tabela,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Score Engine — 0–100 scale with configurable weighted rules
 // ---------------------------------------------------------------------------

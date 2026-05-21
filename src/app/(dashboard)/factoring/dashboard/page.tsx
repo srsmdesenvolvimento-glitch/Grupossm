@@ -1,6 +1,8 @@
 'use client'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHelp } from '@/components/shared/PageHelp'
+import { TipsBanner } from '@/components/shared/TipsBanner'
 import { StatCard } from '@/components/shared/StatCard'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { DataTable, type Column } from '@/components/shared/DataTable'
@@ -525,6 +527,23 @@ export default function FactoringDashboard() {
   return (
     <AppShell empresa="factoring" titulo="Dashboard">
       <div className="space-y-6">
+        <TipsBanner />
+        <PageHelp
+          storageKey="help.factoring.dashboard.v1"
+          titulo="Dashboard — Factoring"
+          oQueE="Visão geral da saúde financeira do factoring: capital em circulação, inadimplência, contratos ativos e recebimentos do mês."
+          passos={[
+            'Veja os cards de resumo no topo para uma visão rápida da situação.',
+            'Acompanhe o gráfico de desempenho mensal (recebido vs. a receber).',
+            'Verifique os contratos inadimplentes na lista e tome ação.',
+            'Use o menu lateral para acessar as demais funcionalidades.',
+          ]}
+          dicas={[
+            'Os cards em vermelho indicam situações que precisam de atenção imediata.',
+            'O dashboard atualiza automaticamente a cada hora.',
+            'Clique em um contrato da lista para abrir os detalhes diretamente.',
+          ]}
+        />
 
         {/* ── StatCards ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -535,6 +554,8 @@ export default function FactoringDashboard() {
             icone={Banknote}
             corIcone="#1E5AA8"
             corFundo="#EDF4FE"
+            onClick={() => router.push('/factoring/emprestimos')}
+            atalho="Ver empréstimos →"
           />
           <StatCard
             titulo="Recebido este mês"
@@ -543,6 +564,8 @@ export default function FactoringDashboard() {
             icone={CheckCircle}
             corIcone="#22c55e"
             corFundo="#F0FDF4"
+            onClick={() => router.push('/factoring/parcelas')}
+            atalho="Ver parcelas →"
           />
           <StatCard
             titulo="A receber hoje"
@@ -551,6 +574,8 @@ export default function FactoringDashboard() {
             icone={Clock}
             corIcone="#D4A528"
             corFundo="#FEFCE8"
+            onClick={() => router.push('/factoring/parcelas')}
+            atalho="Ver parcelas →"
           />
           <StatCard
             titulo="Em atraso"
@@ -559,6 +584,8 @@ export default function FactoringDashboard() {
             icone={AlertTriangle}
             corIcone="#ef4444"
             corFundo="#FEF2F2"
+            onClick={() => router.push('/factoring/parcelas')}
+            atalho="Ver inadimplentes →"
           />
           <StatCard
             titulo="Novos empréstimos mês"
@@ -567,6 +594,8 @@ export default function FactoringDashboard() {
             icone={TrendingUp}
             corIcone="#1E5AA8"
             corFundo="#EDF4FE"
+            onClick={() => router.push('/factoring/emprestimos')}
+            atalho="Ver empréstimos →"
           />
           <StatCard
             titulo="Taxa inadimplência"
@@ -575,6 +604,8 @@ export default function FactoringDashboard() {
             icone={Percent}
             corIcone="#f97316"
             corFundo="#FFF7ED"
+            onClick={() => router.push('/factoring/clientes')}
+            atalho="Ver clientes →"
           />
         </div>
 

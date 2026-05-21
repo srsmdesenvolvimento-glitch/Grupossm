@@ -19,6 +19,11 @@ import {
 } from '@/components/ui/select'
 import { formatarCPF, formatarTelefone, iniciais, formatarMoeda } from '@/lib/utils/formatters'
 import type { ClienteFactoring } from '@/lib/types/database'
+import { PageHelp } from '@/components/shared/PageHelp'
+import { exportarCSV } from '@/lib/utils/export'
+import { usePermissao } from '@/hooks/usePermissao'
+import { Download } from 'lucide-react'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 
 type ClienteComSaldo = ClienteFactoring & {
   emAberto: number
@@ -35,14 +40,19 @@ function getRisco(score: number) {
 function ScoreBar({ score }: { score: number }) {
   const risco = getRisco(score)
   return (
-    <div className="flex items-center gap-2 min-w-[100px]">
-      <div className="flex-1 bg-slate-100 rounded-full h-1.5">
-        <div
-          className="h-1.5 rounded-full transition-all"
-          style={{ width: `${score}%`, backgroundColor: risco.color }}
-        />
+    <div className="flex items-center gap-2">
+      {/* Desktop: progress bar + number */}
+      <div className="hidden sm:flex items-center gap-2 min-w-[100px]">
+        <div className="flex-1 bg-muted rounded-full h-1.5">
+          <div className="h-1.5 rounded-full" style={{ width: `${score}%`, backgroundColor: risco.color }} />
+        </div>
+        <span className="text-xs font-semibold tabular-nums" style={{ color: risco.color }}>{score}</span>
       </div>
-      <span className="text-xs font-semibold tabular-nums" style={{ color: risco.color }}>
+      {/* Mobile: colored badge */}
+      <span
+        className="sm:hidden text-xs font-bold tabular-nums px-2 py-0.5 rounded-full"
+        style={{ color: risco.color, backgroundColor: risco.bg }}
+      >
         {score}
       </span>
     </div>
@@ -52,6 +62,7 @@ function ScoreBar({ score }: { score: number }) {
 export default function FactoringClientesPage() {
   const router = useRouter()
   const { empresaAtual } = useEmpresa()
+  const { temPermissao } = usePermissao()
   const supabase = createClient()
 
   const [clientes, setClientes] = useState<ClienteComSaldo[]>([])
@@ -191,19 +202,33 @@ export default function FactoringClientesPage() {
       header: '',
       render: c => (
         <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => router.push(`/factoring/clientes/${c.id}`)}>
-            <Eye size={14} />
-          </Button>
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7 text-green-600"
-            onClick={() => window.open(`https://wa.me/55${c.telefone.replace(/\D/g, '')}`, '_blank')}
-          >
-            <MessageCircle size={14} />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600"
-            onClick={() => router.push(`/factoring/emprestimos/novo?cliente=${c.id}`)}>
-            <PlusCircle size={14} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              className="h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground"
+              onClick={() => router.push(`/factoring/clientes/${c.id}`)}
+            >
+              <Eye size={14} />
+            </TooltipTrigger>
+            <TooltipContent><p>Ver ficha</p></TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              className="h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-accent transition-colors text-green-600"
+              onClick={() => window.open(`https://wa.me/55${c.telefone.replace(/\D/g, '')}`, '_blank')}
+            >
+              <MessageCircle size={14} />
+            </TooltipTrigger>
+            <TooltipContent><p>Enviar WhatsApp</p></TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              className="h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-accent transition-colors text-blue-600"
+              onClick={() => router.push(`/factoring/emprestimos/novo?cliente=${c.id}`)}
+            >
+              <PlusCircle size={14} />
+            </TooltipTrigger>
+            <TooltipContent><p>Novo empréstimo</p></TooltipContent>
+          </Tooltip>
         </div>
       ),
     },
@@ -214,6 +239,22 @@ export default function FactoringClientesPage() {
   return (
     <AppShell empresa="factoring" titulo="Clientes">
       <div className="space-y-6">
+        <PageHelp
+          storageKey="help.factoring.clientes.v1"
+          titulo="Clientes — Factoring"
+          oQueE="Cadastro completo dos clientes do factoring. Aqui você registra, consulta e gerencia todos os tomadores de empréstimo, com score de crédito e histórico."
+          passos={[
+            'Clique em "Novo Cliente" para cadastrar um novo tomador.',
+            'Use a busca para localizar pelo nome, CPF ou telefone.',
+            'Clique em um cliente para ver o perfil completo e os empréstimos.',
+            'O score interno (0–100) indica o risco: verde = baixo, amarelo = médio, vermelho = alto.',
+          ]}
+          dicas={[
+            'Clientes bloqueados não podem receber novos empréstimos.',
+            'Mantenha o score atualizado conforme o histórico de pagamentos.',
+            'Use o filtro de risco para priorizar clientes que precisam de atenção.',
+          ]}
+        />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard titulo="Total Clientes" valor={total} icone={Users} corIcone="#1E5AA8" />
           <StatCard titulo="Novos este mês" valor={novosMes} icone={UserPlus} corIcone="#D4A528" />
@@ -252,6 +293,31 @@ export default function FactoringClientesPage() {
                 <SelectItem value="bloqueado">Bloqueado</SelectItem>
               </SelectContent>
             </Select>
+            {temPermissao('financeiro') && filtrados.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5"
+                onClick={() => exportarCSV('clientes-factoring', filtrados.map(c => ({
+                  nome: c.nome,
+                  cpf: c.cpf ?? '',
+                  telefone: c.telefone,
+                  email: c.email ?? '',
+                  score_interno: c.score_interno,
+                  status: c.status,
+                })), [
+                  { key: 'nome', label: 'Nome' },
+                  { key: 'cpf', label: 'CPF' },
+                  { key: 'telefone', label: 'Telefone' },
+                  { key: 'email', label: 'E-mail' },
+                  { key: 'score_interno', label: 'Score' },
+                  { key: 'status', label: 'Status' },
+                ])}
+              >
+                <Download size={14} />
+                CSV
+              </Button>
+            )}
             <Button
               size="sm"
               className="h-8 gap-1.5 text-white"

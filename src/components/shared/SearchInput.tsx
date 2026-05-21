@@ -14,7 +14,7 @@ interface SearchInputProps {
 export function SearchInput({ value, onChange, placeholder = 'Buscar...', className }: SearchInputProps) {
   return (
     <div className={cn('relative', className)}>
-      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -24,7 +24,8 @@ export function SearchInput({ value, onChange, placeholder = 'Buscar...', classN
       {value && (
         <button
           onClick={() => onChange('')}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Limpar busca"
         >
           <X size={14} />
         </button>

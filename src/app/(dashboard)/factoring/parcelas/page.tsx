@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, CheckCircle2, Clock, TrendingDown } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, TrendingDown, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -10,8 +10,12 @@ import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { LoadingPage } from '@/components/shared/LoadingPage'
+import { Button } from '@/components/ui/button'
 import { formatarMoeda, formatarData, formatarCPF } from '@/lib/utils/formatters'
 import type { ParcelaEmprestimo } from '@/lib/types/database'
+import { PageHelp } from '@/components/shared/PageHelp'
+import { exportarCSV } from '@/lib/utils/export'
+import { usePermissao } from '@/hooks/usePermissao'
 
 type ParcelaCompleta = ParcelaEmprestimo & {
   numero_contrato: string
@@ -38,6 +42,7 @@ const TABS = [
 export default function ParcelasPage() {
   const router = useRouter()
   const { empresaAtual } = useEmpresa()
+  const { temPermissao } = usePermissao()
   const supabase = createClient()
 
   const [parcelas, setParcelas] = useState<ParcelaCompleta[]>([])
@@ -190,6 +195,22 @@ export default function ParcelasPage() {
   return (
     <AppShell empresa="factoring" titulo="Parcelas">
       <div className="space-y-6">
+        <PageHelp
+          storageKey="help.factoring.parcelas.v1"
+          titulo="Parcelas"
+          oQueE="Acompanhe todas as parcelas de todos os contratos em um único lugar. Veja o que está pendente, em atraso e o que já foi recebido."
+          passos={[
+            'Use as abas (Todas, Pendentes, Atrasadas, Pagas) para filtrar por status.',
+            'Busque por nome do cliente ou número do contrato.',
+            'Clique em "Lançar Pagamento" para registrar o recebimento de uma parcela.',
+            'Parcelas em vermelho estão vencidas — dê prioridade a elas.',
+          ]}
+          dicas={[
+            'A aba "Atrasadas" mostra apenas o que está vencido e não pago.',
+            'Use o filtro de datas para ver o que vence esta semana.',
+            'Acesse o contrato pelo número para ver o histórico completo.',
+          ]}
+        />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard titulo="Em aberto" valor={formatarMoeda(totalEmAberto)} icone={Clock} corIcone="#1E5AA8" />
           <StatCard titulo="Em atraso" valor={formatarMoeda(totalAtrasado)} icone={AlertTriangle} corIcone="#ef4444" />
@@ -213,13 +234,46 @@ export default function ParcelasPage() {
             ))}
           </div>
 
-          <div className="px-5 py-4 border-b border-slate-50">
+          <div className="px-5 py-4 border-b border-slate-50 flex items-center gap-3">
             <SearchInput
               value={busca}
               onChange={setBusca}
               placeholder="Buscar por contrato ou cliente..."
-              className="max-w-sm"
+              className="flex-1 max-w-sm"
             />
+            {temPermissao('financeiro') && filtradas.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 shrink-0"
+                onClick={() => exportarCSV('parcelas', filtradas.map(p => ({
+                  contrato: p.numero_contrato,
+                  cliente: p.cliente_nome,
+                  cpf: p.cliente_cpf ?? '',
+                  parcela: `${p.numero_parcela}/${p.total_parcelas}`,
+                  vencimento: p.data_vencimento,
+                  valor: p.valor,
+                  multa: p.multa,
+                  juros_mora: p.juros_mora,
+                  status: p.status,
+                  pago_em: p.data_pagamento ?? '',
+                })), [
+                  { key: 'contrato', label: 'Contrato' },
+                  { key: 'cliente', label: 'Cliente' },
+                  { key: 'cpf', label: 'CPF' },
+                  { key: 'parcela', label: 'Parcela' },
+                  { key: 'vencimento', label: 'Vencimento' },
+                  { key: 'valor', label: 'Valor' },
+                  { key: 'multa', label: 'Multa' },
+                  { key: 'juros_mora', label: 'Juros Mora' },
+                  { key: 'status', label: 'Status' },
+                  { key: 'pago_em', label: 'Pago em' },
+                ])}
+              >
+                <Download size={14} />
+                CSV
+              </Button>
+            )}
           </div>
 
           <DataTable

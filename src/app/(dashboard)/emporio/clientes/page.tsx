@@ -19,6 +19,10 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHelp } from '@/components/shared/PageHelp'
+import { exportarCSV } from '@/lib/utils/export'
+import { usePermissao } from '@/hooks/usePermissao'
+import { Download } from 'lucide-react'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { SearchInput } from '@/components/shared/SearchInput'
@@ -133,6 +137,7 @@ type ClienteFormData = z.infer<typeof clienteSchema>
 export default function ClientesPage() {
   const router = useRouter()
   const { empresaAtual } = useEmpresa()
+  const { temPermissao } = usePermissao()
   const supabase = createClient()
 
   const [clientes, setClientes] = useState<ClienteEmporio[]>([])
@@ -422,6 +427,22 @@ export default function ClientesPage() {
 
   return (
     <AppShell empresa="emporio" titulo="Clientes">
+      <PageHelp
+        storageKey="help.emporio.clientes.v1"
+        titulo="Clientes — Empório"
+        oQueE="Cadastre e gerencie todos os clientes do empório. Veja o histórico de compras, contatos e situação financeira de cada cliente."
+        passos={[
+          'Clique em "Novo Cliente" para cadastrar um cliente.',
+          'Use a busca para localizar pelo nome, CPF, telefone ou e-mail.',
+          'Clique em um cliente para ver o perfil completo e histórico de compras.',
+          'Use o ícone de mensagem para enviar WhatsApp diretamente pelo sistema.',
+        ]}
+        dicas={[
+          'Mantenha o telefone atualizado para usar a integração com WhatsApp.',
+          'Clientes com vendas em aberto aparecem destacados.',
+          'Exporte a lista de clientes em CSV para usar em planilhas.',
+        ]}
+      />
       {/* Stats */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -465,14 +486,39 @@ export default function ClientesPage() {
           placeholder="Buscar por nome, CPF ou telefone..."
           className="w-full sm:max-w-sm"
         />
-        <Button
-          onClick={abrirNovoCliente}
-          className="shrink-0 gap-2 text-white"
-          style={{ backgroundColor: '#D4A528' }}
-        >
-          <Plus className="h-4 w-4" />
-          Novo Cliente
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {temPermissao('financeiro') && filtrados.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => exportarCSV('clientes-emporio', filtrados.map((c: ClienteEmporio) => ({
+                nome: c.nome,
+                telefone: c.telefone,
+                email: c.email ?? '',
+                cidade: c.cidade ?? '',
+                data_cadastro: c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '',
+              })), [
+                { key: 'nome', label: 'Nome' },
+                { key: 'telefone', label: 'Telefone' },
+                { key: 'email', label: 'E-mail' },
+                { key: 'cidade', label: 'Cidade' },
+                { key: 'data_cadastro', label: 'Data Cadastro' },
+              ])}
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </Button>
+          )}
+          <Button
+            onClick={abrirNovoCliente}
+            className="gap-2 text-white"
+            style={{ backgroundColor: '#D4A528' }}
+          >
+            <Plus className="h-4 w-4" />
+            Novo Cliente
+          </Button>
+        </div>
       </div>
 
       {/* Table */}

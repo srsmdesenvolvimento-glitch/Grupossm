@@ -10,6 +10,8 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHelp } from '@/components/shared/PageHelp'
+import { ClienteSheet } from '@/components/factoring/ClienteSheet'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { LoadingPage } from '@/components/shared/LoadingPage'
@@ -19,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { formatarMoeda, formatarData, formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
+import { taxaMensalParaAnual } from '@/lib/utils/calculos'
 import type { Emprestimo, ParcelaEmprestimo, ClienteFactoring, MovimentacaoCaixa } from '@/lib/types/database'
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
@@ -133,6 +136,9 @@ export default function EmprestimoDetalhePage() {
   const totalPago = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + (p.valor_pago ?? 0), 0)
   const parcelasPagas = parcelas.filter(p => p.status === 'pago').length
   const statusInfo = STATUS_COLORS[emprestimo.status] ?? STATUS_COLORS.analise
+  const taxaAnual = taxaMensalParaAnual(emprestimo.taxa_juros)
+  const totalJurosPagos = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + (p.valor_juros ?? 0), 0)
+  const totalPrincipalPago = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + (p.valor_principal ?? 0), 0)
 
   const parcelaColumns: Column<ParcelaEmprestimo>[] = [
     { key: 'num', header: 'Nº', render: p => <span className="tabular-nums text-sm text-slate-500">{p.numero_parcela}/{p.total_parcelas}</span> },
@@ -189,6 +195,23 @@ export default function EmprestimoDetalhePage() {
   return (
     <AppShell empresa="factoring" titulo={`Contrato ${emprestimo.numero_contrato}`}>
       <div className="space-y-6">
+        <PageHelp
+          storageKey="help.factoring.emprestimo-detalhe.v1"
+          titulo="Detalhes do Contrato"
+          oQueE="Visualize e gerencie um contrato de empréstimo: parcelas, pagamentos realizados, dados do cliente e histórico financeiro."
+          passos={[
+            'Veja o resumo financeiro: valor original, total pago e saldo devedor.',
+            'Na tabela de parcelas, cada linha mostra o status individual.',
+            'Clique em "Receber" numa parcela para registrar o pagamento.',
+            'Use "Lançar Pagamento" (topo) para registrar pagamento geral do contrato.',
+            'Clique "Quitar" para liquidar o contrato antecipadamente.',
+          ]}
+          dicas={[
+            'Parcelas em vermelho estão vencidas — registre o pagamento o quanto antes.',
+            'O cliente no painel lateral tem link direto para a ficha completa.',
+            'Após quitar ou cancelar, o status do contrato é atualizado automaticamente.',
+          ]}
+        />
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -240,26 +263,32 @@ export default function EmprestimoDetalhePage() {
 
         {/* Info Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { l: 'Valor Principal', v: formatarMoeda(emprestimo.valor_principal) },
-            { l: 'Taxa', v: `${emprestimo.taxa_juros}% a.m.` },
-            { l: 'Prazo', v: `${emprestimo.prazo_meses} meses` },
-            { l: 'Parcela', v: formatarMoeda(emprestimo.valor_parcela) },
-          ].map(c => (
-            <div key={c.l} className="bg-white rounded-xl border border-slate-200 p-4">
-              <p className="text-xs text-slate-500 mb-1">{c.l}</p>
-              <p className="text-lg font-bold text-slate-800">{c.v}</p>
-            </div>
-          ))}
+          <div className="bg-card rounded-xl border border-border p-4">
+            <p className="text-xs text-muted-foreground mb-1">Valor Principal</p>
+            <p className="text-lg font-bold text-card-foreground">{formatarMoeda(emprestimo.valor_principal)}</p>
+          </div>
+          <div className="bg-card rounded-xl border border-border p-4">
+            <p className="text-xs text-muted-foreground mb-1">Taxa de Juros</p>
+            <p className="text-lg font-bold text-card-foreground">{emprestimo.taxa_juros}% a.m.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">≡ {taxaAnual}% a.a. (compostos)</p>
+          </div>
+          <div className="bg-card rounded-xl border border-border p-4">
+            <p className="text-xs text-muted-foreground mb-1">Prazo</p>
+            <p className="text-lg font-bold text-card-foreground">{emprestimo.prazo_meses} meses</p>
+          </div>
+          <div className="bg-card rounded-xl border border-border p-4">
+            <p className="text-xs text-muted-foreground mb-1">Parcela (Price)</p>
+            <p className="text-lg font-bold text-card-foreground">{formatarMoeda(emprestimo.valor_parcela)}</p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Totals */}
-            <div className="bg-white rounded-xl border border-slate-200 p-5">
-              <h3 className="font-semibold text-slate-800 mb-3 text-sm">Resumo Financeiro</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-card rounded-xl border border-border p-5">
+              <h3 className="font-semibold text-card-foreground mb-3 text-sm">Resumo Financeiro</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
                 {[
                   { l: 'Total a Pagar', v: emprestimo.total_pagar, color: '#1E5AA8' },
                   { l: 'Total Pago', v: totalPago, color: '#22c55e' },
@@ -267,46 +296,108 @@ export default function EmprestimoDetalhePage() {
                   { l: 'Parcelas', v: `${parcelasPagas}/${emprestimo.prazo_meses}`, color: '#64748b', isText: true },
                 ].map(c => (
                   <div key={c.l} className="text-center">
-                    <p className="text-xs text-slate-500 mb-0.5">{c.l}</p>
+                    <p className="text-xs text-muted-foreground mb-0.5">{c.l}</p>
                     <p className="font-bold" style={{ color: c.color }}>
                       {c.isText ? c.v : formatarMoeda(c.v as number)}
                     </p>
                   </div>
                 ))}
               </div>
+              {/* Breakdown juros compostos — o que já foi pago */}
+              {parcelasPagas > 0 && (
+                <div className="pt-3 border-t border-border">
+                  <p className="text-xs text-muted-foreground mb-2 font-medium">Composição do que foi pago</p>
+                  <div className="flex rounded-full overflow-hidden h-2 mb-1.5">
+                    <div
+                      className="h-2 bg-[#1E5AA8]"
+                      style={{ width: totalPago > 0 ? `${Math.round((totalPrincipalPago / totalPago) * 100)}%` : '0%' }}
+                    />
+                    <div className="h-2 bg-orange-400 flex-1" />
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[#1E5AA8] inline-block" />
+                      Principal amortizado: {formatarMoeda(totalPrincipalPago)}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+                      Juros pagos: {formatarMoeda(totalJurosPagos)}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {/* Projeção total do contrato */}
+              <div className="pt-3 border-t border-border mt-3">
+                <p className="text-xs text-muted-foreground mb-2 font-medium">Composição total do contrato</p>
+                <div className="flex rounded-full overflow-hidden h-2 mb-1.5">
+                  <div
+                    className="h-2 bg-[#1E5AA8]"
+                    style={{ width: emprestimo.total_pagar > 0 ? `${Math.round((emprestimo.valor_principal / emprestimo.total_pagar) * 100)}%` : '0%' }}
+                  />
+                  <div className="h-2 bg-orange-400 flex-1" />
+                </div>
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#1E5AA8] inline-block" />
+                    Principal: {formatarMoeda(emprestimo.valor_principal)} ({emprestimo.total_pagar > 0 ? Math.round((emprestimo.valor_principal / emprestimo.total_pagar) * 100) : 0}%)
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
+                    Juros totais: {formatarMoeda(emprestimo.total_juros)} ({emprestimo.total_pagar > 0 ? Math.round((emprestimo.total_juros / emprestimo.total_pagar) * 100) : 0}%)
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Parcelas table */}
-            <div className="bg-white rounded-xl border border-slate-200">
-              <div className="px-5 py-3 border-b border-slate-100">
-                <h3 className="font-semibold text-slate-800 text-sm">Parcelas</h3>
+            <div className="bg-card rounded-xl border border-border">
+              <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+                <h3 className="font-semibold text-card-foreground text-sm">Parcelas</h3>
+                <span className="text-xs text-muted-foreground">{parcelas.filter(p => p.status === 'pago').length}/{parcelas.length} pagas</span>
+              </div>
+              {/* Header */}
+              <div className="grid grid-cols-[36px_1fr_1fr_1fr_100px_auto] gap-2 px-5 py-2 border-b border-border text-xs text-muted-foreground font-medium bg-muted/30">
+                <span>#</span>
+                <span>Vencimento</span>
+                <span>Parcela</span>
+                <span>Pago</span>
+                <span>Status</span>
+                <span />
               </div>
               <div>
-                {parcelas.map(p => (
-                  <div key={p.id} className={cn('grid grid-cols-[40px_1fr_1fr_1fr_1fr_80px_80px_auto] gap-2 px-5 py-3 border-b border-slate-50 text-sm items-center', rowClass(p))}>
-                    <span className="text-slate-400 tabular-nums">{p.numero_parcela}</span>
-                    <span className="tabular-nums">{formatarData(p.data_vencimento)}</span>
-                    <span className="tabular-nums font-medium">{formatarMoeda(p.valor)}</span>
-                    <span className="tabular-nums text-green-700">{formatarMoeda(p.valor_pago ?? 0)}</span>
-                    <span className="tabular-nums text-slate-500">{formatarMoeda(Math.max(0, p.valor - (p.valor_pago ?? 0)))}</span>
-                    {p.dias_atraso > 0
-                      ? <span className="text-xs font-bold text-red-600">{p.dias_atraso}d</span>
-                      : <span />}
-                    <span className="text-xs font-semibold" style={{
-                      color: { pago: '#22c55e', atrasado: '#ef4444', pendente: '#64748b', cancelado: '#94a3b8', renegociado: '#D4A528' }[p.status] ?? '#64748b'
-                    }}>
-                      {{ pago: 'Pago', atrasado: 'Atrasado', pendente: 'Pendente', cancelado: 'Cancelado', renegociado: 'Renegoc.' }[p.status] ?? p.status}
-                    </span>
-                    {['pendente', 'atrasado'].includes(p.status) ? (
-                      <Button
-                        size="sm" variant="outline" className="h-6 text-xs px-2"
-                        onClick={() => router.push(`/factoring/parcelas/pagamento?cliente=${emprestimo.cliente_id}&parcela=${p.id}`)}
-                      >
-                        Receber
-                      </Button>
-                    ) : <span />}
-                  </div>
-                ))}
+                {parcelas.map(p => {
+                  const statusColor: Record<string, string> = { pago: '#22c55e', atrasado: '#ef4444', pendente: '#64748b', cancelado: '#94a3b8', renegociado: '#D4A528' }
+                  const statusLabel: Record<string, string> = { pago: 'Pago', atrasado: 'Atrasado', pendente: 'Pendente', cancelado: 'Cancelado', renegociado: 'Renegoc.' }
+                  const cor = statusColor[p.status] ?? '#64748b'
+                  return (
+                    <div key={p.id} className={cn('grid grid-cols-[36px_1fr_1fr_1fr_100px_auto] gap-2 px-5 py-3 border-b border-border last:border-0 text-sm items-center', rowClass(p))}>
+                      <span className="text-muted-foreground tabular-nums text-xs">{p.numero_parcela}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`tabular-nums truncate ${p.status === 'atrasado' ? 'text-red-600 font-medium' : ''}`}>
+                          {formatarData(p.data_vencimento)}
+                        </span>
+                        {p.dias_atraso > 0 && (
+                          <span className="shrink-0 text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-950 px-1 py-0.5 rounded">
+                            {p.dias_atraso}d
+                          </span>
+                        )}
+                      </div>
+                      <span className="tabular-nums font-semibold">{formatarMoeda(p.valor)}</span>
+                      <span className="tabular-nums text-green-700">{formatarMoeda(p.valor_pago ?? 0)}</span>
+                      <span className="text-xs font-semibold" style={{ color: cor }}>
+                        {statusLabel[p.status] ?? p.status}
+                      </span>
+                      {['pendente', 'atrasado'].includes(p.status) ? (
+                        <Button
+                          size="sm" variant="outline" className="h-6 text-xs px-2 shrink-0"
+                          onClick={() => router.push(`/factoring/parcelas/pagamento?cliente=${emprestimo.cliente_id}&parcela=${p.id}`)}
+                        >
+                          Receber
+                        </Button>
+                      ) : <span />}
+                    </div>
+                  )
+                })}
               </div>
             </div>
 
@@ -366,7 +457,18 @@ export default function EmprestimoDetalhePage() {
                 <div className="flex justify-center mb-2">
                   <ScoreGauge score={cliente.score_interno} size="sm" />
                 </div>
-                <p className="text-xs text-slate-400 text-center">{formatarTelefone(cliente.telefone)}</p>
+                <p className="text-xs text-slate-400 text-center mb-3">{formatarTelefone(cliente.telefone)}</p>
+                {empresaAtual && (
+                  <ClienteSheet
+                    clienteId={cliente.id}
+                    empresaId={empresaAtual.id}
+                    trigger={
+                      <button className="w-full text-xs text-center py-1.5 px-3 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">
+                        Ver ficha completa
+                      </button>
+                    }
+                  />
+                )}
               </div>
             )}
 

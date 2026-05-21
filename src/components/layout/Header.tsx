@@ -1,6 +1,9 @@
 'use client'
 
-import { Menu, Bell, LogOut, User, ChevronDown, Building2 } from 'lucide-react'
+import { Menu, LogOut, User, ChevronDown, Building2, Search } from 'lucide-react'
+import { NotificationsBell } from './NotificationsBell'
+import { CommandPalette } from './CommandPalette'
+import { ThemeToggle } from './ThemeToggle'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEmpresa } from '@/contexts/EmpresaContext'
@@ -8,7 +11,6 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import type { TipoEmpresa } from '@/lib/types/database'
 
@@ -81,28 +83,28 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
 
   return (
     <header
-      className="h-16 bg-white flex items-center justify-between px-4 lg:px-6 shrink-0"
+      className="h-16 bg-background flex items-center justify-between px-4 lg:px-6 shrink-0"
       style={{ borderBottom: `2px solid ${cfg.primary}` }}
     >
       {/* Left: hamburger + breadcrumb */}
       <div className="flex items-center gap-3 min-w-0 overflow-hidden">
         <button
           onClick={onMenuClick}
-          className="lg:hidden p-2 rounded-lg hover:bg-slate-100 transition-colors shrink-0"
+          className="lg:hidden p-2 rounded-lg hover:bg-accent transition-colors shrink-0"
           aria-label="Abrir menu"
         >
-          <Menu size={20} className="text-slate-600" />
+          <Menu size={20} className="text-muted-foreground" />
         </button>
 
         <nav className="flex items-center gap-1 text-sm min-w-0" aria-label="Breadcrumb">
           {breadcrumbs.map((crumb, i) => (
             <span key={crumb.href} className="flex items-center gap-1 shrink-0">
-              {i > 0 && <span className="text-slate-300 select-none">/</span>}
+              {i > 0 && <span className="text-border select-none">/</span>}
               <span
                 className={
                   crumb.isLast
-                    ? 'font-semibold text-slate-800 max-w-[160px] truncate'
-                    : 'text-slate-400 max-w-[80px] truncate'
+                    ? 'font-semibold text-foreground max-w-[160px] truncate'
+                    : 'text-muted-foreground max-w-[80px] truncate'
                 }
                 title={crumb.label}
               >
@@ -113,19 +115,31 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
         </nav>
       </div>
 
-      {/* Right: empresa selector + bell + avatar */}
+      {/* Right: command palette + empresa selector + bell + avatar */}
       <div className="flex items-center gap-1 shrink-0">
+        <CommandPalette />
+        {/* Mobile search icon — opens same command palette */}
+        <button
+          className="md:hidden p-2 rounded-lg hover:bg-accent transition-colors"
+          aria-label="Buscar"
+          onClick={() => {
+            const evt = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true })
+            document.dispatchEvent(evt)
+          }}
+        >
+          <Search size={18} className="text-muted-foreground" />
+        </button>
         {outrasEmpresas.length > 0 && (
           <DropdownMenu>
-            <DropdownMenuTrigger className="hidden sm:inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-slate-700 hover:bg-accent transition-colors text-xs font-medium">
-              <Building2 size={14} className="text-slate-500" />
+            <DropdownMenuTrigger className="hidden sm:inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-foreground hover:bg-accent transition-colors text-xs font-medium">
+              <Building2 size={14} className="text-muted-foreground" />
               <span className="max-w-[110px] truncate">
                 {empresaAtual?.nome ?? cfg.nome}
               </span>
-              <ChevronDown size={12} className="text-slate-400" />
+              <ChevronDown size={12} className="text-muted-foreground" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
-              <p className="px-2 py-1.5 text-xs text-slate-500 font-medium">Trocar empresa</p>
+              <p className="px-2 py-1.5 text-xs text-muted-foreground font-medium">Trocar empresa</p>
               <DropdownMenuSeparator />
               {outrasEmpresas.map(e => (
                 <DropdownMenuItem
@@ -141,9 +155,8 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
           </DropdownMenu>
         )}
 
-        <Button variant="ghost" size="icon" className="relative h-9 w-9">
-          <Bell size={18} className="text-slate-500" />
-        </Button>
+        <ThemeToggle />
+        <NotificationsBell />
 
         <DropdownMenu>
           <DropdownMenuTrigger className="flex items-center gap-2 h-9 px-2 rounded-md hover:bg-accent transition-colors outline-none">
@@ -155,15 +168,15 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
                 {initials}
               </AvatarFallback>
             </Avatar>
-            <span className="hidden sm:block text-sm text-slate-700 max-w-[100px] truncate">
+            <span className="hidden sm:block text-sm text-foreground max-w-[100px] truncate">
               {perfil?.nome ?? user?.email}
             </span>
-            <ChevronDown size={13} className="text-slate-400 hidden sm:block" />
+            <ChevronDown size={13} className="text-muted-foreground hidden sm:block" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
             <div className="px-2 py-1.5">
-              <p className="text-sm font-semibold text-slate-800 truncate">{perfil?.nome ?? '—'}</p>
-              <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+              <p className="text-sm font-semibold text-foreground truncate">{perfil?.nome ?? '—'}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="gap-2">
