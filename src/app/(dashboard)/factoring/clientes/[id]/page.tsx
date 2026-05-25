@@ -7,8 +7,10 @@ import { toast } from 'sonner'
 import {
   MessageCircle, Edit, Plus, Ban, DollarSign, CreditCard,
   AlertTriangle, Clock, MessageSquare, Trash2, Check, X,
-  User, MapPin, Banknote,
+  User, MapPin, Banknote, Download, ChevronDown, FileText,
 } from 'lucide-react'
+
+import { gerarContratoPDF } from '@/lib/utils/documentos'
 
 import { createClient } from '@/lib/supabase/client'
 import { AppShell } from '@/components/layout/AppShell'
@@ -240,6 +242,10 @@ export default function ClientePerfilPage() {
   const [formData, setFormData] = useState<Partial<ClienteFactoring>>({})
   const [salvandoDados, setSalvandoDados] = useState(false)
   const [cepLoading, setCepLoading] = useState(false)
+
+  // Títulos accordion
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [gerandoContratoId, setGerandoContratoId] = useState<string | null>(null)
 
   // Referências
   const [novaRefOpen, setNovaRefOpen] = useState(false)
@@ -508,6 +514,31 @@ export default function ClientePerfilPage() {
       toast.success('Referência excluída.')
       setDeletandoRefId(null)
       setReferencias(prev => prev.filter(r => r.id !== refId))
+    }
+  }
+
+  function toggleExpanded(empId: string) {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(empId)) next.delete(empId)
+      else next.add(empId)
+      return next
+    })
+  }
+
+  async function handleGerarContratoPerfil(emp: Emprestimo) {
+    if (!cliente) return
+    setGerandoContratoId(emp.id)
+    try {
+      const empParcelas = parcelas.filter(p => p.emprestimo_id === emp.id)
+      await gerarContratoPDF({
+        contrato: emp,
+        cliente,
+        parcelas: empParcelas,
+        empresaNome: empresaAtual?.nome,
+      })
+    } finally {
+      setGerandoContratoId(null)
     }
   }
 
@@ -840,7 +871,12 @@ export default function ClientePerfilPage() {
         <Tabs defaultValue="emprestimos">
           <TabsList className="w-full justify-start h-auto flex-wrap gap-1 bg-slate-100 p-1 rounded-xl">
             <TabsTrigger value="emprestimos" className="text-sm px-4 py-2 rounded-lg">
-              Empréstimos
+              Títulos
+              {emprestimos.length > 0 && (
+                <Badge variant="outline" className="ml-1.5 text-xs h-4 min-w-4 rounded-full p-0 px-1 flex items-center justify-center">
+                  {emprestimos.length}
+                </Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="parcelas" className="text-sm px-4 py-2 rounded-lg">
               Parcelas
@@ -867,17 +903,217 @@ export default function ClientePerfilPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* TAB 1 — Empréstimos */}
+          {/* TAB 1 — Títulos */}
           <TabsContent value="emprestimos" className="mt-4">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-              <DataTable
-                columns={colsEmprestimos}
-                data={emprestimos}
-                keyExtractor={r => r.id}
-                emptyMessage="Nenhum empréstimo encontrado."
-                onRowClick={r => router.push(`/factoring/emprestimos/${r.id}`)}
-                perPage={10}
-              />
+            <div className="space-y-3">
+              {emprestimos.length === 0 ? (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+                  <FileText size={40} className="mx-auto mb-3 text-slate-300" />
+                  <p className="text-slate-400">Nenhum título encontrado.</p>
+                  <Link href={`/factoring/emprestimos/novo?cliente=${id}`}>
+                    <Button size="sm" className="mt-4 text-white gap-2" style={{ backgroundColor: '#1E5AA8' }}>
+                      <Plus size={14} /> Novo Empréstimo
+                    </Button>
+                  </Link>
+                </div>
+              ) : (
+                emprestimos.map(emp => {
+                  const empParcelas = parcelas.filter(p => p.emprestimo_id === emp.id)
+                  const pagas = empParcelas.filter(p => p.status === 'pago').length
+                  const total = empParcelas.length || emp.prazo_meses
+                  const emAtrasoEmp = empParcelas.filter(p => p.status === 'atrasado').length
+                  const isExpanded = expandedIds.has(emp.id)
+                  const progress = total > 0 ? Math.round((pagas / total) * 100) : 0
+                  const statusColor = emp.status === 'quitado' ? '#16a34a'
+                    : emp.status === 'inadimplente' ? '#dc2626'
+                    : emp.status === 'cancelado' ? '#6b7280'
+                    : emp.status === 'renegociado' ? '#d97706'
+                    : '#1E5AA8'
+
+                  return (
+                    <div key={emp.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      {/* Card header */}
+                      <div className="flex items-stretch">
+                        <div className="w-1.5 shrink-0" style={{ backgroundColor: statusColor }} />
+                        <div className="flex-1 p-4">
+                          <div className="flex items-start justify-between gap-4 flex-wrap">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-sm font-bold text-slate-700">{emp.numero_contrato}</span>
+                                <StatusBadge status={emp.status} />
+                                {emAtrasoEmp > 0 && (
+                                  <Badge className="text-xs bg-red-100 text-red-700 border border-red-200 gap-1 flex items-center">
+                                    <AlertTriangle size={10} />
+                                    {emAtrasoEmp} em atraso
+                                  </Badge>
+                                )}
+                              </div>
+
+                              <div className="mt-1.5 flex items-center gap-3 flex-wrap text-sm">
+                                <span className="font-semibold text-slate-800">{formatarMoeda(emp.valor_principal)}</span>
+                                {emp.data_liberacao && (
+                                  <span className="text-xs text-slate-400">Lib: {formatarData(emp.data_liberacao)}</span>
+                                )}
+                                <span className="text-xs text-slate-500">
+                                  {pagas}/{total} parcelas · {emp.taxa_juros}% {emp.tipo_taxa === 'anual' ? 'a.a.' : 'a.m.'}
+                                </span>
+                              </div>
+
+                              <div className="mt-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full"
+                                      style={{ width: `${progress}%`, backgroundColor: statusColor }}
+                                    />
+                                  </div>
+                                  <span className="text-xs text-slate-400 shrink-0">{progress}%</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1.5 text-xs h-8"
+                                disabled={gerandoContratoId === emp.id}
+                                onClick={() => handleGerarContratoPerfil(emp)}
+                              >
+                                <Download size={12} />
+                                {gerandoContratoId === emp.id ? 'Gerando...' : 'Contrato'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="gap-1.5 text-xs h-8 text-white"
+                                style={{ backgroundColor: '#1E5AA8' }}
+                                onClick={() => router.push(`/factoring/parcelas/pagamento?cliente=${id}&emprestimo=${emp.id}`)}
+                              >
+                                <DollarSign size={12} />
+                                Receber
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0"
+                                onClick={() => toggleExpanded(emp.id)}
+                                aria-label={isExpanded ? 'Recolher' : 'Expandir'}
+                              >
+                                <ChevronDown
+                                  size={16}
+                                  className={cn('transition-transform duration-200', isExpanded && 'rotate-180')}
+                                />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Expanded body */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-100 p-4 bg-slate-50 space-y-4">
+                          {/* Mini stats */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="bg-white rounded-lg p-3 border border-slate-100">
+                              <p className="text-xs text-slate-400 mb-0.5">Capital</p>
+                              <p className="font-bold text-slate-800 text-sm">{formatarMoeda(emp.valor_principal)}</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 border border-slate-100">
+                              <p className="text-xs text-slate-400 mb-0.5">Taxa</p>
+                              <p className="font-bold text-slate-800 text-sm">{emp.taxa_juros}% {emp.tipo_taxa === 'anual' ? 'a.a.' : 'a.m.'}</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 border border-slate-100">
+                              <p className="text-xs text-slate-400 mb-0.5">Valor Parcela</p>
+                              <p className="font-bold text-slate-800 text-sm">{formatarMoeda(emp.valor_parcela)}</p>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 border border-slate-100">
+                              <p className="text-xs text-slate-400 mb-0.5">Saldo Devedor</p>
+                              <p className="font-bold text-slate-800 text-sm">{formatarMoeda(emp.saldo_devedor)}</p>
+                            </div>
+                          </div>
+
+                          {/* Parcelas table */}
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Histórico de Parcelas</p>
+                            <div className="overflow-x-auto rounded-lg border border-slate-200">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-slate-100 text-slate-500">
+                                    <th className="px-3 py-2 text-left font-medium">Nº</th>
+                                    <th className="px-3 py-2 text-left font-medium">Vencimento</th>
+                                    <th className="px-3 py-2 text-right font-medium">Valor</th>
+                                    <th className="px-3 py-2 text-right font-medium">Pago</th>
+                                    <th className="px-3 py-2 text-left font-medium">Pago em</th>
+                                    <th className="px-3 py-2 text-left font-medium">Status</th>
+                                    <th className="px-3 py-2 text-center font-medium">Ação</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {empParcelas.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={7} className="px-3 py-6 text-center text-slate-400">
+                                        Nenhuma parcela gerada.
+                                      </td>
+                                    </tr>
+                                  ) : empParcelas.map(p => (
+                                    <tr
+                                      key={p.id}
+                                      className={cn(
+                                        'bg-white',
+                                        p.status === 'atrasado' && 'bg-red-50',
+                                        p.status === 'pago' && 'bg-green-50/50',
+                                      )}
+                                    >
+                                      <td className="px-3 py-2 font-mono text-slate-600">{p.numero_parcela}</td>
+                                      <td className={cn('px-3 py-2', p.status === 'atrasado' && 'text-red-600 font-semibold')}>
+                                        {formatarData(p.data_vencimento)}
+                                        {(p.dias_atraso ?? 0) > 0 && (
+                                          <span className="text-red-500 ml-1">({p.dias_atraso}d)</span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2 text-right font-medium">{formatarMoeda(p.valor)}</td>
+                                      <td className="px-3 py-2 text-right text-slate-600">
+                                        {p.valor_pago ? formatarMoeda(p.valor_pago) : '—'}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-400">
+                                        {p.data_pagamento ? formatarData(p.data_pagamento) : '—'}
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <StatusBadge status={p.status} />
+                                      </td>
+                                      <td className="px-3 py-2 text-center">
+                                        {p.status !== 'pago' && p.status !== 'cancelado' && (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="text-xs h-6 px-2"
+                                            onClick={() => router.push(`/factoring/parcelas/pagamento?cliente=${id}&parcela=${p.id}`)}
+                                          >
+                                            Receber
+                                          </Button>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end">
+                            <Link
+                              href={`/factoring/emprestimos/${emp.id}`}
+                              className="text-xs font-semibold text-blue-600 hover:underline"
+                            >
+                              Ver detalhes completos →
+                            </Link>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
             </div>
           </TabsContent>
 

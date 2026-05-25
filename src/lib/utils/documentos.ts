@@ -70,8 +70,8 @@ export interface ContratoParams {
     numero_parcela: number
     data_vencimento: string
     valor: number
-    valor_principal: number
-    valor_juros: number
+    valor_principal: number | null
+    valor_juros: number | null
   }>
   empresaNome?: string
   empresaCnpj?: string | null
@@ -229,8 +229,8 @@ export async function gerarContratoPDF(params: ContratoParams): Promise<void> {
     body: parcShow.map(p => [
       String(p.numero_parcela),
       fmtData(p.data_vencimento),
-      fmt(p.valor_principal),
-      fmt(p.valor_juros),
+      fmt(p.valor_principal ?? 0),
+      fmt(p.valor_juros ?? 0),
       fmt(p.valor),
     ]),
     margin: { left: M, right: M },
