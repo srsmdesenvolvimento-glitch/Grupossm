@@ -1,8 +1,6 @@
 'use client'
 
 import { AppShell } from '@/components/layout/AppShell'
-import { PageHelp } from '@/components/shared/PageHelp'
-import { TipsBanner } from '@/components/shared/TipsBanner'
 import { StatCard } from '@/components/shared/StatCard'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { DataTable, type Column } from '@/components/shared/DataTable'
@@ -527,40 +525,22 @@ export default function FactoringDashboard() {
   return (
     <AppShell empresa="factoring" titulo="Dashboard">
       <div className="space-y-6">
-        <TipsBanner />
-        <PageHelp
-          storageKey="help.factoring.dashboard.v1"
-          titulo="Dashboard — Factoring"
-          oQueE="Visão geral da saúde financeira do factoring: capital em circulação, inadimplência, contratos ativos e recebimentos do mês."
-          passos={[
-            'Veja os cards de resumo no topo para uma visão rápida da situação.',
-            'Acompanhe o gráfico de desempenho mensal (recebido vs. a receber).',
-            'Verifique os contratos inadimplentes na lista e tome ação.',
-            'Use o menu lateral para acessar as demais funcionalidades.',
-          ]}
-          dicas={[
-            'Os cards em vermelho indicam situações que precisam de atenção imediata.',
-            'O dashboard atualiza automaticamente a cada hora.',
-            'Clique em um contrato da lista para abrir os detalhes diretamente.',
-          ]}
-        />
-
         {/* ── StatCards ── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <StatCard
-            titulo="Capital ativo"
+            titulo="Carteira Ativa"
             valor={formatarMoeda(d.capitalAtivo)}
-            subtitulo="Saldo devedor total (ativos)"
+            subtitulo="Saldo devedor de contratos em aberto"
             icone={Banknote}
             corIcone="#1E5AA8"
             corFundo="#EDF4FE"
             onClick={() => router.push('/factoring/emprestimos')}
-            atalho="Ver empréstimos →"
+            atalho="Ver contratos →"
           />
           <StatCard
-            titulo="Recebido este mês"
+            titulo="Recebido no Mês"
             valor={formatarMoeda(d.recebidoMes)}
-            subtitulo="Pagamentos recebidos no mês"
+            subtitulo="Total de parcelas pagas no mês atual"
             icone={CheckCircle}
             corIcone="#22c55e"
             corFundo="#F0FDF4"
@@ -568,9 +548,9 @@ export default function FactoringDashboard() {
             atalho="Ver parcelas →"
           />
           <StatCard
-            titulo="A receber hoje"
+            titulo="Vence Hoje"
             valor={formatarMoeda(d.aReceberHoje)}
-            subtitulo="Parcelas vencendo hoje"
+            subtitulo="Parcelas com vencimento em hoje"
             icone={Clock}
             corIcone="#D4A528"
             corFundo="#FEFCE8"
@@ -578,29 +558,29 @@ export default function FactoringDashboard() {
             atalho="Ver parcelas →"
           />
           <StatCard
-            titulo="Em atraso"
+            titulo="Total Inadimplente"
             valor={formatarMoeda(d.emAtraso)}
-            subtitulo="Total de parcelas inadimplentes"
+            subtitulo="Parcelas em atraso — valor total"
             icone={AlertTriangle}
             corIcone="#ef4444"
             corFundo="#FEF2F2"
-            onClick={() => router.push('/factoring/parcelas')}
+            onClick={() => router.push('/factoring/parcelas/inadimplentes')}
             atalho="Ver inadimplentes →"
           />
           <StatCard
-            titulo="Novos empréstimos mês"
-            valor={`${d.novosEmprestimosMesCount} / ${formatarMoeda(d.novosEmprestimosMesValor)}`}
-            subtitulo="Contratos liberados no mês"
+            titulo="Novos Contratos no Mês"
+            valor={`${d.novosEmprestimosMesCount} contrato${d.novosEmprestimosMesCount !== 1 ? 's' : ''}`}
+            subtitulo={formatarMoeda(d.novosEmprestimosMesValor) + ' liberados'}
             icone={TrendingUp}
             corIcone="#1E5AA8"
             corFundo="#EDF4FE"
             onClick={() => router.push('/factoring/emprestimos')}
-            atalho="Ver empréstimos →"
+            atalho="Ver contratos →"
           />
           <StatCard
-            titulo="Taxa inadimplência"
+            titulo="Inadimplência"
             valor={`${d.taxaInadimplencia.toFixed(1)}%`}
-            subtitulo="Parcelas atrasadas / total ativo"
+            subtitulo="% de parcelas em atraso sobre carteira ativa"
             icone={Percent}
             corIcone="#f97316"
             corFundo="#FFF7ED"
@@ -613,14 +593,14 @@ export default function FactoringDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Chart 1: Liberações vs Recebimentos */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="font-semibold text-slate-800 mb-4">Liberações vs Recebimentos</h3>
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h3 className="font-semibold text-foreground mb-4">Liberações vs Recebimentos</h3>
             {d.chartMeses.length === 0 ? (
-              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Sem dados</div>
+              <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">Sem dados</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={d.chartMeses} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `R$${(v / 1000).toFixed(0)}k`} />
                   <Tooltip formatter={(v) => formatarMoeda(typeof v === 'number' ? v : 0)} />
@@ -633,14 +613,14 @@ export default function FactoringDashboard() {
           </div>
 
           {/* Chart 2: Evolução Inadimplência */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="font-semibold text-slate-800 mb-4">Evolução Inadimplência</h3>
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h3 className="font-semibold text-foreground mb-4">Evolução Inadimplência</h3>
             {d.chartMeses.length === 0 ? (
-              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Sem dados</div>
+              <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">Sem dados</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={d.chartMeses} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${v}%`} />
                   <Tooltip formatter={(v) => `${typeof v === 'number' ? v : 0}%`} />
@@ -662,10 +642,10 @@ export default function FactoringDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Chart 3: Distribuição Risco */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="font-semibold text-slate-800 mb-4">Distribuição Risco Carteira</h3>
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h3 className="font-semibold text-foreground mb-4">Distribuição Risco Carteira</h3>
             {d.chartRisco.every(r => r.value === 0) ? (
-              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Sem dados de score</div>
+              <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">Sem dados de score</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
@@ -690,10 +670,10 @@ export default function FactoringDashboard() {
           </div>
 
           {/* Chart 4: Projeção Recebíveis */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="font-semibold text-slate-800 mb-4">Projeção Recebíveis (90 dias)</h3>
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h3 className="font-semibold text-foreground mb-4">Projeção Recebíveis (90 dias)</h3>
             {d.chartReceivel.length === 0 ? (
-              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Sem parcelas pendentes</div>
+              <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">Sem parcelas pendentes</div>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={d.chartReceivel} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -711,7 +691,7 @@ export default function FactoringDashboard() {
                       <stop offset="95%" stopColor="#D4A528" stopOpacity={0.05} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="data" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `R$${(v / 1000).toFixed(0)}k`} />
                   <Tooltip formatter={(v) => formatarMoeda(typeof v === 'number' ? v : 0)} />
@@ -729,7 +709,7 @@ export default function FactoringDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Parcelas vencendo hoje */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <div className="bg-card rounded-xl border border-border p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-slate-800">Parcelas vencendo hoje</h3>
               <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
@@ -737,7 +717,7 @@ export default function FactoringDashboard() {
               </span>
             </div>
             {d.parcelasVencendoHoje.length === 0 ? (
-              <p className="text-slate-400 text-sm py-8 text-center">Nenhuma parcela vence hoje.</p>
+              <p className="text-muted-foreground text-sm py-8 text-center">Nenhuma parcela vence hoje.</p>
             ) : (
               <DataTable
                 data={d.parcelasVencendoHoje}
@@ -748,7 +728,7 @@ export default function FactoringDashboard() {
           </div>
 
           {/* Top 10 inadimplentes */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <div className="bg-card rounded-xl border border-border p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-slate-800">Top 10 inadimplentes</h3>
               <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">
@@ -756,7 +736,7 @@ export default function FactoringDashboard() {
               </span>
             </div>
             {d.inadimplentes.length === 0 ? (
-              <p className="text-slate-400 text-sm py-8 text-center">Nenhuma parcela em atraso.</p>
+              <p className="text-muted-foreground text-sm py-8 text-center">Nenhuma parcela em atraso.</p>
             ) : (
               <DataTable
                 data={d.inadimplentes}
@@ -771,10 +751,10 @@ export default function FactoringDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Últimos pagamentos */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="font-semibold text-slate-800 mb-4">Últimos pagamentos</h3>
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h3 className="font-semibold text-foreground mb-4">Últimos pagamentos</h3>
             {d.ultimosPagamentos.length === 0 ? (
-              <p className="text-slate-400 text-sm py-8 text-center">Nenhum pagamento registrado.</p>
+              <p className="text-muted-foreground text-sm py-8 text-center">Nenhum pagamento registrado.</p>
             ) : (
               <DataTable
                 data={d.ultimosPagamentos}
@@ -785,8 +765,8 @@ export default function FactoringDashboard() {
           </div>
 
           {/* Alertas */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="font-semibold text-slate-800 mb-4">Alertas</h3>
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h3 className="font-semibold text-foreground mb-4">Alertas</h3>
             <div className="space-y-3">
               {d.alertas.map(alerta => (
                 <div
