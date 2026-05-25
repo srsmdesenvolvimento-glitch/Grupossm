@@ -12,11 +12,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend,
-} from 'recharts'
-import {
   Banknote, TrendingUp, Clock, AlertTriangle, CheckCircle,
   Percent, MessageCircle, AlertCircle, Scale,
 } from 'lucide-react'
@@ -95,26 +90,6 @@ interface Alerta {
   icone: React.ReactNode
 }
 
-interface ChartMes {
-  mes: string
-  liberacoes: number
-  recebimentos: number
-  inadimplencia: number
-}
-
-interface ChartRisco {
-  name: string
-  value: number
-  color: string
-}
-
-interface ChartReceivel {
-  data: string
-  ate30d: number
-  ate60d: number
-  ate90d: number
-}
-
 interface DashboardData {
   capitalAtivo: number
   recebidoMes: number
@@ -123,9 +98,6 @@ interface DashboardData {
   novosEmprestimosMesCount: number
   novosEmprestimosMesValor: number
   taxaInadimplencia: number
-  chartMeses: ChartMes[]
-  chartRisco: ChartRisco[]
-  chartReceivel: ChartReceivel[]
   parcelasVencendoHoje: ParcelaVencendoHoje[]
   inadimplentes: ParcelaInadimplente[]
   ultimosPagamentos: Pagamento[]
@@ -143,23 +115,6 @@ function primeiroDiaMes(): string {
 
 function hoje(): string {
   return new Date().toISOString().split('T')[0]
-}
-
-function mesMenos(n: number): Date {
-  const d = new Date()
-  d.setDate(1)
-  d.setMonth(d.getMonth() - n)
-  return d
-}
-
-function labelMes(d: Date): string {
-  return d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
-}
-
-function diasAteHoje(n: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + n)
-  return d.toISOString().split('T')[0]
 }
 
 // ──────────────────────────────────────────────
@@ -250,76 +205,6 @@ export default function FactoringDashboard() {
       const totalAtivos = parcelas.filter(p => ['pendente', 'atrasado'].includes(p.status)).length
       const totalAtrasados = parcelas.filter(p => p.status === 'atrasado').length
       const taxaInadimplencia = totalAtivos > 0 ? (totalAtrasados / totalAtivos) * 100 : 0
-
-      // ── Chart 1 + 2: last 6 months
-      const chartMeses: ChartMes[] = []
-      for (let i = 5; i >= 0; i--) {
-        const base = mesMenos(i)
-        const ano = base.getFullYear()
-        const mes = base.getMonth()
-        const inicio = new Date(ano, mes, 1).toISOString().split('T')[0]
-        const fim = new Date(ano, mes + 1, 0).toISOString().split('T')[0]
-
-        const liberacoes = emprestimos
-          .filter(e => e.data_liberacao >= inicio && e.data_liberacao <= fim)
-          .reduce((s, e) => s + (e.valor_liberado ?? 0), 0)
-
-        const recebimentos = parcelas
-          .filter(p => p.data_pagamento && p.data_pagamento >= inicio && p.data_pagamento <= fim)
-          .reduce((s, p) => s + (p.valor_pago ?? 0), 0)
-
-        const parcMes = parcelas.filter(
-          p => p.data_vencimento >= inicio && p.data_vencimento <= fim &&
-            ['pendente', 'atrasado'].includes(p.status)
-        )
-        const atrasadosMes = parcMes.filter(p => p.status === 'atrasado').length
-        const inadimplenciaMes = parcMes.length > 0 ? (atrasadosMes / parcMes.length) * 100 : 0
-
-        chartMeses.push({
-          mes: labelMes(base),
-          liberacoes,
-          recebimentos,
-          inadimplencia: parseFloat(inadimplenciaMes.toFixed(1)),
-        })
-      }
-
-      // ── Chart 3: distribuição risco
-      let baixo = 0, medio = 0, alto = 0, critico = 0
-      for (const c of clientes) {
-        const s = c.score ?? 0
-        if (s >= 70) baixo++
-        else if (s >= 50) medio++
-        else if (s >= 30) alto++
-        else critico++
-      }
-      const chartRisco: ChartRisco[] = [
-        { name: 'Baixo (≥70)', value: baixo, color: '#22c55e' },
-        { name: 'Médio (50-69)', value: medio, color: '#eab308' },
-        { name: 'Alto (30-49)', value: alto, color: '#f97316' },
-        { name: 'Crítico (<30)', value: critico, color: '#ef4444' },
-      ]
-
-      // ── Chart 4: projeção recebíveis próximos 90 dias
-      const receiveisMap = new Map<string, { ate30d: number; ate60d: number; ate90d: number }>()
-      const limite30 = diasAteHoje(30)
-      const limite60 = diasAteHoje(60)
-      const limite90 = diasAteHoje(90)
-
-      for (const p of parcelas) {
-        if (p.status !== 'pendente') continue
-        if (p.data_vencimento > limite90) continue
-        const key = p.data_vencimento
-        const entry = receiveisMap.get(key) ?? { ate30d: 0, ate60d: 0, ate90d: 0 }
-        const val = (p.valor ?? 0) - (p.valor_pago ?? 0)
-        if (p.data_vencimento <= limite30) entry.ate30d += val
-        if (p.data_vencimento <= limite60) entry.ate60d += val
-        entry.ate90d += val
-        receiveisMap.set(key, entry)
-      }
-
-      const chartReceivel: ChartReceivel[] = Array.from(receiveisMap.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([data, v]) => ({ data: formatarData(data), ...v }))
 
       // ── List 1: parcelas vencendo hoje
       const parcelasVencendoHoje: ParcelaVencendoHoje[] = parcelas
@@ -417,9 +302,6 @@ export default function FactoringDashboard() {
         novosEmprestimosMesCount,
         novosEmprestimosMesValor,
         taxaInadimplencia,
-        chartMeses,
-        chartRisco,
-        chartReceivel,
         parcelasVencendoHoje,
         inadimplentes,
         ultimosPagamentos,
@@ -589,119 +471,32 @@ export default function FactoringDashboard() {
           />
         </div>
 
-        {/* ── Charts row 1 ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-          {/* Chart 1: Liberações vs Recebimentos */}
-          <div className="bg-card rounded-xl border border-border p-6">
-            <h3 className="font-semibold text-foreground mb-4">Liberações vs Recebimentos</h3>
-            {d.chartMeses.length === 0 ? (
-              <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">Sem dados</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={d.chartMeses} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `R$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(v) => formatarMoeda(typeof v === 'number' ? v : 0)} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="liberacoes" name="Liberações" fill="#1E5AA8" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="recebimentos" name="Recebimentos" fill="#22c55e" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          {/* Chart 2: Evolução Inadimplência */}
-          <div className="bg-card rounded-xl border border-border p-6">
-            <h3 className="font-semibold text-foreground mb-4">Evolução Inadimplência</h3>
-            {d.chartMeses.length === 0 ? (
-              <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">Sem dados</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={d.chartMeses} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${v}%`} />
-                  <Tooltip formatter={(v) => `${typeof v === 'number' ? v : 0}%`} />
-                  <Line
-                    type="monotone"
-                    dataKey="inadimplencia"
-                    name="Inadimplência %"
-                    stroke="#ef4444"
-                    strokeWidth={2}
-                    dot={{ r: 4, fill: '#ef4444' }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* ── Charts row 2 ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-          {/* Chart 3: Distribuição Risco */}
-          <div className="bg-card rounded-xl border border-border p-6">
-            <h3 className="font-semibold text-foreground mb-4">Distribuição Risco Carteira</h3>
-            {d.chartRisco.every(r => r.value === 0) ? (
-              <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">Sem dados de score</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={d.chartRisco}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={55}
-                    outerRadius={90}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
-                    {d.chartRisco.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          {/* Chart 4: Projeção Recebíveis */}
-          <div className="bg-card rounded-xl border border-border p-6">
-            <h3 className="font-semibold text-foreground mb-4">Projeção Recebíveis (90 dias)</h3>
-            {d.chartReceivel.length === 0 ? (
-              <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">Sem parcelas pendentes</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={d.chartReceivel} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="ate30d" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#1E5AA8" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#1E5AA8" stopOpacity={0.05} />
-                    </linearGradient>
-                    <linearGradient id="ate60d" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#7c3aed" stopOpacity={0.05} />
-                    </linearGradient>
-                    <linearGradient id="ate90d" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#D4A528" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#D4A528" stopOpacity={0.05} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="data" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `R$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(v) => formatarMoeda(typeof v === 'number' ? v : 0)} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Area type="monotone" dataKey="ate30d" name="30d" stroke="#1E5AA8" fill="url(#ate30d)" strokeWidth={2} />
-                  <Area type="monotone" dataKey="ate60d" name="60d" stroke="#7c3aed" fill="url(#ate60d)" strokeWidth={2} />
-                  <Area type="monotone" dataKey="ate90d" name="90d" stroke="#D4A528" fill="url(#ate90d)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
+        {/* ── Ações rápidas ── */}
+        <div>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Ações rápidas</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {[
+              { label: 'Novo Contrato',       sub: 'Liberar empréstimo',    icon: Banknote,      color: '#1E5AA8', href: '/factoring/emprestimos/novo'              },
+              { label: 'Registrar Pagamento', sub: 'Baixar parcela paga',   icon: CheckCircle,   color: '#22c55e', href: '/factoring/parcelas/pagamento'            },
+              { label: 'Simulador',           sub: 'Calcular empréstimo',   icon: Scale,         color: '#7C3AED', href: '/factoring/emprestimos/simulador'         },
+              { label: 'Novo Cliente',        sub: 'Cadastrar tomador',     icon: MessageCircle, color: '#D4A528', href: '/factoring/clientes/novo'                 },
+              { label: 'Contas a Receber',    sub: 'Ver pendentes e atraso',icon: TrendingUp,    color: '#f97316', href: '/factoring/financeiro/contas-receber'     },
+              { label: 'Inadimplentes',       sub: 'Ver contratos em atraso',icon: AlertCircle,  color: '#ef4444', href: '/factoring/parcelas/inadimplentes'        },
+            ].map(({ label, sub, icon: Icon, color, href }) => (
+              <button
+                key={href}
+                onClick={() => router.push(href)}
+                className="group flex flex-col items-start gap-3 p-4 bg-card border border-border rounded-xl hover:border-[--ring] transition-all text-left"
+              >
+                <div className="p-2 rounded-lg" style={{ backgroundColor: `${color}18` }}>
+                  <Icon size={18} style={{ color }} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground leading-tight">{label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
 
