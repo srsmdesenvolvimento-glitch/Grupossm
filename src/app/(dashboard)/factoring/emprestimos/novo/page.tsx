@@ -99,7 +99,7 @@ export default function NovoEmprestimoPage() {
   // Step 2
   const [valor, setValor] = useState('')
   const [taxa, setTaxa] = useState('3')
-  const [numParcelas, setNumParcelas] = useState('12')
+  const [numParcelas, setNumParcelas] = useState('1')
   const [tipoJuros, setTipoJuros] = useState<'price' | 'sac'>('price')
   const [dataVenc, setDataVenc] = useState(defaultVenc)
   const [garantias, setGarantias] = useState('')

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Search, DollarSign, QrCode, ArrowLeftRight, FileText, CreditCard,
-  CheckCircle2, X, Users,
+  CheckCircle2, X, Users, SplitSquareHorizontal, Printer,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
@@ -13,10 +13,30 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatarMoeda, formatarData, formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
 import { toast } from 'sonner'
+import { gerarReciboPDF } from '@/lib/utils/documentos'
 import type { ClienteFactoring, ParcelaEmprestimo, TipoPagamento } from '@/lib/types/database'
 
 type ClienteSumario = Pick<ClienteFactoring, 'id' | 'nome' | 'cpf' | 'telefone' | 'score_interno'>
 type ParcelaComContrato = ParcelaEmprestimo & { numero_contrato: string }
+
+type UltimoPagamento = {
+  clienteNome: string
+  clienteCpf: string | null
+  contratoNumero?: string
+  parcelas: Array<{ numero: number; valor: number; vencimento: string }>
+  valorTotal: number
+  desconto: number
+  formaPagamento: string
+  data: string
+  empresaNome?: string
+  empresaCnpj?: string | null
+}
+
+function novoVencimentoPadrao(): string {
+  const d = new Date()
+  d.setDate(d.getDate() + 30)
+  return d.toISOString().split('T')[0]
+}
 
 function FormaIcon({ forma }: { forma: TipoPagamento }) {
   switch (forma) {
@@ -57,6 +77,15 @@ export default function LancarPagamentoPage() {
   const [forma, setForma] = useState<TipoPagamento>('pix')
   const [valorRecebido, setValorRecebido] = useState('')
   const [confirmando, setConfirmando] = useState(false)
+
+  // Pagamento parcial
+  const [parcialAtivo, setParcialAtivo] = useState(false)
+  const [valorParcial, setValorParcial] = useState('')
+  const [novoVenc, setNovoVenc] = useState(novoVencimentoPadrao)
+
+  // Recibo do último pagamento
+  const [ultimoPagamento, setUltimoPagamento] = useState<UltimoPagamento | null>(null)
+  const [gerandoRecibo, setGerandoRecibo] = useState(false)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -129,10 +158,13 @@ export default function LancarPagamentoPage() {
     setShowDropdown(false)
     setSelecionadas(new Set())
     setDesconto('')
+    setParcialAtivo(false)
+    setValorParcial('')
+    setUltimoPagamento(null)
     carregarParcelas(c)
   }
 
-  // Auto-select client when navigating from inadimplentes (?clienteId=...)
+  // Auto-select client when navigating from inadimplentes
   useEffect(() => {
     const clienteId = searchParams.get('clienteId')
     if (!clienteId || !empresaAtual || cliente) return
@@ -154,6 +186,9 @@ export default function LancarPagamentoPage() {
     setParcelas([])
     setSelecionadas(new Set())
     setDesconto('')
+    setParcialAtivo(false)
+    setValorParcial('')
+    setUltimoPagamento(null)
   }
 
   const toggleParcela = (id: string) => {
@@ -163,10 +198,15 @@ export default function LancarPagamentoPage() {
       else next.add(id)
       return next
     })
+    // Reset parcial when selection changes
+    setParcialAtivo(false)
+    setValorParcial('')
   }
 
   const toggleTodas = () => {
     setSelecionadas(prev => prev.size === parcelas.length ? new Set() : new Set(parcelas.map(p => p.id)))
+    setParcialAtivo(false)
+    setValorParcial('')
   }
 
   const parcelasSel = useMemo(() => parcelas.filter(p => selecionadas.has(p.id)), [parcelas, selecionadas])
@@ -178,9 +218,17 @@ export default function LancarPagamentoPage() {
 
   const descontoNum = Number(desconto) || 0
   const descontoValor = tipoDesconto === '%' ? subtotal * descontoNum / 100 : descontoNum
-  const total = Math.max(0, subtotal - descontoValor)
+
+  // Total: se parcial ativo, usa valorParcial; senão subtotal - desconto
+  const valorParcialNum = Number(valorParcial) || 0
+  const total = parcialAtivo
+    ? Math.max(0, Math.min(valorParcialNum, subtotal))
+    : Math.max(0, subtotal - descontoValor)
+
   const valorRecebidoNum = Number(valorRecebido) || 0
   const troco = forma === 'dinheiro' ? Math.max(0, valorRecebidoNum - total) : 0
+
+  const restanteParcial = parcialAtivo ? Math.max(0, subtotal - total) : 0
 
   const confirmarPagamento = async () => {
     if (!parcelasSel.length || !cliente || !empresaAtual) return
@@ -188,52 +236,174 @@ export default function LancarPagamentoPage() {
       toast.error('Valor recebido menor que o total a pagar')
       return
     }
+    if (parcialAtivo && valorParcialNum <= 0) {
+      toast.error('Informe o valor parcial a pagar')
+      return
+    }
+    if (parcialAtivo && selecionadas.size > 1) {
+      toast.error('Pagamento parcial: selecione apenas 1 parcela')
+      return
+    }
     setConfirmando(true)
     try {
       const hoje = new Date().toISOString().split('T')[0]
-      const discountPerParcela = parcelasSel.length > 0 ? descontoValor / parcelasSel.length : 0
 
-      await Promise.all(parcelasSel.map(p => {
+      if (parcialAtivo && parcelasSel.length === 1) {
+        // ── Pagamento Parcial ────────────────────────────────────────────────
+        const p = parcelasSel[0]
         const devido = p.valor + p.multa + p.juros_mora - (p.valor_pago ?? 0)
-        return supabase.from('parcelas_emprestimo').update({
+        const valorPago = Math.min(valorParcialNum, devido)
+        const restante = devido - valorPago
+
+        // Marca parcela original como paga
+        await supabase.from('parcelas_emprestimo').update({
           status: 'pago',
-          valor_pago: Math.max(0, devido - discountPerParcela),
+          valor_pago: valorPago,
           data_pagamento: hoje,
           tipo_pagamento: forma,
         }).eq('id', p.id)
-      }))
 
-      const empIds = [...new Set(parcelasSel.map(p => p.emprestimo_id))]
-      await Promise.all(empIds.map(async empId => {
-        const { data: restantes } = await supabase
-          .from('parcelas_emprestimo')
-          .select('id')
-          .eq('emprestimo_id', empId)
-          .in('status', ['pendente', 'atrasado'])
-        if (!restantes?.length) {
-          await supabase.from('emprestimos').update({
-            status: 'quitado',
-            saldo_devedor: 0,
-            data_quitacao: hoje,
-          }).eq('id', empId)
+        // Gera novo título para o saldo
+        if (restante > 0.01) {
+          const { data: todasParcelas } = await supabase
+            .from('parcelas_emprestimo')
+            .select('numero_parcela')
+            .eq('emprestimo_id', p.emprestimo_id)
+
+          const maxNum = Math.max(...(todasParcelas?.map(x => x.numero_parcela) ?? [0]))
+          const novaNum = maxNum + 1
+
+          await supabase.from('parcelas_emprestimo').insert({
+            empresa_id: empresaAtual.id,
+            emprestimo_id: p.emprestimo_id,
+            cliente_id: p.cliente_id,
+            numero_parcela: novaNum,
+            total_parcelas: novaNum,
+            valor: restante,
+            valor_principal: restante,
+            valor_juros: 0,
+            saldo_devedor_antes: restante,
+            saldo_devedor_apos: 0,
+            valor_pago: null,
+            data_vencimento: novoVenc,
+            data_pagamento: null,
+            tipo_pagamento: null,
+            multa: 0,
+            juros_mora: 0,
+            status: 'pendente',
+            observacoes: `Saldo da parcela ${p.numero_parcela}/${p.total_parcelas} — pagamento parcial de ${formatarMoeda(valorPago)}`,
+          })
         }
-      }))
 
-      await supabase.from('movimentacoes_caixa').insert({
-        empresa_id: empresaAtual.id,
-        tipo: 'entrada',
-        categoria: 'pagamento_parcela',
-        descricao: `Pagamento ${parcelasSel.length} parcela(s) — ${cliente.nome}`,
-        valor: total,
-        referencia_tipo: 'cliente_factoring',
-        referencia_id: cliente.id,
-        data_movimentacao: hoje,
-      })
+        // Atualiza saldo devedor do empréstimo
+        const { data: pendentes } = await supabase
+          .from('parcelas_emprestimo')
+          .select('valor, valor_pago, multa, juros_mora')
+          .eq('emprestimo_id', p.emprestimo_id)
+          .in('status', ['pendente', 'atrasado'])
 
-      toast.success(`${formatarMoeda(total)} registrado com sucesso!`)
+        const novoSaldo = (pendentes ?? []).reduce(
+          (s, x) => s + (x.valor ?? 0) + (x.multa ?? 0) + (x.juros_mora ?? 0) - (x.valor_pago ?? 0), 0
+        )
+        await supabase.from('emprestimos').update({ saldo_devedor: novoSaldo }).eq('id', p.emprestimo_id)
+
+        // Movimentação de caixa
+        await supabase.from('movimentacoes_caixa').insert({
+          empresa_id: empresaAtual.id,
+          tipo: 'entrada',
+          categoria: 'pagamento_parcela',
+          descricao: `Pagamento parcial — ${cliente.nome} — parcela ${p.numero_parcela}/${p.total_parcelas}`,
+          valor: valorPago,
+          referencia_tipo: 'cliente_factoring',
+          referencia_id: cliente.id,
+          data_movimentacao: hoje,
+        })
+
+        setUltimoPagamento({
+          clienteNome: cliente.nome,
+          clienteCpf: cliente.cpf,
+          contratoNumero: p.numero_contrato,
+          parcelas: [{ numero: p.numero_parcela, valor: valorPago, vencimento: p.data_vencimento }],
+          valorTotal: valorPago,
+          desconto: 0,
+          formaPagamento: forma,
+          data: hoje,
+          empresaNome: empresaAtual.nome,
+        })
+
+        toast.success(
+          restante > 0.01
+            ? `${formatarMoeda(valorPago)} registrado! Novo título de ${formatarMoeda(restante)} criado para ${formatarData(novoVenc)}.`
+            : `${formatarMoeda(valorPago)} registrado com sucesso!`
+        )
+      } else {
+        // ── Pagamento Normal (integral) ──────────────────────────────────────
+        const discountPerParcela = parcelasSel.length > 0 ? descontoValor / parcelasSel.length : 0
+
+        await Promise.all(parcelasSel.map(p => {
+          const devido = p.valor + p.multa + p.juros_mora - (p.valor_pago ?? 0)
+          return supabase.from('parcelas_emprestimo').update({
+            status: 'pago',
+            valor_pago: Math.max(0, devido - discountPerParcela),
+            data_pagamento: hoje,
+            tipo_pagamento: forma,
+          }).eq('id', p.id)
+        }))
+
+        const empIds = [...new Set(parcelasSel.map(p => p.emprestimo_id))]
+        await Promise.all(empIds.map(async empId => {
+          const { data: restantes } = await supabase
+            .from('parcelas_emprestimo')
+            .select('id')
+            .eq('emprestimo_id', empId)
+            .in('status', ['pendente', 'atrasado'])
+          if (!restantes?.length) {
+            await supabase.from('emprestimos').update({
+              status: 'quitado',
+              saldo_devedor: 0,
+              data_quitacao: hoje,
+            }).eq('id', empId)
+          }
+        }))
+
+        await supabase.from('movimentacoes_caixa').insert({
+          empresa_id: empresaAtual.id,
+          tipo: 'entrada',
+          categoria: 'pagamento_parcela',
+          descricao: `Pagamento ${parcelasSel.length} parcela(s) — ${cliente.nome}`,
+          valor: total,
+          referencia_tipo: 'cliente_factoring',
+          referencia_id: cliente.id,
+          data_movimentacao: hoje,
+        })
+
+        const contratoNumero = parcelasSel.length === 1 ? parcelasSel[0].numero_contrato : undefined
+        setUltimoPagamento({
+          clienteNome: cliente.nome,
+          clienteCpf: cliente.cpf,
+          contratoNumero,
+          parcelas: parcelasSel.map(p => ({
+            numero: p.numero_parcela,
+            valor: p.valor + p.multa + p.juros_mora - (p.valor_pago ?? 0) - discountPerParcela,
+            vencimento: p.data_vencimento,
+          })),
+          valorTotal: total,
+          desconto: descontoValor,
+          formaPagamento: forma,
+          data: hoje,
+          empresaNome: empresaAtual.nome,
+        })
+
+        toast.success(`${formatarMoeda(total)} registrado com sucesso!`)
+      }
+
+      // Reset state
       setSelecionadas(new Set())
       setDesconto('')
       setValorRecebido('')
+      setParcialAtivo(false)
+      setValorParcial('')
+      setNovoVenc(novoVencimentoPadrao())
       await carregarParcelas(cliente)
     } catch {
       toast.error('Erro ao registrar pagamento')
@@ -242,9 +412,42 @@ export default function LancarPagamentoPage() {
     }
   }
 
+  async function handleGerarRecibo() {
+    if (!ultimoPagamento) return
+    setGerandoRecibo(true)
+    try {
+      await gerarReciboPDF(ultimoPagamento)
+    } finally {
+      setGerandoRecibo(false)
+    }
+  }
+
   return (
     <AppShell empresa="factoring" titulo="Lançar Pagamento">
       <div className="space-y-5">
+
+        {/* Recibo do último pagamento */}
+        {ultimoPagamento && (
+          <div className="flex items-center justify-between gap-4 bg-green-50 border border-green-200 rounded-xl px-5 py-4">
+            <div>
+              <p className="font-semibold text-green-800 text-sm">Pagamento registrado</p>
+              <p className="text-xs text-green-600 mt-0.5">
+                {formatarMoeda(ultimoPagamento.valorTotal)} — {ultimoPagamento.clienteNome}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 border-green-300 text-green-700 hover:bg-green-100"
+              onClick={handleGerarRecibo}
+              disabled={gerandoRecibo}
+            >
+              <Printer size={15} />
+              {gerandoRecibo ? 'Gerando...' : 'Imprimir Recibo'}
+            </Button>
+          </div>
+        )}
+
         {/* Search */}
         <div ref={wrapperRef} className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={22} />
@@ -424,40 +627,106 @@ export default function LancarPagamentoPage() {
                     <p className="text-2xl font-bold text-slate-700">{formatarMoeda(subtotal)}</p>
                   </div>
 
-                  {/* Desconto */}
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Desconto</p>
-                    <div className="flex gap-2">
-                      <div className="flex rounded-lg border border-slate-200 overflow-hidden shrink-0">
-                        {(['R$', '%'] as const).map(t => (
-                          <button
-                            key={t}
-                            onClick={() => setTipoDesconto(t)}
-                            className="px-3 py-1.5 text-sm font-medium transition-colors"
-                            style={tipoDesconto === t
-                              ? { backgroundColor: '#1E5AA8', color: '#fff' }
-                              : { color: '#64748b' }}
-                          >{t}</button>
-                        ))}
+                  {/* Desconto — oculto em modo parcial */}
+                  {!parcialAtivo && (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Desconto</p>
+                      <div className="flex gap-2">
+                        <div className="flex rounded-lg border border-slate-200 overflow-hidden shrink-0">
+                          {(['R$', '%'] as const).map(t => (
+                            <button
+                              key={t}
+                              onClick={() => setTipoDesconto(t)}
+                              className="px-3 py-1.5 text-sm font-medium transition-colors"
+                              style={tipoDesconto === t
+                                ? { backgroundColor: '#1E5AA8', color: '#fff' }
+                                : { color: '#64748b' }}
+                            >{t}</button>
+                          ))}
+                        </div>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={desconto}
+                          onChange={e => setDesconto(e.target.value)}
+                          placeholder="0"
+                          className="flex-1"
+                        />
                       </div>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={desconto}
-                        onChange={e => setDesconto(e.target.value)}
-                        placeholder="0"
-                        className="flex-1"
-                      />
+                      {descontoValor > 0 && (
+                        <p className="text-xs text-green-600 mt-1">— {formatarMoeda(descontoValor)}</p>
+                      )}
                     </div>
-                    {descontoValor > 0 && (
-                      <p className="text-xs text-green-600 mt-1">— {formatarMoeda(descontoValor)}</p>
-                    )}
-                  </div>
+                  )}
+
+                  {/* Pagamento Parcial — só disponível com 1 parcela */}
+                  {selecionadas.size === 1 && (
+                    <div className="border-t border-slate-100 pt-3">
+                      <button
+                        onClick={() => {
+                          setParcialAtivo(v => !v)
+                          setValorParcial('')
+                          setDesconto('')
+                        }}
+                        className="flex items-center justify-between w-full text-sm"
+                      >
+                        <span className="flex items-center gap-2 font-medium text-slate-700">
+                          <SplitSquareHorizontal size={15} />
+                          Pagamento Parcial
+                        </span>
+                        <span
+                          className="px-2 py-0.5 rounded-full text-xs font-semibold"
+                          style={parcialAtivo
+                            ? { backgroundColor: '#EDF4FE', color: '#1E5AA8' }
+                            : { backgroundColor: '#f1f5f9', color: '#64748b' }}
+                        >
+                          {parcialAtivo ? 'Ativo' : 'Inativo'}
+                        </span>
+                      </button>
+
+                      {parcialAtivo && (
+                        <div className="mt-3 space-y-3">
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Valor a Pagar Agora</p>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                              <Input
+                                type="number"
+                                min={0.01}
+                                step={0.01}
+                                max={subtotal}
+                                value={valorParcial}
+                                onChange={e => setValorParcial(e.target.value)}
+                                placeholder="0,00"
+                                className="pl-9"
+                                autoFocus
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Novo Vencimento (Saldo)</p>
+                            <Input type="date" value={novoVenc} onChange={e => setNovoVenc(e.target.value)} />
+                          </div>
+                          {valorParcialNum > 0 && valorParcialNum < subtotal && (
+                            <div className="rounded-lg p-3 bg-amber-50 border border-amber-200 text-xs text-amber-700 space-y-0.5">
+                              <p className="font-semibold">Novo título gerado automaticamente:</p>
+                              <p>{formatarMoeda(restanteParcial)} com vencimento em {formatarData(novoVenc)}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Total final */}
                   <div className="rounded-xl p-4 text-center" style={{ backgroundColor: '#EDF4FE' }}>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Valor Final</p>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                      {parcialAtivo ? 'Valor a Receber Agora' : 'Valor Final'}
+                    </p>
                     <p className="text-4xl font-bold" style={{ color: '#1E5AA8' }}>{formatarMoeda(total)}</p>
+                    {parcialAtivo && restanteParcial > 0 && (
+                      <p className="text-xs text-slate-400 mt-1">Saldo: {formatarMoeda(restanteParcial)}</p>
+                    )}
                   </div>
 
                   {/* Forma de pagamento */}
@@ -509,7 +778,11 @@ export default function LancarPagamentoPage() {
                     className="w-full h-14 text-base font-bold text-white gap-2"
                     style={{ backgroundColor: '#1E5AA8' }}
                     onClick={confirmarPagamento}
-                    disabled={confirmando || (forma === 'dinheiro' && valorRecebidoNum < total)}
+                    disabled={
+                      confirmando ||
+                      (forma === 'dinheiro' && valorRecebidoNum < total) ||
+                      (parcialAtivo && valorParcialNum <= 0)
+                    }
                   >
                     {confirmando
                       ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />

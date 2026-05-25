@@ -5,8 +5,9 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ChevronLeft, CreditCard, User, ArrowUpCircle, ArrowDownCircle,
-  Loader2, FileText, Upload, DollarSign, CheckCircle2, X,
+  Loader2, FileText, Upload, DollarSign, CheckCircle2, X, Download,
 } from 'lucide-react'
+import { gerarContratoPDF } from '@/lib/utils/documentos'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -48,6 +49,22 @@ export default function EmprestimoDetalhePage() {
   const [quitarDialog, setQuitarDialog] = useState(false)
   const [cancelarDialog, setCancelarDialog] = useState(false)
   const [processando, setProcessando] = useState(false)
+  const [gerandoPDF, setGerandoPDF] = useState(false)
+
+  async function handleGerarContrato() {
+    if (!emprestimo || !cliente) return
+    setGerandoPDF(true)
+    try {
+      await gerarContratoPDF({
+        contrato: emprestimo,
+        cliente,
+        parcelas,
+        empresaNome: empresaAtual?.nome,
+      })
+    } finally {
+      setGerandoPDF(false)
+    }
+  }
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual || !id) return
@@ -237,6 +254,19 @@ export default function EmprestimoDetalhePage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={handleGerarContrato}
+              disabled={gerandoPDF}
+            >
+              {gerandoPDF
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Download size={14} />
+              }
+              {gerandoPDF ? 'Gerando...' : 'Contrato PDF'}
+            </Button>
             <Button
               size="sm"
               className="gap-1.5 text-white"
