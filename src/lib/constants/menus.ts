@@ -99,6 +99,7 @@ export const MENU_FACTORING: MenuItem[] = [
     href: '/factoring/financeiro',
     icon: 'Wallet',
     subitems: [
+      { label: 'Contas a Receber', href: '/factoring/financeiro/contas-receber', icon: 'TrendingUp' },
       { label: 'Contas a Pagar', href: '/factoring/financeiro/pagar', icon: 'TrendingDown' },
       { label: 'Relatório', href: '/factoring/financeiro/relatorio', icon: 'BarChart3' },
     ],
