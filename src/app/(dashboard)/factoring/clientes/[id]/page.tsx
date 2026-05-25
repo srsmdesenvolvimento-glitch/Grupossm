@@ -878,22 +878,11 @@ export default function ClientePerfilPage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="parcelas" className="text-sm px-4 py-2 rounded-lg">
-              Parcelas
-            </TabsTrigger>
             <TabsTrigger value="pagamentos" className="text-sm px-4 py-2 rounded-lg">
               Pagamentos
             </TabsTrigger>
-            <TabsTrigger value="atrasos" className="text-sm px-4 py-2 rounded-lg">
-              Atrasos
-              {parcelasAtrasadas.length > 0 && (
-                <Badge className="ml-1.5 text-xs h-4 w-4 rounded-full p-0 flex items-center justify-center bg-red-500 text-white border-0">
-                  {parcelasAtrasadas.length}
-                </Badge>
-              )}
-            </TabsTrigger>
             <TabsTrigger value="dados" className="text-sm px-4 py-2 rounded-lg">
-              Dados Cadastrais
+              Dados
             </TabsTrigger>
             <TabsTrigger value="anotacoes" className="text-sm px-4 py-2 rounded-lg">
               Anotações
@@ -1117,42 +1106,7 @@ export default function ClientePerfilPage() {
             </div>
           </TabsContent>
 
-          {/* TAB 2 — Parcelas */}
-          <TabsContent value="parcelas" className="mt-4">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-slate-600">Filtrar por status:</label>
-                <Select
-                  value={filtroParcela}
-                  onValueChange={v => setFiltroParcela(v ?? 'todos')}
-                >
-                  <SelectTrigger className="w-44">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos</SelectItem>
-                    <SelectItem value="pendente">Pendente</SelectItem>
-                    <SelectItem value="pago">Pago</SelectItem>
-                    <SelectItem value="atrasado">Atrasado</SelectItem>
-                    <SelectItem value="renegociado">Renegociado</SelectItem>
-                    <SelectItem value="cancelado">Cancelado</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-xs text-slate-400 ml-auto">
-                  {parcelasFiltradas.length} parcela{parcelasFiltradas.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-              <DataTable
-                columns={colsParcelas}
-                data={parcelasFiltradas}
-                keyExtractor={r => r.id}
-                emptyMessage="Nenhuma parcela encontrada."
-                perPage={15}
-              />
-            </div>
-          </TabsContent>
-
-          {/* TAB 3 — Pagamentos */}
+          {/* TAB 2 — Pagamentos */}
           <TabsContent value="pagamentos" className="mt-4">
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
               {pagamentos.length === 0 ? (
@@ -1192,29 +1146,7 @@ export default function ClientePerfilPage() {
             </div>
           </TabsContent>
 
-          {/* TAB 4 — Atrasos */}
-          <TabsContent value="atrasos" className="mt-4">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-              {parcelasAtrasadas.length > 0 && (
-                <div className="mb-4 p-3 bg-red-50 rounded-lg border border-red-200 flex items-center gap-2">
-                  <AlertTriangle size={16} className="text-red-600 shrink-0" />
-                  <span className="text-sm text-red-700 font-medium">
-                    {parcelasAtrasadas.length} parcela{parcelasAtrasadas.length !== 1 ? 's' : ''} em atraso
-                    {' — '}Total: {formatarMoeda(emAtraso)}
-                  </span>
-                </div>
-              )}
-              <DataTable
-                columns={colsAtrasos}
-                data={parcelasAtrasadas}
-                keyExtractor={r => r.id}
-                emptyMessage="Nenhuma parcela em atraso."
-                perPage={15}
-              />
-            </div>
-          </TabsContent>
-
-          {/* TAB 5 — Dados Cadastrais */}
+          {/* TAB 3 — Dados */}
           <TabsContent value="dados" className="mt-4">
             <div className="space-y-6">
 

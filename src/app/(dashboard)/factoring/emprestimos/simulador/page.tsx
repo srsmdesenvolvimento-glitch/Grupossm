@@ -232,6 +232,18 @@ export default function SimuladorPage() {
                   perPage={12}
                 />
               </div>
+
+              <Button
+                size="lg"
+                className="w-full gap-2 text-white font-semibold"
+                style={{ backgroundColor: '#1E5AA8' }}
+                onClick={() => router.push(
+                  `/factoring/emprestimos/novo?valor=${valor}&parcelas=${parcelas}&taxa=${taxa}&tipo=${tipoAmort}&venc=${dataVenc}`
+                )}
+              >
+                Contratar Agora
+                <ArrowRight size={18} />
+              </Button>
             </>
           )}
         </div>

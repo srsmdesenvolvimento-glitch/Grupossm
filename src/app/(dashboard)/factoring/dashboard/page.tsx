@@ -451,8 +451,8 @@ export default function FactoringDashboard() {
           />
           <StatCard
             titulo="Novos Contratos no Mês"
-            valor={`${d.novosEmprestimosMesCount} contrato${d.novosEmprestimosMesCount !== 1 ? 's' : ''}`}
-            subtitulo={formatarMoeda(d.novosEmprestimosMesValor) + ' liberados'}
+            valor={formatarMoeda(d.novosEmprestimosMesValor)}
+            subtitulo={`${d.novosEmprestimosMesCount} contrato${d.novosEmprestimosMesCount !== 1 ? 's' : ''} liberados no mês`}
             icone={TrendingUp}
             corIcone="#1E5AA8"
             corFundo="#EDF4FE"

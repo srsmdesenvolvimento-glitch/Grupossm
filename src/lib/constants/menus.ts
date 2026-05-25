@@ -80,7 +80,7 @@ export const MENU_FACTORING: MenuItem[] = [
     subitems: [
       { label: 'Novo Empréstimo', href: '/factoring/emprestimos/novo', icon: 'Plus' },
       { label: 'Simulador', href: '/factoring/emprestimos/simulador', icon: 'Calculator' },
-      { label: 'Contratos', href: '/factoring/emprestimos', icon: 'FileText' },
+      { label: 'Ver Todos', href: '/factoring/emprestimos', icon: 'FileText' },
     ],
   },
   {
@@ -88,10 +88,10 @@ export const MENU_FACTORING: MenuItem[] = [
     href: '/factoring/parcelas',
     icon: 'CalendarDays',
     subitems: [
-      { label: 'Lançar Pagamento', href: '/factoring/parcelas/pagamento', icon: 'CheckCircle' },
+      { label: 'Receber Parcela', href: '/factoring/parcelas/pagamento', icon: 'CheckCircle' },
       { label: 'Todas as Parcelas', href: '/factoring/parcelas', icon: 'List' },
       { label: 'Inadimplentes', href: '/factoring/parcelas/inadimplentes', icon: 'AlertTriangle' },
-      { label: 'Todos que Devem', href: '/factoring/parcelas/devendo', icon: 'AlertCircle' },
+      { label: 'Devedores', href: '/factoring/parcelas/devendo', icon: 'AlertCircle' },
     ],
   },
   {

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
+import { useFactoringCounts } from '@/hooks/useFactoringCounts'
 import type { TipoEmpresa } from '@/lib/types/database'
 import type { MenuItem } from '@/lib/constants/menus'
 
@@ -72,11 +73,18 @@ const EMPRESA_CONFIG = {
   },
 }
 
+// badge counts keyed by route href
+const BADGE_ROUTES_FACTORING: Record<string, 'inadimplentes' | 'vencendoHoje'> = {
+  '/factoring/parcelas/inadimplentes': 'inadimplentes',
+  '/factoring/parcelas/pagamento': 'vencendoHoje',
+}
+
 export function Sidebar({ empresa, menu, onClose }: SidebarProps) {
   const pathname = usePathname()
   const cfg = EMPRESA_CONFIG[empresa]
   const shouldReduceMotion = useReducedMotion()
   const { perfil, user } = useAuth()
+  const counts = useFactoringCounts(empresa === 'factoring')
 
   const defaultOpen = menu
     .filter(item => item.subitems?.some(s => pathname.startsWith(s.href)))
@@ -180,6 +188,12 @@ export function Sidebar({ empresa, menu, onClose }: SidebarProps) {
                     {ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}
                   </span>
                   <span className="flex-1 text-left font-medium">{item.label}</span>
+                  {/* Badge for "Parcelas" group showing inadimplentes count */}
+                  {empresa === 'factoring' && item.href === '/factoring/parcelas' && counts.inadimplentes > 0 && (
+                    <span className="shrink-0 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1 mr-1">
+                      {counts.inadimplentes > 99 ? '99+' : counts.inadimplentes}
+                    </span>
+                  )}
                   <motion.span
                     animate={shouldReduceMotion ? {} : { rotate: isOpen ? 180 : 0 }}
                     transition={{ duration: 0.2 }}
@@ -218,7 +232,21 @@ export function Sidebar({ empresa, menu, onClose }: SidebarProps) {
                               {ICON_MAP[sub.icon] && (
                                 <span className="opacity-70 shrink-0">{ICON_MAP[sub.icon]}</span>
                               )}
-                              <span>{sub.label}</span>
+                              <span className="flex-1">{sub.label}</span>
+                              {empresa === 'factoring' && BADGE_ROUTES_FACTORING[sub.href] && (() => {
+                                const key = BADGE_ROUTES_FACTORING[sub.href]
+                                const n = counts[key]
+                                if (!n) return null
+                                const isRed = key === 'inadimplentes'
+                                return (
+                                  <span
+                                    className="shrink-0 min-w-[18px] h-[18px] rounded-full text-white text-[10px] font-bold flex items-center justify-center px-1"
+                                    style={{ backgroundColor: isRed ? '#ef4444' : '#d97706' }}
+                                  >
+                                    {n > 99 ? '99+' : n}
+                                  </span>
+                                )
+                              })()}
                             </Link>
                           )
                         })}
