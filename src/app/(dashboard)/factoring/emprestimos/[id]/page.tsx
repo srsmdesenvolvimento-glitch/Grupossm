@@ -72,9 +72,22 @@ export default function EmprestimoDetalhePage() {
   const [pagValorParcial, setPagValorParcial] = useState('')
   const [pagValorRecebido, setPagValorRecebido] = useState('')
   const [pagando, setPagando] = useState(false)
+  const [partialOption, setPartialOption] = useState<'proxima' | 'diluir' | 'extra'>('proxima')
+  const [partialDueDate, setPartialDueDate] = useState('')
 
   async function handleGerarRecibo(p: ParcelaEmprestimo) {
     if (!cliente || !emprestimo) return
+    
+    // Calculate total paid/pending parcelas
+    const totalPagas = parcelas.filter(x => x.status === 'pago').length
+    const totalRestantes = parcelas.filter(x => ['pendente', 'atrasado'].includes(x.status)).length
+    
+    // Calculate delay days
+    const dataVenc = new Date(p.data_vencimento + 'T12:00:00')
+    const dataPag = p.data_pagamento ? new Date(p.data_pagamento + 'T12:00:00') : new Date()
+    const diffTime = dataPag.getTime() - dataVenc.getTime()
+    const diasAtraso = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)))
+    
     await gerarReciboParcela({
       parcela: {
         numero_parcela: p.numero_parcela,
@@ -84,6 +97,13 @@ export default function EmprestimoDetalhePage() {
         valor: p.valor,
         valor_pago: p.valor_pago ?? 0,
         tipo_pagamento: p.tipo_pagamento ?? 'pix',
+        multa: p.multa ?? 0,
+        juros_mora: p.juros_mora ?? 0,
+        dias_atraso: diasAtraso > 0 ? diasAtraso : undefined,
+        saldo_devedor_parcela: Math.round(Math.max(0, p.valor - (p.valor_pago ?? 0)) * 100) / 100,
+        saldo_devedor_total: Math.round(Math.max(0, emprestimo.saldo_devedor) * 100) / 100,
+        total_parcelas_pagas: totalPagas,
+        total_parcelas_restantes: totalRestantes,
       },
       cliente: { nome: cliente.nome, cpf: cliente.cpf ?? null, telefone: cliente.telefone },
       contrato: { numero_contrato: emprestimo.numero_contrato },
@@ -195,6 +215,16 @@ export default function EmprestimoDetalhePage() {
     setPagTipoDesc('R$')
     setPagValorParcial('')
     setPagValorRecebido('')
+    setPartialOption('proxima')
+    try {
+      const d = new Date(p.data_vencimento + 'T12:00:00')
+      d.setMonth(d.getMonth() + 1)
+      setPartialDueDate(d.toISOString().split('T')[0])
+    } catch {
+      const d = new Date()
+      d.setMonth(d.getMonth() + 1)
+      setPartialDueDate(d.toISOString().split('T')[0])
+    }
   }
 
   async function confirmarPagamentoParcela() {
@@ -213,44 +243,107 @@ export default function EmprestimoDetalhePage() {
     try {
       if (valorFinal < subtotal - 0.009) {
         const restante = Math.round((subtotal - valorFinal) * 100) / 100
+        
+        // 1. Mark current installment as paid with partial amount
         await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
-        // Transfer remainder to the next pending parcel
-        const { data: proximas } = await supabase
-          .from('parcelas_emprestimo')
-          .select('id, valor, numero_parcela')
-          .eq('emprestimo_id', emprestimo.id)
-          .eq('empresa_id', empresaAtual.id)
-          .in('status', ['pendente', 'atrasado'])
-          .order('numero_parcela')
-          .limit(1)
-        const proxima = proximas?.[0]
-        if (proxima) {
-          const { error: errProxima } = await supabase.from('parcelas_emprestimo')
-            .update({ valor: Math.round((proxima.valor + restante) * 100) / 100 })
-            .eq('id', proxima.id)
+        
+        // Organize remaining balance according to option chosen
+        if (partialOption === 'proxima') {
+          // Transfer remainder to the next pending parcel
+          const { data: proximas } = await supabase
+            .from('parcelas_emprestimo')
+            .select('id, valor, numero_parcela')
+            .eq('emprestimo_id', emprestimo.id)
             .eq('empresa_id', empresaAtual.id)
-          if (errProxima) {
-            toast.error(`Saldo de ${formatarMoeda(restante)} não pôde ser somado à parcela ${proxima.numero_parcela}.`)
+            .in('status', ['pendente', 'atrasado'])
+            .order('numero_parcela')
+            .limit(1)
+          const proxima = proximas?.[0]
+          if (proxima) {
+            const { error: errProxima } = await supabase.from('parcelas_emprestimo')
+              .update({ valor: Math.round((proxima.valor + restante) * 100) / 100 })
+              .eq('id', proxima.id)
+              .eq('empresa_id', empresaAtual.id)
+            if (errProxima) {
+              toast.error(`Saldo de ${formatarMoeda(restante)} não pôde ser somado à parcela ${proxima.numero_parcela}.`)
+            } else {
+              toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} somado à parcela ${proxima.numero_parcela}.`)
+            }
           } else {
-            toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} somado à parcela ${proxima.numero_parcela}.`)
+            // Last parcel — fallback: create a new one with next month date
+            const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+            const maxNum = Math.max(...(todas?.map(x => x.numero_parcela) ?? [0]))
+            const novoVenc = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
+            await supabase.from('parcelas_emprestimo').insert({
+              empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
+              numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
+              valor: restante, valor_principal: restante, valor_juros: 0,
+              saldo_devedor_antes: restante, saldo_devedor_apos: 0,
+              valor_pago: null, data_vencimento: novoVenc, data_pagamento: null, tipo_pagamento: null,
+              multa: 0, juros_mora: 0, status: 'pendente',
+              observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
+            })
+            toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} criado como nova parcela.`)
           }
-        } else {
-          // Last parcel — create a new one with next month date
+        } else if (partialOption === 'diluir') {
+          // Dilute remainder among other pending/atrasado parcelas
+          const { data: restantes } = await supabase
+            .from('parcelas_emprestimo')
+            .select('id, valor, numero_parcela')
+            .eq('emprestimo_id', emprestimo.id)
+            .eq('empresa_id', empresaAtual.id)
+            .in('status', ['pendente', 'atrasado'])
+            .order('numero_parcela')
+          
+          // filter out the current one since it is now paid
+          const parcelasParaDiluir = (restantes ?? []).filter(p => p.id !== pagarParcela.id)
+          
+          if (parcelasParaDiluir.length > 0) {
+            const valorDiluido = Math.round((restante / parcelasParaDiluir.length) * 100) / 100
+            
+            const updates = parcelasParaDiluir.map(p => 
+              supabase.from('parcelas_emprestimo')
+                .update({ valor: Math.round((p.valor + valorDiluido) * 100) / 100 })
+                .eq('id', p.id)
+                .eq('empresa_id', empresaAtual.id)
+            )
+            await Promise.all(updates)
+            toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} diluído entre as outras ${parcelasParaDiluir.length} parcelas (+${formatarMoeda(valorDiluido)} cada).`)
+          } else {
+            // No other pending installments — fallback: create a new one
+            const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+            const maxNum = Math.max(...(todas?.map(x => x.numero_parcela) ?? [0]))
+            const novoVenc = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
+            await supabase.from('parcelas_emprestimo').insert({
+              empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
+              numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
+              valor: restante, valor_principal: restante, valor_juros: 0,
+              saldo_devedor_antes: restante, saldo_devedor_apos: 0,
+              valor_pago: null, data_vencimento: novoVenc, data_pagamento: null, tipo_pagamento: null,
+              multa: 0, juros_mora: 0, status: 'pendente',
+              observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
+            })
+            toast.success(`${formatarMoeda(valorFinal)} registrado! Sem outras parcelas pendentes para diluir, saldo de ${formatarMoeda(restante)} criado como nova parcela.`)
+          }
+        } else if (partialOption === 'extra') {
+          // Create custom extra installment
+          const venc = partialDueDate || (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
           const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
           const maxNum = Math.max(...(todas?.map(x => x.numero_parcela) ?? [0]))
-          const novoVenc = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
+          
           await supabase.from('parcelas_emprestimo').insert({
             empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
             numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
             valor: restante, valor_principal: restante, valor_juros: 0,
             saldo_devedor_antes: restante, saldo_devedor_apos: 0,
-            valor_pago: null, data_vencimento: novoVenc, data_pagamento: null, tipo_pagamento: null,
+            valor_pago: null, data_vencimento: venc, data_pagamento: null, tipo_pagamento: null,
             multa: 0, juros_mora: 0, status: 'pendente',
             observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
           })
-          toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} criado como nova parcela.`)
+          toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} criado como nova parcela extra com vencimento em ${formatarData(venc)}.`)
         }
       } else {
+        // Full payment
         await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
         const { data: restantes } = await supabase.from('parcelas_emprestimo').select('id').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id).in('status', ['pendente', 'atrasado'])
         if (!restantes?.length) {
@@ -258,6 +351,11 @@ export default function EmprestimoDetalhePage() {
         }
         toast.success(`${formatarMoeda(valorFinal)} registrado com sucesso!`)
       }
+
+      // Decrement Outstanding Balance
+      const novoSaldoDevedor = Math.round(Math.max(0, (emprestimo.saldo_devedor ?? 0) - valorFinal) * 100) / 100
+      await supabase.from('emprestimos').update({ saldo_devedor: novoSaldoDevedor }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+
       await supabase.from('movimentacoes_caixa').insert({
         empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'pagamento_parcela',
         descricao: `Pagamento parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — ${cliente?.nome ?? ''}`,
@@ -842,6 +940,83 @@ export default function EmprestimoDetalhePage() {
                         className="h-11 pl-8 pr-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg text-sm font-bold text-foreground"
                       />
                     </div>
+                  </div>
+                )}
+
+                {/* Organização do Saldo Restante */}
+                {isParcial && (
+                  <div className="border border-[#FA903E]/20 bg-[#FFF7ED]/30 rounded-xl p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="flex items-center justify-between border-b border-[#FA903E]/10 pb-2">
+                      <span className="text-xs font-bold text-[#FA903E] uppercase tracking-wider">Saldo Remanescente</span>
+                      <span className="text-sm font-black text-[#FA903E]">{formatarMoeda(restante)}</span>
+                    </div>
+                    
+                    <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">Como organizar este saldo?</Label>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPartialOption('proxima')}
+                        className={cn(
+                          'flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-bold transition-all gap-1 focus:outline-none h-14',
+                          partialOption === 'proxima'
+                            ? 'border-[#FA903E] bg-[#FFF7ED] text-[#FA903E] shadow-sm'
+                            : 'border-border bg-card text-muted-foreground hover:bg-muted/30'
+                        )}
+                      >
+                        <span className="text-center leading-tight">Somar à Próxima</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPartialOption('diluir')}
+                        className={cn(
+                          'flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-bold transition-all gap-1 focus:outline-none h-14',
+                          partialOption === 'diluir'
+                            ? 'border-[#FA903E] bg-[#FFF7ED] text-[#FA903E] shadow-sm'
+                            : 'border-border bg-card text-muted-foreground hover:bg-muted/30'
+                        )}
+                      >
+                        <span className="text-center leading-tight">Diluir Restantes</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPartialOption('extra')}
+                        className={cn(
+                          'flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-bold transition-all gap-1 focus:outline-none h-14',
+                          partialOption === 'extra'
+                            ? 'border-[#FA903E] bg-[#FFF7ED] text-[#FA903E] shadow-sm'
+                            : 'border-border bg-card text-muted-foreground hover:bg-muted/30'
+                        )}
+                      >
+                        <span className="text-center leading-tight">Parcela Extra</span>
+                      </button>
+                    </div>
+
+                    {/* Explicações da opção */}
+                    <div className="text-[10px] text-muted-foreground/80 leading-relaxed font-medium bg-muted/20 p-2 rounded-lg">
+                      {partialOption === 'proxima' && (
+                        <span>O saldo de {formatarMoeda(restante)} será integralmente somado ao valor da próxima parcela a vencer.</span>
+                      )}
+                      {partialOption === 'diluir' && (
+                        <span>O saldo de {formatarMoeda(restante)} será dividido igualmente e somado em todas as parcelas restantes em aberto.</span>
+                      )}
+                      {partialOption === 'extra' && (
+                        <span>Será criada uma nova parcela avulsa com o valor de {formatarMoeda(restante)} para a data de vencimento escolhida abaixo.</span>
+                      )}
+                    </div>
+
+                    {/* Vencimento da Parcela Extra */}
+                    {partialOption === 'extra' && (
+                      <div className="space-y-1.5 pt-1.5 border-t border-border/30">
+                        <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Vencimento da Parcela Extra</Label>
+                        <Input
+                          type="date"
+                          value={partialDueDate}
+                          onChange={e => setPartialDueDate(e.target.value)}
+                          className="h-9 focus-visible:ring-1 focus-visible:ring-[#FA903E] focus-visible:border-[#FA903E] rounded-lg text-xs font-semibold"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
 
