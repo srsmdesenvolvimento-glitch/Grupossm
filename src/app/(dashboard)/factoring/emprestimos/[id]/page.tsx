@@ -1009,45 +1009,41 @@ export default function EmprestimoDetalhePage() {
                     </div>
 
                     {/* Juros sobre saldo remanescente — só para "Somar à Próxima" */}
-                    {partialOption === 'proxima' && (() => {
-                      const jurosPct = Number(partialJurosPct) || 0
-                      const restanteComJuros = Math.round(restante * (1 + jurosPct / 100) * 100) / 100
-                      return (
-                        <div className="space-y-2 pt-2 border-t border-[#FA903E]/15">
-                          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                            Juros sobre o saldo remanescente (opcional)
-                          </Label>
-                          <div className="relative flex items-center">
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.1"
-                              placeholder="0"
-                              value={partialJurosPct}
-                              onChange={e => setPartialJurosPct(e.target.value)}
-                              className="h-9 pr-8 focus-visible:ring-1 focus-visible:ring-[#FA903E] focus-visible:border-[#FA903E] rounded-lg text-sm font-semibold"
-                            />
-                            <span className="absolute right-3 text-xs font-bold text-muted-foreground/60">%</span>
-                          </div>
-                          {jurosPct > 0 && (
-                            <div className="rounded-lg bg-[#FA903E]/8 border border-[#FA903E]/20 p-2.5 space-y-1 text-[11px] font-semibold">
-                              <div className="flex justify-between text-muted-foreground">
-                                <span>Saldo restante</span>
-                                <span>{formatarMoeda(restante)}</span>
-                              </div>
-                              <div className="flex justify-between text-[#FA903E]">
-                                <span>+ {jurosPct}% juros</span>
-                                <span>+ {formatarMoeda(restanteComJuros - restante)}</span>
-                              </div>
-                              <div className="flex justify-between text-foreground font-black border-t border-[#FA903E]/15 pt-1">
-                                <span>Valor que vai para a próxima</span>
-                                <span>{formatarMoeda(restanteComJuros)}</span>
-                              </div>
-                            </div>
-                          )}
+                    {partialOption === 'proxima' && (
+                      <div className="space-y-2 pt-2 border-t border-[#FA903E]/20">
+                        <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                          Juros sobre o saldo remanescente (opcional)
+                        </Label>
+                        <div className="relative flex items-center">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            placeholder="0"
+                            value={partialJurosPct}
+                            onChange={e => setPartialJurosPct(e.target.value)}
+                            className="h-9 pr-8 focus-visible:ring-1 focus-visible:ring-[#FA903E] focus-visible:border-[#FA903E] rounded-lg text-sm font-semibold"
+                          />
+                          <span className="absolute right-3 text-xs font-bold text-muted-foreground/60">%</span>
                         </div>
-                      )
-                    })()}
+                        {Number(partialJurosPct) > 0 && (
+                          <div className="rounded-lg border border-[#FA903E]/25 bg-orange-50/50 dark:bg-orange-950/10 p-2.5 space-y-1 text-[11px] font-semibold">
+                            <div className="flex justify-between text-muted-foreground">
+                              <span>Saldo restante</span>
+                              <span>{formatarMoeda(restante)}</span>
+                            </div>
+                            <div className="flex justify-between text-[#FA903E]">
+                              <span>+ {Number(partialJurosPct)}% juros</span>
+                              <span>+ {formatarMoeda(Math.round(restante * (Number(partialJurosPct) / 100) * 100) / 100)}</span>
+                            </div>
+                            <div className="flex justify-between text-foreground font-black border-t border-[#FA903E]/20 pt-1.5">
+                              <span>Vai para a próxima parcela</span>
+                              <span className="text-[#FA903E]">{formatarMoeda(Math.round(restante * (1 + Number(partialJurosPct) / 100) * 100) / 100)}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Vencimento da Parcela Extra */}
                     {partialOption === 'extra' && (
