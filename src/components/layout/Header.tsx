@@ -1,6 +1,6 @@
 'use client'
 
-import { Menu, LogOut, User, ChevronDown, Building2, Search } from 'lucide-react'
+import { Menu, LogOut, User, ChevronDown, Building2, Search, ChevronRight } from 'lucide-react'
 import { NotificationsBell } from './NotificationsBell'
 import { CommandPalette } from './CommandPalette'
 import { ThemeToggle } from './ThemeToggle'
@@ -82,10 +82,7 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
   const outrasEmpresas = empresas.filter(e => e.id !== empresaAtual?.id)
 
   return (
-    <header
-      className="h-16 bg-background flex items-center justify-between px-4 lg:px-6 shrink-0"
-      style={{ borderBottom: `2px solid ${cfg.primary}` }}
-    >
+    <header className="h-14 bg-background/95 backdrop-blur-sm flex items-center justify-between px-4 lg:px-6 shrink-0 border-b border-border/60 shadow-[0_1px_0_rgba(0,0,0,0.04)]">
       {/* Left: hamburger + breadcrumb */}
       <div className="flex items-center gap-3 min-w-0 overflow-hidden">
         <button
@@ -93,18 +90,26 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
           className="lg:hidden p-2 rounded-lg hover:bg-accent transition-colors shrink-0"
           aria-label="Abrir menu"
         >
-          <Menu size={20} className="text-muted-foreground" />
+          <Menu size={18} className="text-muted-foreground" />
         </button>
 
-        <nav className="flex items-center gap-1 text-sm min-w-0" aria-label="Breadcrumb">
+        {/* Accent dot */}
+        <div
+          className="hidden lg:block w-1.5 h-1.5 rounded-full shrink-0"
+          style={{ backgroundColor: cfg.primary }}
+        />
+
+        <nav className="flex items-center gap-0.5 text-sm min-w-0" aria-label="Breadcrumb">
           {breadcrumbs.map((crumb, i) => (
-            <span key={crumb.href} className="flex items-center gap-1 shrink-0">
-              {i > 0 && <span className="text-border select-none">/</span>}
+            <span key={crumb.href} className="flex items-center gap-0.5 shrink-0">
+              {i > 0 && (
+                <ChevronRight size={13} className="text-muted-foreground/40 shrink-0 mx-0.5" />
+              )}
               <span
                 className={
                   crumb.isLast
-                    ? 'font-semibold text-foreground max-w-[160px] truncate'
-                    : 'text-muted-foreground max-w-[80px] truncate'
+                    ? 'font-semibold text-foreground max-w-[180px] truncate text-sm'
+                    : 'text-muted-foreground/60 max-w-[80px] truncate text-sm hover:text-muted-foreground transition-colors'
                 }
                 title={crumb.label}
               >

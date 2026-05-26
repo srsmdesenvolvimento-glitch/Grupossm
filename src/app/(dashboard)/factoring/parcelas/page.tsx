@@ -2,18 +2,18 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, CheckCircle2, Clock, TrendingDown, Download } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, TrendingDown, Download, CalendarDays, CreditCard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
 import { StatCard } from '@/components/shared/StatCard'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { Button } from '@/components/ui/button'
 import { formatarMoeda, formatarData, formatarCPF } from '@/lib/utils/formatters'
 import type { ParcelaEmprestimo } from '@/lib/types/database'
-import { PageHelp } from '@/components/shared/PageHelp'
 import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
 
@@ -32,11 +32,13 @@ const STATUS_STYLE: Record<string, { color: string; bg: string; label: string }>
 }
 
 const TABS = [
-  { key: 'todos',     label: 'Todas' },
-  { key: 'pendente',  label: 'Pendentes' },
-  { key: 'atrasado',  label: 'Atrasadas' },
-  { key: 'pago',      label: 'Pagas' },
-  { key: 'cancelado', label: 'Canceladas' },
+  { key: 'todos',      label: 'Todas' },
+  { key: 'pendente',   label: 'Pendentes' },
+  { key: 'atrasado',   label: 'Atrasadas' },
+  { key: 'hoje',       label: 'Vencem Hoje' },
+  { key: 'proximos7',  label: 'Próx. 7 dias' },
+  { key: 'pago',       label: 'Pagas' },
+  { key: 'cancelado',  label: 'Canceladas' },
 ]
 
 export default function ParcelasPage() {
@@ -90,7 +92,9 @@ export default function ParcelasPage() {
   useEffect(() => { carregarDados() }, [carregarDados])
 
   const agora = new Date()
-  const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1).toISOString().split('T')[0]
+  const hojeStr = agora.toISOString().split('T')[0]
+  const em7Dias = new Date(agora); em7Dias.setDate(em7Dias.getDate() + 7)
+  const em7DiasStr = em7Dias.toISOString().split('T')[0]
 
   const totalEmAberto = parcelas
     .filter(p => p.status === 'pendente' || p.status === 'atrasado')
@@ -100,13 +104,12 @@ export default function ParcelasPage() {
     .filter(p => p.status === 'atrasado')
     .reduce((s, p) => s + p.valor + p.multa + p.juros_mora - (p.valor_pago ?? 0), 0)
 
-  const totalPagoMes = parcelas
-    .filter(p => p.status === 'pago' && (p.data_pagamento ?? '') >= inicioMes)
-    .reduce((s, p) => s + (p.valor_pago ?? 0), 0)
-
-  const qtdAtrasadas = parcelas.filter(p => p.status === 'atrasado').length
+  const qtdVencemHoje = parcelas.filter(p => p.status === 'pendente' && p.data_vencimento === hojeStr).length
+  const qtdProximos7 = parcelas.filter(p => p.status === 'pendente' && p.data_vencimento > hojeStr && p.data_vencimento <= em7DiasStr).length
 
   const filtradas = parcelas.filter(p => {
+    if (tab === 'hoje') return p.status === 'pendente' && p.data_vencimento === hojeStr
+    if (tab === 'proximos7') return p.status === 'pendente' && p.data_vencimento > hojeStr && p.data_vencimento <= em7DiasStr
     if (tab !== 'todos' && p.status !== tab) return false
     if (busca) {
       const q = busca.toLowerCase()
@@ -130,21 +133,21 @@ export default function ParcelasPage() {
       header: 'Cliente',
       render: p => (
         <div>
-          <p className="text-sm font-medium text-slate-800">{p.cliente_nome}</p>
-          <p className="text-xs text-slate-400">{p.cliente_cpf ? formatarCPF(p.cliente_cpf) : ''}</p>
+          <p className="text-sm font-medium text-foreground">{p.cliente_nome}</p>
+          <p className="text-xs text-muted-foreground/60">{p.cliente_cpf ? formatarCPF(p.cliente_cpf) : ''}</p>
         </div>
       ),
     },
     {
       key: 'parcela',
       header: 'Parcela',
-      render: p => <span className="tabular-nums text-sm text-slate-600">{p.numero_parcela}/{p.total_parcelas}</span>,
+      render: p => <span className="tabular-nums text-sm text-muted-foreground">{p.numero_parcela}/{p.total_parcelas}</span>,
     },
     {
       key: 'vencimento',
       header: 'Vencimento',
       render: p => (
-        <span className={`tabular-nums text-sm ${p.status === 'atrasado' ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
+        <span className={`tabular-nums text-sm ${p.status === 'atrasado' ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
           {formatarData(p.data_vencimento)}
         </span>
       ),
@@ -156,12 +159,12 @@ export default function ParcelasPage() {
     },
     {
       key: 'mora',
-      header: 'Mora/Multa',
+      header: 'Juros Diários',
       render: p => {
         const mora = p.multa + p.juros_mora
         return mora > 0
           ? <span className="tabular-nums text-sm text-red-600">{formatarMoeda(mora)}</span>
-          : <span className="text-slate-300 text-sm">—</span>
+          : <span className="text-muted-foreground/30 text-sm">—</span>
       },
     },
     {
@@ -183,10 +186,29 @@ export default function ParcelasPage() {
       key: 'pagamento',
       header: 'Pago em',
       render: p => (
-        <span className="tabular-nums text-sm text-slate-500">
+        <span className="tabular-nums text-sm text-muted-foreground">
           {p.data_pagamento ? formatarData(p.data_pagamento) : '—'}
         </span>
       ),
+    },
+    {
+      key: 'acao',
+      header: '',
+      className: 'w-44',
+      render: p => ['pendente', 'atrasado'].includes(p.status) ? (
+        <Button
+          size="sm"
+          className="h-7 text-xs gap-1 text-white"
+          style={{ backgroundColor: '#1E5AA8' }}
+          onClick={e => {
+            e.stopPropagation()
+            router.push(`/factoring/emprestimos/${p.emprestimo_id}?parcela=${p.id}`)
+          }}
+        >
+          <CreditCard size={12} />
+          Registrar Pagamento
+        </Button>
+      ) : null,
     },
   ]
 
@@ -195,46 +217,75 @@ export default function ParcelasPage() {
   return (
     <AppShell empresa="factoring" titulo="Parcelas">
       <div className="space-y-6">
-        <PageHelp
-          storageKey="help.factoring.parcelas.v1"
+        <PageHeader
           titulo="Parcelas"
-          oQueE="Acompanhe todas as parcelas de todos os contratos em um único lugar. Veja o que está pendente, em atraso e o que já foi recebido."
-          passos={[
-            'Use as abas (Todas, Pendentes, Atrasadas, Pagas) para filtrar por status.',
-            'Busque por nome do cliente ou número do contrato.',
-            'Clique em "Lançar Pagamento" para registrar o recebimento de uma parcela.',
-            'Parcelas em vermelho estão vencidas — dê prioridade a elas.',
-          ]}
-          dicas={[
-            'A aba "Atrasadas" mostra apenas o que está vencido e não pago.',
-            'Use o filtro de datas para ver o que vence esta semana.',
-            'Acesse o contrato pelo número para ver o histórico completo.',
-          ]}
+          descricao="Acompanhe e registre pagamentos de parcelas"
+          icone={CreditCard}
         />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard titulo="Em aberto" valor={formatarMoeda(totalEmAberto)} icone={Clock} corIcone="#1E5AA8" />
-          <StatCard titulo="Em atraso" valor={formatarMoeda(totalAtrasado)} icone={AlertTriangle} corIcone="#ef4444" />
-          <StatCard titulo="Recebido este mês" valor={formatarMoeda(totalPagoMes)} icone={CheckCircle2} corIcone="#22c55e" />
-          <StatCard titulo="Parcelas atrasadas" valor={qtdAtrasadas} icone={TrendingDown} corIcone="#f97316" />
+          <StatCard
+            titulo="Total a Receber"
+            valor={formatarMoeda(totalEmAberto)}
+            subtitulo={`${parcelas.filter(p => ['pendente','atrasado'].includes(p.status)).length} parcelas`}
+            icone={Clock}
+            corIcone="#1E5AA8"
+            corFundo="#EDF4FE"
+            ativo={tab === 'pendente'}
+            onClick={() => setTab(tab === 'pendente' ? 'todos' : 'pendente')}
+            atalho={tab === 'pendente' ? 'Filtrando ↑' : 'Ver pendentes →'}
+          />
+          <StatCard
+            titulo="Em Atraso"
+            valor={formatarMoeda(totalAtrasado)}
+            subtitulo={`${parcelas.filter(p => p.status === 'atrasado').length} parcelas`}
+            icone={AlertTriangle}
+            corIcone="#ef4444"
+            corFundo="#FEF2F2"
+            ativo={tab === 'atrasado'}
+            onClick={() => setTab(tab === 'atrasado' ? 'todos' : 'atrasado')}
+            atalho={tab === 'atrasado' ? 'Filtrando ↑' : 'Ver atrasadas →'}
+          />
+          <StatCard
+            titulo="Vencem Hoje"
+            valor={qtdVencemHoje}
+            subtitulo="parcelas"
+            icone={CheckCircle2}
+            corIcone="#D4A528"
+            corFundo="#FEFCE8"
+            ativo={tab === 'hoje'}
+            onClick={() => setTab(tab === 'hoje' ? 'todos' : 'hoje')}
+            atalho={tab === 'hoje' ? 'Filtrando ↑' : 'Ver hoje →'}
+          />
+          <StatCard
+            titulo="Próximos 7 dias"
+            valor={qtdProximos7}
+            subtitulo="vencem esta semana"
+            icone={CalendarDays}
+            corIcone="#7C3AED"
+            corFundo="#F5F3FF"
+            ativo={tab === 'proximos7'}
+            onClick={() => setTab(tab === 'proximos7' ? 'todos' : 'proximos7')}
+            atalho={tab === 'proximos7' ? 'Filtrando ↑' : 'Ver esta semana →'}
+          />
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-5 pt-4 flex gap-1 border-b border-slate-100 overflow-x-auto">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+          <div className="px-5 pt-4 flex gap-1 border-b border-border/60 overflow-x-auto">
             {TABS.map(t => (
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
-                className="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors -mb-px border-b-2 shrink-0"
+                className="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors -mb-px border-b-2 shrink-0 text-muted-foreground"
                 style={tab === t.key
                   ? { color: '#1E5AA8', borderColor: '#1E5AA8' }
-                  : { color: '#64748b', borderColor: 'transparent' }}
+                  : { borderColor: 'transparent' }}
               >
                 {t.label}
               </button>
             ))}
           </div>
 
-          <div className="px-5 py-4 border-b border-slate-50 flex items-center gap-3">
+          <div className="px-5 py-4 border-b border-border/40 flex items-center gap-3">
             <SearchInput
               value={busca}
               onChange={setBusca}
@@ -265,7 +316,7 @@ export default function ParcelasPage() {
                   { key: 'vencimento', label: 'Vencimento' },
                   { key: 'valor', label: 'Valor' },
                   { key: 'multa', label: 'Multa' },
-                  { key: 'juros_mora', label: 'Juros Mora' },
+                  { key: 'juros_mora', label: 'Juros Diários' },
                   { key: 'status', label: 'Status' },
                   { key: 'pago_em', label: 'Pago em' },
                 ])}
@@ -283,6 +334,12 @@ export default function ParcelasPage() {
             emptyMessage="Nenhuma parcela encontrada"
             onRowClick={p => router.push(`/factoring/emprestimos/${p.emprestimo_id}`)}
             perPage={25}
+            rowClassName={p => {
+              if (p.status === 'atrasado') return 'bg-red-50 hover:bg-red-100'
+              if (p.status === 'pago') return 'bg-green-50/60 hover:bg-green-100/60'
+              if (p.status === 'pendente') return 'bg-amber-50/40 hover:bg-amber-100/40'
+              return ''
+            }}
           />
         </div>
       </div>

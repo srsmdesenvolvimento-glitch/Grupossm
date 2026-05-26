@@ -164,9 +164,9 @@ export default function TodosDevemPage() {
           size="sm"
           className="text-white text-xs h-7"
           style={{ backgroundColor: '#1E5AA8' }}
-          onClick={e => { e.stopPropagation(); router.push('/factoring/parcelas/pagamento') }}
+          onClick={e => { e.stopPropagation(); router.push(`/factoring/clientes/${c.id}`) }}
         >
-          Pagar
+          Registrar Pagamento
         </Button>
       ),
     },
@@ -184,7 +184,7 @@ export default function TodosDevemPage() {
           <StatCard titulo="Com atraso" valor={comAtraso} icone={TrendingDown} corIcone="#f97316" />
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200">
+        <div className="bg-card rounded-xl border border-border">
           <div className="px-5 py-4 border-b border-slate-100">
             <SearchInput
               value={busca}

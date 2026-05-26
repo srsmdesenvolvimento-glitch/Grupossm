@@ -582,6 +582,7 @@ export default function ContasPagarFactoringPage() {
           <Button
             size="icon"
             variant="ghost"
+            aria-label="Editar conta"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={(e) => {
               e.stopPropagation()
@@ -594,6 +595,7 @@ export default function ContasPagarFactoringPage() {
             <Button
               size="icon"
               variant="ghost"
+              aria-label="Excluir conta"
               className="h-7 w-7 text-muted-foreground hover:text-red-500"
               onClick={(e) => {
                 e.stopPropagation()

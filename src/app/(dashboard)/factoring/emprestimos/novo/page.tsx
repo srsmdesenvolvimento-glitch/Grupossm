@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Search, User, Settings, Calculator, CheckCircle2, ChevronRight, ChevronLeft,
-  X, Percent,
+  X, Percent, UserPlus,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
@@ -13,7 +13,9 @@ import { DataTable, type Column } from '@/components/shared/DataTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { QuickNovoClienteSheet } from '@/components/factoring/QuickNovoClienteSheet'
 import { formatarMoeda, formatarData, formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
+import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { toast } from 'sonner'
 import type { ClienteFactoring } from '@/lib/types/database'
 
@@ -42,32 +44,12 @@ function calcularPrice(valor: number, taxa: number, n: number, dataInicio: strin
     const principal = parcela - juros
     saldo = Math.max(0, saldo - principal)
     const venc = new Date(base)
-    venc.setMonth(venc.getMonth() + k)
+    venc.setMonth(venc.getMonth() + (k - 1))
     tabela.push({ numero: k, vencimento: venc.toISOString().split('T')[0], principal, juros, parcela, saldo_antes, saldo_apos: saldo })
   }
   return { parcela, total: parcela * n, totalJuros: parcela * n - valor, tabela }
 }
 
-function calcularSAC(valor: number, taxa: number, n: number, dataInicio: string) {
-  if (!valor || !taxa || !n) return { parcela: 0, total: 0, totalJuros: 0, tabela: [] as TabelaLinha[] }
-  const i = taxa / 100
-  const amort = valor / n
-  let saldo = valor
-  let total = 0
-  const base = new Date(dataInicio || new Date().toISOString().split('T')[0])
-  const tabela: TabelaLinha[] = []
-  for (let k = 1; k <= n; k++) {
-    const saldo_antes = saldo
-    const juros = saldo * i
-    const parcela = amort + juros
-    saldo = Math.max(0, saldo - amort)
-    total += parcela
-    const venc = new Date(base)
-    venc.setMonth(venc.getMonth() + k)
-    tabela.push({ numero: k, vencimento: venc.toISOString().split('T')[0], principal: amort, juros, parcela, saldo_antes, saldo_apos: saldo })
-  }
-  return { parcela: tabela[0]?.parcela ?? 0, total, totalJuros: total - valor, tabela }
-}
 
 const defaultVenc = (() => {
   const d = new Date()
@@ -82,12 +64,15 @@ const STEPS = [
   { label: 'Confirmar', icon: CheckCircle2 },
 ]
 
+// ── Página principal ─────────────────────────────────────────────────────────
 export default function NovoEmprestimoPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { empresaAtual } = useEmpresa()
   const supabase = createClient()
 
   const [step, setStep] = useState(1)
+  const [quickSheetOpen, setQuickSheetOpen] = useState(false)
 
   // Step 1
   const [busca, setBusca] = useState('')
@@ -100,7 +85,6 @@ export default function NovoEmprestimoPage() {
   const [valor, setValor] = useState('')
   const [taxa, setTaxa] = useState('3')
   const [numParcelas, setNumParcelas] = useState('1')
-  const [tipoJuros, setTipoJuros] = useState<'price' | 'sac'>('price')
   const [dataVenc, setDataVenc] = useState(defaultVenc)
   const [garantias, setGarantias] = useState('')
   const [observacoes, setObservacoes] = useState('')
@@ -129,13 +113,15 @@ export default function NovoEmprestimoPage() {
   }, [empresaAtual, supabase])
 
   useEffect(() => {
+    if (cliente) return
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => buscarClientes(busca), 300)
-  }, [busca, buscarClientes])
+  }, [busca, buscarClientes, cliente])
 
-  // Load default taxa from config_factoring
   useEffect(() => {
     if (!empresaAtual) return
+    const taxaParam = searchParams.get('taxa')
+    if (taxaParam) return // URL param takes priority over config default
     supabase
       .from('config_factoring')
       .select('taxa_juros_padrao')
@@ -144,7 +130,19 @@ export default function NovoEmprestimoPage() {
       .then(({ data }) => {
         if (data?.taxa_juros_padrao) setTaxa(String(data.taxa_juros_padrao))
       })
-  }, [empresaAtual, supabase])
+  }, [empresaAtual, supabase]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pre-fill from simulator URL params
+  useEffect(() => {
+    const valorParam = searchParams.get('valor')
+    const parcelasParam = searchParams.get('parcelas')
+    const taxaParam = searchParams.get('taxa')
+    const vencParam = searchParams.get('venc')
+    if (valorParam) setValor(valorParam)
+    if (parcelasParam) setNumParcelas(parcelasParam)
+    if (taxaParam) setTaxa(taxaParam)
+    if (vencParam) setDataVenc(vencParam)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -154,16 +152,36 @@ export default function NovoEmprestimoPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // Pré-seleciona cliente quando vindo de clientes/novo via ?cliente_id=
+  useEffect(() => {
+    const clienteId = searchParams.get('cliente_id')
+    if (!clienteId || !empresaAtual || cliente) return
+    supabase
+      .from('clientes_factoring')
+      .select('id, nome, cpf, telefone, limite_credito, credito_disponivel, score_interno')
+      .eq('id', clienteId)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setCliente(data as ClienteSumario)
+          setBusca(data.nome)
+        }
+      })
+  }, [searchParams, empresaAtual]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleClienteCriado = (c: ClienteSumario) => {
+    setCliente(c)
+    setBusca(c.nome)
+  }
+
   const valorNum = Number(valor) || 0
   const taxaNum = Number(taxa) || 0
   const parcelasNum = Number(numParcelas) || 0
 
   const resultado = useMemo(() => {
     if (!valorNum || !taxaNum || !parcelasNum) return null
-    return tipoJuros === 'price'
-      ? calcularPrice(valorNum, taxaNum, parcelasNum, dataVenc)
-      : calcularSAC(valorNum, taxaNum, parcelasNum, dataVenc)
-  }, [valorNum, taxaNum, parcelasNum, tipoJuros, dataVenc])
+    return calcularPrice(valorNum, taxaNum, parcelasNum, dataVenc)
+  }, [valorNum, taxaNum, parcelasNum, dataVenc])
 
   const tabelaColumns: Column<TabelaLinha>[] = [
     { key: 'numero', header: 'Nº', render: r => <span className="text-slate-400 tabular-nums">{r.numero}</span> },
@@ -171,7 +189,7 @@ export default function NovoEmprestimoPage() {
     { key: 'principal', header: 'Principal', render: r => <span className="tabular-nums">{formatarMoeda(r.principal)}</span> },
     { key: 'juros', header: 'Juros', render: r => <span className="tabular-nums text-orange-600">{formatarMoeda(r.juros)}</span> },
     { key: 'parcela', header: 'Parcela', render: r => <span className="tabular-nums font-semibold">{formatarMoeda(r.parcela)}</span> },
-    { key: 'saldo', header: 'Saldo', render: r => <span className="tabular-nums text-slate-400">{formatarMoeda(r.saldo_apos)}</span> },
+    { key: 'saldo', header: 'Saldo Devedor', render: r => <span className="tabular-nums text-slate-400">{formatarMoeda(r.saldo_apos)}</span> },
   ]
 
   const avancar = () => {
@@ -269,16 +287,18 @@ export default function NovoEmprestimoPage() {
         data_movimentacao: hoje,
       })
 
+      const creditoDisponivel = cliente.credito_disponivel ?? cliente.limite_credito
       await supabase.from('clientes_factoring').update({
-        credito_utilizado: (cliente.limite_credito - cliente.credito_disponivel) + valorNum,
+        credito_utilizado: (cliente.limite_credito - creditoDisponivel) + valorNum,
         ultima_operacao: hoje,
         total_emprestimos: undefined,
       }).eq('id', cliente.id)
 
       toast.success(`Contrato ${numero_contrato} criado com sucesso!`)
       router.push(`/factoring/emprestimos/${empId}`)
-    } catch {
-      toast.error('Erro ao criar empréstimo')
+    } catch (err) {
+      logError('liberarEmprestimo', err)
+      toast.error(parseSupabaseError(err, 'Erro ao criar empréstimo'))
     } finally {
       setSalvando(false)
     }
@@ -288,7 +308,7 @@ export default function NovoEmprestimoPage() {
     <AppShell empresa="factoring" titulo="Novo Empréstimo">
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Step indicator */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="bg-card rounded-xl border border-border p-5">
           <div className="flex items-center">
             {STEPS.map((s, i) => {
               const num = i + 1
@@ -323,8 +343,21 @@ export default function NovoEmprestimoPage() {
 
         {/* Step 1: Cliente */}
         {step === 1 && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-            <h2 className="font-semibold text-slate-800">Selecionar Cliente</h2>
+          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-slate-800">Selecionar Cliente</h2>
+              {!cliente && (
+                <button
+                  onClick={() => setQuickSheetOpen(true)}
+                  className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors hover:bg-blue-50"
+                  style={{ color: '#1E5AA8', borderColor: '#1E5AA8' }}
+                >
+                  <UserPlus size={14} />
+                  Novo Cliente
+                </button>
+              )}
+            </div>
+
             <div ref={wrapperRef} className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
@@ -361,8 +394,23 @@ export default function NovoEmprestimoPage() {
                   ))}
                 </div>
               )}
+
+              {/* Hint "não achou?" */}
+              {busca.length >= 2 && resultados.length === 0 && !buscando && (
+                <div className="mt-2 flex items-center justify-between rounded-lg border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500">
+                  <span>Nenhum cliente encontrado para &quot;{busca}&quot;</span>
+                  <button
+                    onClick={() => setQuickSheetOpen(true)}
+                    className="ml-3 flex items-center gap-1 font-medium shrink-0"
+                    style={{ color: '#1E5AA8' }}
+                  >
+                    <UserPlus size={14} /> Cadastrar agora
+                  </button>
+                </div>
+              )}
             </div>
 
+            {/* Card do cliente selecionado */}
             {cliente && (
               <div className="rounded-xl border border-blue-200 p-4 space-y-3" style={{ backgroundColor: '#EDF4FE' }}>
                 <div className="flex items-center gap-3">
@@ -378,16 +426,6 @@ export default function NovoEmprestimoPage() {
                     <p className="text-xl font-bold" style={{ color: '#1E5AA8' }}>{cliente.score_interno}</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="bg-white rounded-lg p-3">
-                    <p className="text-xs text-slate-400">Limite total</p>
-                    <p className="font-semibold">{formatarMoeda(cliente.limite_credito)}</p>
-                  </div>
-                  <div className="bg-white rounded-lg p-3">
-                    <p className="text-xs text-slate-400">Disponível</p>
-                    <p className="font-semibold text-green-600">{formatarMoeda(cliente.credito_disponivel)}</p>
-                  </div>
-                </div>
               </div>
             )}
           </div>
@@ -395,7 +433,7 @@ export default function NovoEmprestimoPage() {
 
         {/* Step 2: Condições */}
         {step === 2 && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+          <div className="bg-card rounded-xl border border-border p-6 space-y-5">
             <h2 className="font-semibold text-slate-800">Condições do Empréstimo</h2>
 
             <div className="space-y-1.5">
@@ -426,25 +464,6 @@ export default function NovoEmprestimoPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Tipo de Juros</Label>
-              <div className="flex gap-2">
-                {[{ v: 'price', l: 'Price (Composto)' }, { v: 'sac', l: 'SAC (Decrescente)' }].map(o => (
-                  <button
-                    key={o.v}
-                    type="button"
-                    onClick={() => setTipoJuros(o.v as 'price' | 'sac')}
-                    className="flex-1 py-2 text-sm font-medium rounded-lg border transition-colors"
-                    style={tipoJuros === o.v
-                      ? { backgroundColor: '#1E5AA8', color: '#fff', borderColor: '#1E5AA8' }
-                      : { backgroundColor: '#fff', color: '#475569', borderColor: '#e2e8f0' }}
-                  >
-                    {o.l}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
               <Label>Garantias</Label>
               <Input value={garantias} onChange={e => setGarantias(e.target.value)} placeholder="Descreva as garantias (opcional)" />
             </div>
@@ -466,13 +485,13 @@ export default function NovoEmprestimoPage() {
                 { label: 'Total a Pagar', value: formatarMoeda(resultado.total), color: '#1E5AA8' },
                 { label: 'Taxa Mensal', value: `${taxa}%`, color: '#64748b' },
               ].map(card => (
-                <div key={card.label} className="bg-white rounded-xl border border-slate-200 p-4">
+                <div key={card.label} className="bg-card rounded-xl border border-border p-4">
                   <p className="text-xs text-slate-400 mb-1">{card.label}</p>
                   <p className="text-xl font-bold" style={{ color: card.color }}>{card.value}</p>
                 </div>
               ))}
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100">
                 <h3 className="font-semibold text-slate-800 text-sm">Tabela de Amortização</h3>
               </div>
@@ -488,14 +507,14 @@ export default function NovoEmprestimoPage() {
 
         {/* Step 4: Confirmar */}
         {step === 4 && resultado && cliente && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+          <div className="bg-card rounded-xl border border-border p-6 space-y-5">
             <h2 className="font-semibold text-slate-800">Confirmar e Liberar</h2>
 
             <div className="space-y-3">
               {[
                 { label: 'Cliente', value: cliente.nome },
                 { label: 'Valor principal', value: formatarMoeda(valorNum) },
-                { label: 'Taxa de juros', value: `${taxa}% a.m. (${tipoJuros === 'price' ? 'Price' : 'SAC'})` },
+                { label: 'Taxa de juros', value: `${taxa}% a.m.` },
                 { label: 'Parcelas', value: `${parcelasNum}x de ${formatarMoeda(resultado.parcela)}` },
                 { label: 'Total a pagar', value: formatarMoeda(resultado.total) },
                 { label: '1º vencimento', value: formatarData(dataVenc) },
@@ -545,6 +564,12 @@ export default function NovoEmprestimoPage() {
           )}
         </div>
       </div>
+
+      <QuickNovoClienteSheet
+        open={quickSheetOpen}
+        onClose={() => setQuickSheetOpen(false)}
+        onClienteCriado={handleClienteCriado}
+      />
     </AppShell>
   )
 }

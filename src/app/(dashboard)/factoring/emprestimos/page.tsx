@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
 import { StatCard } from '@/components/shared/StatCard'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { StatusBadge } from '@/components/shared/StatusBadge'
@@ -18,7 +19,6 @@ import {
 } from '@/components/ui/select'
 import { formatarMoeda, formatarData, formatarCPF, iniciais } from '@/lib/utils/formatters'
 import type { Emprestimo, ClienteFactoring } from '@/lib/types/database'
-import { PageHelp } from '@/components/shared/PageHelp'
 import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
 import { Download } from 'lucide-react'
@@ -38,6 +38,7 @@ export default function EmprestimosPage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [filtroCard, setFiltroCard] = useState<'todos' | 'ativos' | 'liberadoMes' | 'quitadosMes'>('todos')
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual) return
@@ -93,6 +94,9 @@ export default function EmprestimosPage() {
 
   const filtrados = emprestimos.filter(e => {
     if (filtroStatus !== 'todos' && e.status !== filtroStatus) return false
+    if (filtroCard === 'ativos' && e.status !== 'ativo') return false
+    if (filtroCard === 'liberadoMes' && (e.data_liberacao ?? '') < inicioMes) return false
+    if (filtroCard === 'quitadosMes' && !(e.status === 'quitado' && (e.data_quitacao ?? '') >= inicioMes)) return false
     if (busca) {
       const q = busca.toLowerCase()
       if (
@@ -131,8 +135,8 @@ export default function EmprestimosPage() {
             {iniciais(e.cliente?.nome ?? '?')}
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-800">{e.cliente?.nome ?? '—'}</p>
-            <p className="text-xs text-slate-400">{e.cliente?.cpf ? formatarCPF(e.cliente.cpf) : ''}</p>
+            <p className="text-sm font-medium text-foreground">{e.cliente?.nome ?? '—'}</p>
+            <p className="text-xs text-muted-foreground/60">{e.cliente?.cpf ? formatarCPF(e.cliente.cpf) : ''}</p>
           </div>
         </div>
       ),
@@ -146,7 +150,7 @@ export default function EmprestimosPage() {
       key: 'parcelas',
       header: 'Parcelas',
       render: e => (
-        <span className="text-sm text-slate-600 tabular-nums">
+        <span className="text-sm text-muted-foreground tabular-nums">
           {e.parcelas_pagas}/{e.prazo_meses}
         </span>
       ),
@@ -154,7 +158,7 @@ export default function EmprestimosPage() {
     {
       key: 'taxa',
       header: 'Taxa',
-      render: e => <span className="text-sm text-slate-600">{e.taxa_juros}% a.m.</span>,
+      render: e => <span className="text-sm text-muted-foreground">{e.taxa_juros}% a.m.</span>,
     },
     {
       key: 'status',
@@ -171,7 +175,7 @@ export default function EmprestimosPage() {
     {
       key: 'data',
       header: 'Liberação',
-      render: e => <span className="text-sm text-slate-500">{e.data_liberacao ? formatarData(e.data_liberacao) : '—'}</span>,
+      render: e => <span className="text-sm text-muted-foreground">{e.data_liberacao ? formatarData(e.data_liberacao) : '—'}</span>,
     },
     {
       key: 'saldo',
@@ -185,31 +189,48 @@ export default function EmprestimosPage() {
   return (
     <AppShell empresa="factoring" titulo="Empréstimos">
       <div className="space-y-6">
-        <PageHelp
-          storageKey="help.factoring.emprestimos.v1"
+
+        <PageHeader
           titulo="Empréstimos"
-          oQueE="Gerencie todos os contratos de empréstimo da empresa. Cadastre novos contratos, acompanhe status e visualize o progresso de cada um."
-          passos={[
-            'Clique em "Novo Empréstimo" para cadastrar um contrato.',
-            'Use a busca para encontrar pelo nome do cliente ou número do contrato.',
-            'Filtre por status para ver ativos, inadimplentes, quitados, etc.',
-            'Clique em qualquer linha para abrir os detalhes e gerenciar parcelas.',
-          ]}
-          dicas={[
-            'Contratos marcados como "Inadimplente" têm parcelas vencidas — priorize o contato.',
-            'Use o Simulador (menu lateral) para calcular parcelas antes de fechar um contrato.',
-            'O saldo devedor atualiza automaticamente conforme os pagamentos são registrados.',
-          ]}
+          descricao="Gerencie a carteira de contratos de factoring"
+          icone={Banknote}
+          acoes={
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 text-white"
+              style={{ backgroundColor: '#1E5AA8' }}
+              onClick={() => router.push('/factoring/emprestimos/novo')}
+            >
+              <Plus size={14} />
+              Novo Empréstimo
+            </Button>
+          }
         />
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard titulo="Contratos ativos" valor={ativos.length} icone={Banknote} corIcone="#1E5AA8" />
-          <StatCard titulo="Capital na rua" valor={formatarMoeda(capitalNaRua)} icone={TrendingUp} corIcone="#D4A528" />
-          <StatCard titulo="Liberado este mês" valor={formatarMoeda(liberadoMes)} icone={Clock} corIcone="#22c55e" />
-          <StatCard titulo="Quitados este mês" valor={quitadosMes} icone={CheckCircle2} corIcone="#1E5AA8" />
+          <StatCard
+            titulo="Contratos ativos" valor={ativos.length} icone={Banknote} corIcone="#1E5AA8" corFundo="#EDF4FE"
+            ativo={filtroCard === 'ativos'}
+            onClick={() => setFiltroCard(filtroCard === 'ativos' ? 'todos' : 'ativos')}
+            atalho={filtroCard === 'ativos' ? 'Filtrando ↑' : 'Clique para filtrar →'}
+          />
+          <StatCard titulo="Capital na rua" valor={formatarMoeda(capitalNaRua)} icone={TrendingUp} corIcone="#D4A528" corFundo="#FEFCE8" />
+          <StatCard
+            titulo="Liberado este mês" valor={formatarMoeda(liberadoMes)} icone={Clock} corIcone="#22c55e" corFundo="#F0FDF4"
+            ativo={filtroCard === 'liberadoMes'}
+            onClick={() => setFiltroCard(filtroCard === 'liberadoMes' ? 'todos' : 'liberadoMes')}
+            atalho={filtroCard === 'liberadoMes' ? 'Filtrando ↑' : 'Clique para filtrar →'}
+          />
+          <StatCard
+            titulo="Quitados este mês" valor={quitadosMes} icone={CheckCircle2} corIcone="#7C3AED" corFundo="#F5F3FF"
+            ativo={filtroCard === 'quitadosMes'}
+            onClick={() => setFiltroCard(filtroCard === 'quitadosMes' ? 'todos' : 'quitadosMes')}
+            atalho={filtroCard === 'quitadosMes' ? 'Filtrando ↑' : 'Clique para filtrar →'}
+          />
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+          <div className="px-5 py-4 border-b border-border/60 flex flex-wrap items-center gap-3">
             <SearchInput
               value={busca}
               onChange={setBusca}
@@ -257,15 +278,6 @@ export default function EmprestimosPage() {
                 CSV
               </Button>
             )}
-            <Button
-              size="sm"
-              className="h-8 gap-1.5 text-white"
-              style={{ backgroundColor: '#1E5AA8' }}
-              onClick={() => router.push('/factoring/emprestimos/novo')}
-            >
-              <Plus size={14} />
-              Novo Empréstimo
-            </Button>
           </div>
 
           <DataTable

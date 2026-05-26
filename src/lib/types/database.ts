@@ -429,6 +429,7 @@ export type ConfigFactoring = {
   dias_carencia: number
   multa_atraso: number
   juros_mora_diario: number
+  saldo_inicial_caixa: number
   msg_aprovacao: string | null
   msg_liberacao: string | null
   msg_vencimento: string | null

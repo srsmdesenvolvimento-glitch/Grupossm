@@ -6,7 +6,6 @@ import {
   AlertTriangle, MessageCircle, Eye, CreditCard, Gavel,
   Users, DollarSign, Clock, Flame, Filter, RefreshCw
 } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -78,13 +77,16 @@ export default function InadimplentesPage() {
     if (!empresaAtual) return
     setLoading(true)
     try {
+      const hoje = new Date()
+      hoje.setHours(0, 0, 0, 0)
+
       const [{ data: parcelasData }, { data: clientesData }] = await Promise.all([
         supabase
           .from('parcelas_emprestimo')
           .select('*')
           .eq('empresa_id', empresaAtual.id)
           .eq('status', 'atrasado')
-          .order('dias_atraso', { ascending: false }),
+          .order('data_vencimento', { ascending: true }),
         supabase
           .from('clientes_factoring')
           .select('id, nome, cpf, telefone, score_interno, status')
@@ -100,10 +102,15 @@ export default function InadimplentesPage() {
         grouped[p.cliente_id].push(p)
       }
 
+      const calcDias = (venc: string) => {
+        const d = new Date(venc + 'T00:00:00')
+        return Math.max(0, Math.floor((hoje.getTime() - d.getTime()) / 86400000))
+      }
+
       const result: ClienteInadimplente[] = Object.entries(grouped).map(([clienteId, pList]) => {
         const c = clienteMap[clienteId]
         const totalDevido = pList.reduce((s, p) => s + p.valor + p.multa + p.juros_mora - (p.valor_pago ?? 0), 0)
-        const maxDiasAtraso = Math.max(...pList.map(p => p.dias_atraso))
+        const maxDiasAtraso = Math.max(...pList.map(p => calcDias(p.data_vencimento)))
         return {
           id: clienteId,
           nome: c?.nome ?? 'Cliente desconhecido',
@@ -230,7 +237,7 @@ export default function InadimplentesPage() {
 
         {/* Cards */}
         {filtrados.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
+          <div className="bg-card rounded-xl border border-border p-16 text-center">
             <AlertTriangle size={40} className="mx-auto mb-3 text-slate-200" />
             <p className="text-slate-500 font-medium">Nenhum resultado encontrado</p>
             <p className="text-sm text-slate-400 mt-1">
@@ -238,14 +245,8 @@ export default function InadimplentesPage() {
             </p>
           </div>
         ) : (
-          <motion.div
-            className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
-            initial="hidden"
-            animate="visible"
-            variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
-          >
-            <AnimatePresence>
-              {filtrados.map(c => {
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filtrados.map(c => {
                 const nivel = getNivel(c.maxDiasAtraso)
                 const nivelKey = getNivelKey(c.maxDiasAtraso)
                 const telefoneNum = c.telefone.replace(/\D/g, '')
@@ -255,13 +256,8 @@ export default function InadimplentesPage() {
                 const bloqueadoAgora = c.status === 'bloqueado'
 
                 return (
-                  <motion.div
+                  <div
                     key={c.id}
-                    variants={{
-                      hidden:   { opacity: 0, y: 16 },
-                      visible:  { opacity: 1, y: 0, transition: { duration: 0.22, ease: [0.4, 0, 0.2, 1] } },
-                    }}
-                    exit={{ opacity: 0, scale: 0.96 }}
                     className="bg-white rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition-shadow"
                     style={{ borderColor: nivel.border }}
                   >
@@ -349,7 +345,10 @@ export default function InadimplentesPage() {
                           size="sm"
                           className="gap-1 text-white text-xs"
                           style={{ backgroundColor: '#1E5AA8' }}
-                          onClick={() => router.push(`/factoring/parcelas/pagamento?clienteId=${c.id}`)}
+                          onClick={() => {
+                            const p = c.parcelas[0]
+                            if (p) router.push(`/factoring/emprestimos/${p.emprestimo_id}?parcela=${p.id}`)
+                          }}
                         >
                           <CreditCard size={12} />
                           Pagar
@@ -370,11 +369,10 @@ export default function InadimplentesPage() {
                         </Button>
                       )}
                     </div>
-                  </motion.div>
+                  </div>
                 )
               })}
-            </AnimatePresence>
-          </motion.div>
+          </div>
         )}
       </div>
     </AppShell>

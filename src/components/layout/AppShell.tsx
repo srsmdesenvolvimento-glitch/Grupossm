@@ -17,7 +17,19 @@ interface AppShellProps {
 
 export function AppShell({ children, empresa: empresaProp, titulo }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('sidebar-collapsed') === 'true'
+  })
   const { empresaAtual } = useEmpresa()
+
+  function toggleCollapsed() {
+    setCollapsed(prev => {
+      const next = !prev
+      localStorage.setItem('sidebar-collapsed', String(next))
+      return next
+    })
+  }
   const pathname = usePathname()
   const shouldReduceMotion = useReducedMotion()
 
@@ -65,7 +77,7 @@ export function AppShell({ children, empresa: empresaProp, titulo }: AppShellPro
 
       {/* Desktop sidebar */}
       <div className="hidden lg:flex">
-        <Sidebar empresa={tipo} menu={menu} />
+        <Sidebar empresa={tipo} menu={menu} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
       </div>
 
       {/* Main content */}

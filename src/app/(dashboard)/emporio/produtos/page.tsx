@@ -3,7 +3,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
-import { PageHelp } from '@/components/shared/PageHelp'
 import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
 import { Download } from 'lucide-react'
@@ -442,22 +441,7 @@ export default function ProdutosPage() {
 
   return (
     <AppShell empresa="emporio" titulo="Produtos">
-      <PageHelp
-        storageKey="help.emporio.produtos.v1"
-        titulo="Produtos"
-        oQueE="Catálogo completo de produtos do empório com controle de estoque. Cadastre produtos, defina preços, categorias e controle a quantidade disponível."
-        passos={[
-          'Clique em "Novo Produto" para adicionar um produto ao catálogo.',
-          'Use a busca para localizar pelo nome ou código (SKU).',
-          'Clique em um produto para editar ou registrar uma movimentação de estoque.',
-          'Produtos em vermelho estão com estoque abaixo do mínimo.',
-        ]}
-        dicas={[
-          'Defina sempre o estoque mínimo para receber alertas automáticos.',
-          'O SKU é o código único do produto — use o código do fornecedor se houver.',
-          'Produtos do catálogo público ficam visíveis para clientes no site.',
-        ]}
-      />
+
       {/* Stat Cards */}
       <div className="flex flex-wrap gap-3 mb-6">
         <StatCard

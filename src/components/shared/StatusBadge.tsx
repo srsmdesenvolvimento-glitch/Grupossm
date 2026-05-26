@@ -1,30 +1,28 @@
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-const STATUS_STYLES: Record<string, string> = {
-  ativo: 'bg-blue-100 text-blue-800 border-blue-200',
-  quitado: 'bg-green-100 text-green-800 border-green-200',
-  inadimplente: 'bg-red-100 text-red-800 border-red-200',
-  atrasado: 'bg-red-100 text-red-800 border-red-200',
-  cancelado: 'bg-gray-100 text-gray-600 border-gray-200',
-  pendente: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  pago: 'bg-green-100 text-green-800 border-green-200',
-  vencido: 'bg-red-100 text-red-800 border-red-200',
-  parcial: 'bg-orange-100 text-orange-800 border-orange-200',
-  renegociado: 'bg-purple-100 text-purple-800 border-purple-200',
-  confirmada: 'bg-green-100 text-green-800 border-green-200',
-  entregue: 'bg-blue-100 text-blue-800 border-blue-200',
-  sem_estoque: 'bg-red-100 text-red-800 border-red-200',
-  inativo: 'bg-gray-100 text-gray-600 border-gray-200',
+type StatusConfig = { label: string; dot: string; bg: string; text: string; border: string }
+
+const STATUS_CONFIG: Record<string, StatusConfig> = {
+  ativo:        { label: 'Ativo',         dot: '#22c55e', bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
+  quitado:      { label: 'Quitado',       dot: '#3b82f6', bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
+  inadimplente: { label: 'Inadimplente',  dot: '#ef4444', bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
+  atrasado:     { label: 'Atrasado',      dot: '#ef4444', bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
+  cancelado:    { label: 'Cancelado',     dot: '#9ca3af', bg: '#f9fafb', text: '#6b7280', border: '#e5e7eb' },
+  pendente:     { label: 'Pendente',      dot: '#f59e0b', bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
+  pago:         { label: 'Pago',          dot: '#22c55e', bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
+  vencido:      { label: 'Vencido',       dot: '#ef4444', bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
+  parcial:      { label: 'Parcial',       dot: '#f97316', bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' },
+  renegociado:  { label: 'Renegociado',   dot: '#8b5cf6', bg: '#f5f3ff', text: '#7c3aed', border: '#ddd6fe' },
+  analise:      { label: 'Em Análise',    dot: '#6b7280', bg: '#f9fafb', text: '#4b5563', border: '#e5e7eb' },
+  aprovado:     { label: 'Aprovado',      dot: '#f59e0b', bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
+  confirmada:   { label: 'Confirmada',    dot: '#22c55e', bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
+  entregue:     { label: 'Entregue',      dot: '#3b82f6', bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
+  sem_estoque:  { label: 'Sem Estoque',   dot: '#ef4444', bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
+  inativo:      { label: 'Inativo',       dot: '#9ca3af', bg: '#f9fafb', text: '#6b7280', border: '#e5e7eb' },
+  bloqueado:    { label: 'Bloqueado',     dot: '#ef4444', bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  ativo: 'Ativo', quitado: 'Quitado', inadimplente: 'Inadimplente',
-  atrasado: 'Atrasado', cancelado: 'Cancelado', pendente: 'Pendente',
-  pago: 'Pago', vencido: 'Vencido', parcial: 'Parcial',
-  renegociado: 'Renegociado', confirmada: 'Confirmada',
-  entregue: 'Entregue', sem_estoque: 'Sem Estoque', inativo: 'Inativo',
-}
+const FALLBACK: StatusConfig = { label: '', dot: '#9ca3af', bg: '#f9fafb', text: '#6b7280', border: '#e5e7eb' }
 
 interface StatusBadgeProps {
   status: string
@@ -33,12 +31,22 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, label, className }: StatusBadgeProps) {
+  const cfg = STATUS_CONFIG[status] ?? FALLBACK
+  const displayLabel = label ?? cfg.label ?? status
+
   return (
-    <Badge
-      variant="outline"
-      className={cn('text-xs font-medium', STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-600', className)}
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border leading-none whitespace-nowrap',
+        className,
+      )}
+      style={{ backgroundColor: cfg.bg, color: cfg.text, borderColor: cfg.border }}
     >
-      {label ?? STATUS_LABELS[status] ?? status}
-    </Badge>
+      <span
+        className="w-1.5 h-1.5 rounded-full shrink-0"
+        style={{ backgroundColor: cfg.dot }}
+      />
+      {displayLabel}
+    </span>
   )
 }

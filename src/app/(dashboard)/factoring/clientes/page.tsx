@@ -7,19 +7,18 @@ import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
 import { StatCard } from '@/components/shared/StatCard'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { LoadingPage } from '@/components/shared/LoadingPage'
-import { ScoreGauge } from '@/components/factoring/ScoreGauge'
 import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { formatarCPF, formatarTelefone, iniciais, formatarMoeda } from '@/lib/utils/formatters'
 import type { ClienteFactoring } from '@/lib/types/database'
-import { PageHelp } from '@/components/shared/PageHelp'
 import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
 import { Download } from 'lucide-react'
@@ -41,14 +40,12 @@ function ScoreBar({ score }: { score: number }) {
   const risco = getRisco(score)
   return (
     <div className="flex items-center gap-2">
-      {/* Desktop: progress bar + number */}
       <div className="hidden sm:flex items-center gap-2 min-w-[100px]">
         <div className="flex-1 bg-muted rounded-full h-1.5">
           <div className="h-1.5 rounded-full" style={{ width: `${score}%`, backgroundColor: risco.color }} />
         </div>
         <span className="text-xs font-semibold tabular-nums" style={{ color: risco.color }}>{score}</span>
       </div>
-      {/* Mobile: colored badge */}
       <span
         className="sm:hidden text-xs font-bold tabular-nums px-2 py-0.5 rounded-full"
         style={{ color: risco.color, backgroundColor: risco.bg }}
@@ -70,6 +67,7 @@ export default function FactoringClientesPage() {
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [filtroRisco, setFiltroRisco] = useState('todos')
+  const [filtroCard, setFiltroCard] = useState<'todos' | 'novos' | 'bloqueados'>('todos')
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual) return
@@ -128,6 +126,8 @@ export default function FactoringClientesPage() {
       const risco = getRisco(c.score_interno).label.toLowerCase()
       if (risco !== filtroRisco) return false
     }
+    if (filtroCard === 'novos' && c.created_at < inicioMes) return false
+    if (filtroCard === 'bloqueados' && c.status !== 'bloqueado') return false
     return true
   })
 
@@ -144,8 +144,8 @@ export default function FactoringClientesPage() {
             {iniciais(c.nome)}
           </div>
           <div>
-            <p className="font-medium text-slate-800 text-sm">{c.nome}</p>
-            {c.cidade && <p className="text-xs text-slate-400">{c.cidade}/{c.estado}</p>}
+            <p className="font-medium text-foreground text-sm">{c.nome}</p>
+            {c.cidade && <p className="text-xs text-muted-foreground/60">{c.cidade}/{c.estado}</p>}
           </div>
         </div>
       ),
@@ -153,12 +153,12 @@ export default function FactoringClientesPage() {
     {
       key: 'cpf',
       header: 'CPF/CNPJ',
-      render: c => <span className="text-sm text-slate-600 tabular-nums">{c.cpf ? formatarCPF(c.cpf) : '—'}</span>,
+      render: c => <span className="text-sm text-muted-foreground tabular-nums">{c.cpf ? formatarCPF(c.cpf) : '—'}</span>,
     },
     {
       key: 'telefone',
       header: 'Telefone',
-      render: c => <span className="text-sm text-slate-600">{formatarTelefone(c.telefone)}</span>,
+      render: c => <span className="text-sm text-muted-foreground">{formatarTelefone(c.telefone)}</span>,
     },
     {
       key: 'score',
@@ -183,14 +183,14 @@ export default function FactoringClientesPage() {
     {
       key: 'emAberto',
       header: 'Em Aberto',
-      render: c => c.emAberto > 0 ? <MoneyDisplay valor={c.emAberto} /> : <span className="text-slate-300 text-sm">—</span>,
+      render: c => c.emAberto > 0 ? <MoneyDisplay valor={c.emAberto} /> : <span className="text-muted-foreground/30 text-sm">—</span>,
     },
     {
       key: 'emAtraso',
       header: 'Em Atraso',
       render: c => c.emAtraso > 0
         ? <span className="text-red-600 font-semibold text-sm">{formatarMoeda(c.emAtraso)}</span>
-        : <span className="text-slate-300 text-sm">—</span>,
+        : <span className="text-muted-foreground/30 text-sm">—</span>,
     },
     {
       key: 'status',
@@ -239,31 +239,48 @@ export default function FactoringClientesPage() {
   return (
     <AppShell empresa="factoring" titulo="Clientes">
       <div className="space-y-6">
-        <PageHelp
-          storageKey="help.factoring.clientes.v1"
-          titulo="Clientes — Factoring"
-          oQueE="Cadastro completo dos clientes do factoring. Aqui você registra, consulta e gerencia todos os tomadores de empréstimo, com score de crédito e histórico."
-          passos={[
-            'Clique em "Novo Cliente" para cadastrar um novo tomador.',
-            'Use a busca para localizar pelo nome, CPF ou telefone.',
-            'Clique em um cliente para ver o perfil completo e os empréstimos.',
-            'O score interno (0–100) indica o risco: verde = baixo, amarelo = médio, vermelho = alto.',
-          ]}
-          dicas={[
-            'Clientes bloqueados não podem receber novos empréstimos.',
-            'Mantenha o score atualizado conforme o histórico de pagamentos.',
-            'Use o filtro de risco para priorizar clientes que precisam de atenção.',
-          ]}
+
+        <PageHeader
+          titulo="Clientes"
+          descricao="Gerencie os clientes da carteira de factoring"
+          icone={Users}
+          acoes={
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 text-white"
+              style={{ backgroundColor: '#1E5AA8' }}
+              onClick={() => router.push('/factoring/clientes/novo')}
+            >
+              <UserPlus size={14} />
+              Novo Cliente
+            </Button>
+          }
         />
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard titulo="Total Clientes" valor={total} icone={Users} corIcone="#1E5AA8" />
-          <StatCard titulo="Novos este mês" valor={novosMes} icone={UserPlus} corIcone="#D4A528" />
+          <StatCard
+            titulo="Total Clientes" valor={total} icone={Users} corIcone="#1E5AA8" corFundo="#EDF4FE"
+            ativo={filtroCard === 'todos'}
+            onClick={() => setFiltroCard('todos')}
+            atalho={filtroCard === 'todos' ? 'Mostrando todos' : 'Ver todos'}
+          />
+          <StatCard
+            titulo="Novos este mês" valor={novosMes} icone={UserPlus} corIcone="#D4A528" corFundo="#FEFCE8"
+            ativo={filtroCard === 'novos'}
+            onClick={() => setFiltroCard(filtroCard === 'novos' ? 'todos' : 'novos')}
+            atalho={filtroCard === 'novos' ? 'Filtrando ↑' : 'Clique para filtrar →'}
+          />
           <StatCard titulo="Score Médio" valor={scoreMedia} icone={TrendingUp} corIcone={getRisco(scoreMedia).color} />
-          <StatCard titulo="Bloqueados" valor={bloqueados} icone={AlertTriangle} corIcone="#ef4444" />
+          <StatCard
+            titulo="Bloqueados" valor={bloqueados} icone={AlertTriangle} corIcone="#ef4444" corFundo="#FEF2F2"
+            ativo={filtroCard === 'bloqueados'}
+            onClick={() => setFiltroCard(filtroCard === 'bloqueados' ? 'todos' : 'bloqueados')}
+            atalho={filtroCard === 'bloqueados' ? 'Filtrando ↑' : 'Clique para filtrar →'}
+          />
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+          <div className="px-5 py-4 border-b border-border/60 flex flex-wrap items-center gap-3">
             <SearchInput
               value={busca}
               onChange={setBusca}
@@ -318,15 +335,6 @@ export default function FactoringClientesPage() {
                 CSV
               </Button>
             )}
-            <Button
-              size="sm"
-              className="h-8 gap-1.5 text-white"
-              style={{ backgroundColor: '#1E5AA8' }}
-              onClick={() => router.push('/factoring/clientes/novo')}
-            >
-              <UserPlus size={14} />
-              Novo Cliente
-            </Button>
           </div>
 
           <DataTable

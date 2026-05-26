@@ -8,9 +8,16 @@ import {
   MessageCircle, Edit, Plus, Ban, DollarSign, CreditCard,
   AlertTriangle, Clock, MessageSquare, Trash2, Check, X,
   User, MapPin, Banknote, Download, ChevronDown, FileText,
+  History, TrendingUp, CheckCircle, ArrowUpRight, Camera, Home,
+  Paperclip, Eye, Upload, Search, Loader2,
 } from 'lucide-react'
 
 import { gerarContratoPDF } from '@/lib/utils/documentos'
+import { buscarEnderecoPorCep } from '@/lib/utils/cep'
+import {
+  CATEGORIAS_DOCUMENTO, uploadDocumentoCliente, deletarDocumentoCliente,
+  formatarTamanho, ehImagem, type DocumentoMeta,
+} from '@/lib/utils/storage'
 
 import { createClient } from '@/lib/supabase/client'
 import { AppShell } from '@/components/layout/AppShell'
@@ -45,6 +52,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { parseSupabaseError, logError } from '@/lib/utils/errors'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -253,6 +261,11 @@ export default function ClientePerfilPage() {
   const [salvandoRef, setSalvandoRef] = useState(false)
   const [editRefId, setEditRefId] = useState<string | null>(null)
   const [editRefData, setEditRefData] = useState<Partial<ReferenciaCliente>>({})
+
+  // Documentos
+  const [documentos, setDocumentos] = useState<DocumentoMeta[]>([])
+  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null)
+  const [deletandoDocId, setDeletandoDocId] = useState<string | null>(null)
   const [deletandoRefId, setDeletandoRefId] = useState<string | null>(null)
 
   // ─── Load data ────────────────────────────────────────────────────────────
@@ -268,7 +281,6 @@ export default function ClientePerfilPage() {
         { data: clienteData, error: clienteErr },
         { data: emprestimosData },
         { data: parcelasData },
-        { data: pagamentosData },
         { data: referenciasData },
         { data: anotacoesData },
       ] = await Promise.all([
@@ -291,14 +303,6 @@ export default function ClientePerfilPage() {
           .eq('empresa_id', empresaAtual.id)
           .order('data_vencimento', { ascending: true }),
         supabase
-          .from('movimentacoes_caixa')
-          .select('*')
-          .eq('referencia_tipo', 'cliente')
-          .eq('referencia_id', id)
-          .eq('tipo', 'entrada')
-          .eq('empresa_id', empresaAtual.id)
-          .order('data_movimentacao', { ascending: false }),
-        supabase
           .from('referencias_cliente_factoring')
           .select('*')
           .eq('cliente_id', id),
@@ -320,10 +324,27 @@ export default function ClientePerfilPage() {
       setFormData(clienteData as ClienteFactoring)
       setEmprestimos((emprestimosData ?? []) as Emprestimo[])
       setParcelas((parcelasData ?? []) as Parcela[])
-      setPagamentos((pagamentosData ?? []) as Movimentacao[])
       setReferencias((referenciasData ?? []) as ReferenciaCliente[])
       setAnotacoes((anotacoesData ?? []) as Anotacao[])
-    } catch {
+      setDocumentos((clienteData?.documentos ?? []) as DocumentoMeta[])
+
+      // Load payments using emprestimo IDs (stored with referencia_tipo: 'emprestimo')
+      const empIds = (emprestimosData ?? []).map(e => e.id)
+      if (empIds.length > 0) {
+        const { data: pagamentosData } = await supabase
+          .from('movimentacoes_caixa')
+          .select('*')
+          .in('referencia_id', empIds)
+          .eq('referencia_tipo', 'emprestimo')
+          .eq('tipo', 'entrada')
+          .eq('empresa_id', empresaAtual.id)
+          .order('data_movimentacao', { ascending: false })
+        setPagamentos((pagamentosData ?? []) as Movimentacao[])
+      } else {
+        setPagamentos([])
+      }
+    } catch (err) {
+      logError('loadData:cliente', err)
       setErro('Erro ao carregar dados do cliente.')
     } finally {
       setLoading(false)
@@ -334,15 +355,17 @@ export default function ClientePerfilPage() {
 
   // ─── Computed values ─────────────────────────────────────────────────────
 
-  const totalPago = pagamentos.reduce((s, p) => s + (p.valor ?? 0), 0)
+  const totalPago = parcelas
+    .filter(p => p.status === 'pago')
+    .reduce((s, p) => s + (p.valor_pago ?? p.valor ?? 0), 0)
 
   const emAberto = parcelas
     .filter(p => p.status === 'pendente' || p.status === 'atrasado')
-    .reduce((s, p) => s + ((p.valor ?? 0) - (p.valor_pago ?? 0)), 0)
+    .reduce((s, p) => s + ((p.valor ?? 0) + (p.juros_mora ?? 0) + (p.multa ?? 0) - (p.valor_pago ?? 0)), 0)
 
   const emAtraso = parcelas
     .filter(p => p.status === 'atrasado')
-    .reduce((s, p) => s + ((p.valor ?? 0) - (p.valor_pago ?? 0)), 0)
+    .reduce((s, p) => s + ((p.valor ?? 0) + (p.juros_mora ?? 0) + (p.multa ?? 0) - (p.valor_pago ?? 0)), 0)
 
   const parcelasFiltradas = filtroParcela === 'todos'
     ? parcelas
@@ -361,7 +384,7 @@ export default function ClientePerfilPage() {
     max_dias_atraso:          Math.max(0, ...parcelas.map(p => p.dias_atraso ?? 0)),
     cliente_bloqueado:        cliente?.status === 'bloqueado',
     cadastro_completo:        !!(cliente?.cpf && cliente?.telefone && cliente?.endereco && cliente?.renda_mensal),
-    volume_total_pago:        pagamentos.reduce((s, p) => s + (p.valor ?? 0), 0),
+    volume_total_pago:        totalPago,
   }
 
   const resultadoScore = calcularScore(
@@ -394,41 +417,69 @@ export default function ClientePerfilPage() {
   }
 
   async function salvarDados() {
-    if (!cliente) return
+    if (!cliente || !empresaAtual) return
     setSalvandoDados(true)
     const supabase = createClient()
+    const payload = {
+      nome: formData.nome,
+      cpf: formData.cpf ?? null,
+      rg: formData.rg ?? null,
+      orgao_emissor: formData.orgao_emissor ?? null,
+      data_nascimento: formData.data_nascimento ?? null,
+      estado_civil: formData.estado_civil ?? null,
+      profissao: formData.profissao ?? null,
+      renda_mensal: formData.renda_mensal ?? null,
+      telefone: formData.telefone ?? null,
+      telefone2: formData.telefone2 ?? null,
+      email: formData.email ?? null,
+      endereco: formData.endereco ?? null,
+      numero: formData.numero ?? null,
+      complemento: formData.complemento ?? null,
+      bairro: formData.bairro ?? null,
+      cidade: formData.cidade ?? null,
+      estado: formData.estado ?? null,
+      cep: formData.cep ?? null,
+      banco: formData.banco ?? null,
+      agencia: formData.agencia ?? null,
+      conta: formData.conta ?? null,
+      tipo_conta: formData.tipo_conta ?? null,
+      pix: formData.pix ?? null,
+      limite_credito: formData.limite_credito ?? null,
+      observacoes: formData.observacoes ?? null,
+    }
     const { error } = await supabase
       .from('clientes_factoring')
-      .update(formData)
+      .update(payload)
       .eq('id', id)
+      .eq('empresa_id', empresaAtual.id)
 
     if (error) {
-      toast.error('Erro ao salvar dados.')
+      logError('salvarDados:cliente', error)
+      toast.error(parseSupabaseError(error, 'Erro ao salvar dados'))
     } else {
       toast.success('Dados salvos com sucesso.')
-      setCliente(prev => prev ? { ...prev, ...formData } as ClienteFactoring : prev)
+      setCliente(prev => prev ? { ...prev, ...payload } as ClienteFactoring : prev)
     }
     setSalvandoDados(false)
   }
 
-  async function buscarCep(cep: string) {
-    const cleaned = cep.replace(/\D/g, '')
+  async function buscarCep(cepValor: string) {
+    const cleaned = cepValor.replace(/\D/g, '')
     if (cleaned.length !== 8) return
     setCepLoading(true)
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${cleaned}/json/`)
-      const data = await res.json() as Record<string, string>
-      if (!data['erro']) {
-        setFormData(prev => ({
-          ...prev,
-          endereco: data['logradouro'] ?? prev.endereco,
-          bairro: data['bairro'] ?? prev.bairro,
-          cidade: data['localidade'] ?? prev.cidade,
-          estado: data['uf'] ?? prev.estado,
-        }))
-      }
-    } catch {
-      // silent — user fills manually
+      const end = await buscarEnderecoPorCep(cleaned)
+      setFormData(prev => ({
+        ...prev,
+        endereco: end.logradouro || prev.endereco,
+        bairro:   end.bairro    || prev.bairro,
+        cidade:   end.cidade    || prev.cidade,
+        estado:   end.estado    || prev.estado,
+      }))
+      toast.success(`Endereço preenchido — ${end.cidade}/${end.estado}`)
+    } catch (err) {
+      logError('buscarCep:perfil', err)
+      toast.error(err instanceof Error ? err.message : 'Erro ao buscar CEP')
     } finally {
       setCepLoading(false)
     }
@@ -490,6 +541,7 @@ export default function ClientePerfilPage() {
       .from('referencias_cliente_factoring')
       .update(editRefData)
       .eq('id', refId)
+      .eq('cliente_id', id)
 
     if (error) {
       toast.error('Erro ao atualizar referência.')
@@ -514,6 +566,42 @@ export default function ClientePerfilPage() {
       toast.success('Referência excluída.')
       setDeletandoRefId(null)
       setReferencias(prev => prev.filter(r => r.id !== refId))
+    }
+  }
+
+  async function fazerUploadDocumento(categoriaId: string, file: File) {
+    if (!cliente || !empresaAtual) return
+    setUploadingDoc(categoriaId)
+    const supabase = createClient()
+    try {
+      const meta = await uploadDocumentoCliente(supabase, empresaAtual.id, cliente.id, categoriaId, file)
+      const novos = [...documentos.filter(d => d.categoria !== categoriaId), meta]
+      await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id)
+      setDocumentos(novos)
+      toast.success(`${meta.label} enviado com sucesso!`)
+    } catch (err) {
+      logError('fazerUploadDocumento', err)
+      toast.error(parseSupabaseError(err, 'Erro ao enviar documento'))
+    } finally {
+      setUploadingDoc(null)
+    }
+  }
+
+  async function deletarDocumento(doc: DocumentoMeta) {
+    if (!cliente) return
+    setDeletandoDocId(doc.id)
+    const supabase = createClient()
+    try {
+      await deletarDocumentoCliente(supabase, doc.path)
+      const novos = documentos.filter(d => d.id !== doc.id)
+      await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id)
+      setDocumentos(novos)
+      toast.success('Documento removido.')
+    } catch (err) {
+      logError('deletarDocumento', err)
+      toast.error('Erro ao remover documento')
+    } finally {
+      setDeletandoDocId(null)
     }
   }
 
@@ -620,7 +708,7 @@ export default function ClientePerfilPage() {
     },
     {
       key: 'juros_mora',
-      header: 'Juros Mora',
+      header: 'Juros Diários',
       render: r => <span className="text-slate-500 text-xs">{r.juros_mora ? formatarMoeda(r.juros_mora) : '—'}</span>,
     },
     {
@@ -658,7 +746,7 @@ export default function ClientePerfilPage() {
           className="text-xs h-7 px-2"
           onClick={e => {
             e.stopPropagation()
-            router.push(`/factoring/parcelas/pagamento?cliente=${id}&parcela=${r.id}`)
+            router.push(`/factoring/emprestimos/${r.emprestimo_id}?parcela=${r.id}`)
           }}
         >
           Receber
@@ -695,7 +783,7 @@ export default function ClientePerfilPage() {
     },
     {
       key: 'juros_mora',
-      header: 'Juros Mora',
+      header: 'Juros Diários',
       render: r => <span className="text-orange-600">{formatarMoeda(r.juros_mora ?? 0)}</span>,
     },
     {
@@ -765,7 +853,7 @@ export default function ClientePerfilPage() {
                   </Badge>
                 </div>
                 <p className="text-slate-500 mt-1 text-sm">
-                  CPF: {formatarCPF(cliente.cpf)}
+                  CPF: {formatarCPF(cliente.cpf ?? '')}
                   {cliente.telefone && (
                     <span className="ml-4">Tel: {formatarTelefone(cliente.telefone)}</span>
                   )}
@@ -868,8 +956,12 @@ export default function ClientePerfilPage() {
         </div>
 
         {/* ── Tabs ────────────────────────────────────────────────────── */}
-        <Tabs defaultValue="emprestimos">
+        <Tabs defaultValue="historico">
           <TabsList className="w-full justify-start h-auto flex-wrap gap-1 bg-slate-100 p-1 rounded-xl">
+            <TabsTrigger value="historico" className="text-sm px-4 py-2 rounded-lg gap-1.5">
+              <History size={14} />
+              Histórico
+            </TabsTrigger>
             <TabsTrigger value="emprestimos" className="text-sm px-4 py-2 rounded-lg">
               Títulos
               {emprestimos.length > 0 && (
@@ -887,16 +979,112 @@ export default function ClientePerfilPage() {
             <TabsTrigger value="anotacoes" className="text-sm px-4 py-2 rounded-lg">
               Anotações
             </TabsTrigger>
+            <TabsTrigger value="documentos" className="text-sm px-4 py-2 rounded-lg gap-1.5">
+              <FileText size={13} />
+              Documentos
+              {documentos.length > 0 && (
+                <Badge variant="outline" className="ml-1 text-xs h-4 min-w-4 rounded-full p-0 px-1 flex items-center justify-center">
+                  {documentos.length}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="score" className="text-sm px-4 py-2 rounded-lg">
               Score e Risco
             </TabsTrigger>
           </TabsList>
 
+          {/* TAB 0 — Histórico unificado */}
+          <TabsContent value="historico" className="mt-4">
+            <div className="bg-card rounded-xl border border-border shadow-sm p-6">
+              <h3 className="font-semibold text-slate-800 mb-5 flex items-center gap-2">
+                <History size={16} className="text-slate-400" />
+                Linha do tempo
+              </h3>
+              {(() => {
+                type EventoTimeline = {
+                  id: string
+                  data: string
+                  tipo: 'emprestimo' | 'pagamento' | 'anotacao'
+                  titulo: string
+                  subtitulo: string
+                  valor?: number
+                  cor: string
+                }
+                const eventos: EventoTimeline[] = [
+                  ...emprestimos.map(e => ({
+                    id: `emp-${e.id}`,
+                    data: e.data_liberacao ?? e.id,
+                    tipo: 'emprestimo' as const,
+                    titulo: `Contrato ${e.numero_contrato} — ${e.status}`,
+                    subtitulo: `${e.prazo_meses}x de ${formatarMoeda(e.valor_parcela)} · Taxa ${e.taxa_juros}% a.m.`,
+                    valor: e.valor_principal,
+                    cor: '#1E5AA8',
+                  })),
+                  ...pagamentos.map(p => ({
+                    id: `pag-${p.id}`,
+                    data: p.data_movimentacao,
+                    tipo: 'pagamento' as const,
+                    titulo: 'Pagamento registrado',
+                    subtitulo: p.descricao ?? '',
+                    valor: p.valor,
+                    cor: '#16a34a',
+                  })),
+                  ...anotacoes.map(a => ({
+                    id: `anot-${a.id}`,
+                    data: a.created_at,
+                    tipo: 'anotacao' as const,
+                    titulo: a.assunto ?? 'Anotação',
+                    subtitulo: a.mensagem ?? '',
+                    cor: '#7C3AED',
+                  })),
+                ].sort((a, b) => b.data.localeCompare(a.data))
+
+                if (eventos.length === 0) return (
+                  <p className="text-slate-400 text-sm text-center py-10">Nenhum evento registrado.</p>
+                )
+
+                return (
+                  <div className="relative">
+                    <div className="absolute left-5 top-0 bottom-0 w-px bg-slate-200" />
+                    <div className="space-y-4">
+                      {eventos.map(ev => (
+                        <div key={ev.id} className="flex gap-4 relative">
+                          <div
+                            className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10 border-2 border-white shadow-sm"
+                            style={{ backgroundColor: `${ev.cor}18`, borderColor: `${ev.cor}40` }}
+                          >
+                            {ev.tipo === 'emprestimo' && <Banknote size={16} style={{ color: ev.cor }} />}
+                            {ev.tipo === 'pagamento' && <CheckCircle size={16} style={{ color: ev.cor }} />}
+                            {ev.tipo === 'anotacao' && <MessageSquare size={16} style={{ color: ev.cor }} />}
+                          </div>
+                          <div className="flex-1 min-w-0 pb-4">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-800">{ev.titulo}</p>
+                                {ev.subtitulo && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{ev.subtitulo}</p>}
+                              </div>
+                              <div className="text-right shrink-0">
+                                {ev.valor !== undefined && (
+                                  <p className="text-sm font-bold" style={{ color: ev.cor }}>{formatarMoeda(ev.valor)}</p>
+                                )}
+                                <p className="text-[11px] text-slate-400">{formatarData(ev.data)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          </TabsContent>
+
           {/* TAB 1 — Títulos */}
           <TabsContent value="emprestimos" className="mt-4">
             <div className="space-y-3">
               {emprestimos.length === 0 ? (
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+                <div className="bg-card rounded-xl border border-border shadow-sm p-12 text-center">
                   <FileText size={40} className="mx-auto mb-3 text-slate-300" />
                   <p className="text-slate-400">Nenhum título encontrado.</p>
                   <Link href={`/factoring/emprestimos/novo?cliente=${id}`}>
@@ -920,7 +1108,7 @@ export default function ClientePerfilPage() {
                     : '#1E5AA8'
 
                   return (
-                    <div key={emp.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div key={emp.id} className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
                       {/* Card header */}
                       <div className="flex items-stretch">
                         <div className="w-1.5 shrink-0" style={{ backgroundColor: statusColor }} />
@@ -976,7 +1164,7 @@ export default function ClientePerfilPage() {
                                 size="sm"
                                 className="gap-1.5 text-xs h-8 text-white"
                                 style={{ backgroundColor: '#1E5AA8' }}
-                                onClick={() => router.push(`/factoring/parcelas/pagamento?cliente=${id}&emprestimo=${emp.id}`)}
+                                onClick={() => router.push(`/factoring/emprestimos/${emp.id}`)}
                               >
                                 <DollarSign size={12} />
                                 Receber
@@ -1076,7 +1264,7 @@ export default function ClientePerfilPage() {
                                             size="sm"
                                             variant="outline"
                                             className="text-xs h-6 px-2"
-                                            onClick={() => router.push(`/factoring/parcelas/pagamento?cliente=${id}&parcela=${p.id}`)}
+                                            onClick={() => router.push(`/factoring/emprestimos/${p.emprestimo_id}?parcela=${p.id}`)}
                                           >
                                             Receber
                                           </Button>
@@ -1108,7 +1296,7 @@ export default function ClientePerfilPage() {
 
           {/* TAB 2 — Pagamentos */}
           <TabsContent value="pagamentos" className="mt-4">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="bg-card rounded-xl border border-border shadow-sm p-4">
               {pagamentos.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">
                   <CreditCard size={40} className="mx-auto mb-3 opacity-30" />
@@ -1151,7 +1339,7 @@ export default function ClientePerfilPage() {
             <div className="space-y-6">
 
               {/* Dados Pessoais */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-5">
                   <User size={18} className="text-slate-500" />
                   <h3 className="font-semibold text-slate-700">Dados Pessoais</h3>
@@ -1244,7 +1432,7 @@ export default function ClientePerfilPage() {
               </div>
 
               {/* Endereço */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-5">
                   <MapPin size={18} className="text-slate-500" />
                   <h3 className="font-semibold text-slate-700">Endereço</h3>
@@ -1255,13 +1443,25 @@ export default function ClientePerfilPage() {
                       <Input
                         value={formData.cep ?? ''}
                         onChange={e => setFormData(p => ({ ...p, cep: e.target.value }))}
+                        onBlur={e => buscarCep(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && buscarCep(formData.cep ?? '')}
                         placeholder="00000-000"
                         className="flex-1"
-                        onBlur={e => buscarCep(e.target.value)}
+                        maxLength={9}
                       />
-                      {cepLoading && (
-                        <span className="text-xs text-slate-400 whitespace-nowrap">Buscando...</span>
-                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => buscarCep(formData.cep ?? '')}
+                        disabled={cepLoading || (formData.cep ?? '').replace(/\D/g,'').length < 8}
+                        className="shrink-0 px-2"
+                      >
+                        {cepLoading
+                          ? <Loader2 size={14} className="animate-spin" />
+                          : <Search size={14} />
+                        }
+                      </Button>
                     </div>
                   </FormField>
                   <FormField label="Endereço" className="sm:col-span-2">
@@ -1306,7 +1506,7 @@ export default function ClientePerfilPage() {
               </div>
 
               {/* Dados Bancários */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-5">
                   <Banknote size={18} className="text-slate-500" />
                   <h3 className="font-semibold text-slate-700">Dados Bancários</h3>
@@ -1363,7 +1563,7 @@ export default function ClientePerfilPage() {
               </div>
 
               {/* Observações */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
                 <FormField label="Observações">
                   <Textarea
                     value={formData.observacoes ?? ''}
@@ -1387,7 +1587,7 @@ export default function ClientePerfilPage() {
               </div>
 
               {/* ── Referências ─────────────────────────────────────── */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
                 <div className="flex items-center justify-between mb-5">
                   <div className="flex items-center gap-2">
                     <User size={18} className="text-slate-500" />
@@ -1557,7 +1757,7 @@ export default function ClientePerfilPage() {
 
           {/* TAB 6 — Anotações */}
           <TabsContent value="anotacoes" className="mt-4">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <div className="bg-card rounded-xl border border-border shadow-sm p-6">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                   <MessageSquare size={18} className="text-slate-500" />
@@ -1621,11 +1821,128 @@ export default function ClientePerfilPage() {
             </div>
           </TabsContent>
 
+          {/* TAB 6 — Documentos */}
+          <TabsContent value="documentos" className="mt-4">
+            <div className="bg-card rounded-xl border border-border shadow-sm p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                  <FileText size={16} className="text-slate-400" />
+                  Documentos do cliente
+                </h3>
+                <span className="text-xs text-slate-400">{documentos.length} arquivo(s)</span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {CATEGORIAS_DOCUMENTO.map(cat => {
+                  const doc = documentos.find(d => d.categoria === cat.id)
+                  const isUploading = uploadingDoc === cat.id
+                  const isDeletando = doc ? deletandoDocId === doc.id : false
+                  const inputId = `perfil-doc-${cat.id}`
+                  const IconeCat = cat.id === 'foto' ? Camera
+                    : cat.id === 'rg_cnh' ? CreditCard
+                    : cat.id === 'cpf' ? FileText
+                    : cat.id === 'comprovante_residencia' ? Home
+                    : cat.id === 'comprovante_renda' ? Banknote
+                    : Paperclip
+
+                  return (
+                    <div key={cat.id} className="relative">
+                      {doc ? (
+                        /* Documento enviado */
+                        <div className="rounded-xl border-2 border-green-200 bg-green-50 p-3 flex flex-col items-center gap-2 min-h-[130px] relative">
+                          {/* Botão remover */}
+                          <button
+                            type="button"
+                            disabled={isDeletando}
+                            onClick={() => deletarDocumento(doc)}
+                            className="absolute top-2 right-2 w-5 h-5 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center transition-colors disabled:opacity-50"
+                          >
+                            {isDeletando
+                              ? <div className="w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin" />
+                              : <X size={11} className="text-red-500" />
+                            }
+                          </button>
+
+                          {/* Preview ou ícone */}
+                          {ehImagem(doc.tipo_mime) ? (
+                            <img
+                              src={doc.url}
+                              alt={doc.label}
+                              className="w-16 h-16 object-cover rounded-lg"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-lg bg-green-100 flex items-center justify-center">
+                              <IconeCat size={28} className="text-green-500" />
+                            </div>
+                          )}
+
+                          <p className="text-xs font-medium text-green-700 text-center leading-tight">{cat.label}</p>
+                          <p className="text-[10px] text-slate-400">{formatarTamanho(doc.tamanho)}</p>
+
+                          {/* Ações */}
+                          <div className="flex gap-1 mt-auto w-full">
+                            <a
+                              href={doc.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded-md py-1 transition-colors"
+                            >
+                              <Eye size={10} /> Ver
+                            </a>
+                            <a
+                              href={doc.url}
+                              download={doc.nome_original}
+                              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md py-1 transition-colors"
+                            >
+                              <Download size={10} /> Baixar
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Slot vazio */
+                        <label
+                          htmlFor={inputId}
+                          className={`cursor-pointer rounded-xl border-2 border-dashed border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 p-3 flex flex-col items-center gap-2 min-h-[130px] transition-colors ${isUploading ? 'opacity-60 pointer-events-none' : ''}`}
+                        >
+                          <div className="w-16 h-16 rounded-lg bg-slate-100 flex items-center justify-center mt-1">
+                            {isUploading
+                              ? <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                              : <IconeCat size={28} className="text-slate-300" />
+                            }
+                          </div>
+                          <p className="text-xs text-slate-500 text-center leading-tight">{cat.label}</p>
+                          <p className="text-[10px] text-blue-400 font-medium flex items-center gap-1">
+                            <Upload size={9} /> {isUploading ? 'Enviando...' : 'Clique para enviar'}
+                          </p>
+                        </label>
+                      )}
+                      <input
+                        id={inputId}
+                        type="file"
+                        accept={cat.accept}
+                        className="hidden"
+                        onChange={e => {
+                          const f = e.target.files?.[0]
+                          if (f) fazerUploadDocumento(cat.id, f)
+                          e.target.value = ''
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+
+              <p className="text-xs text-slate-400 text-center">
+                Clique em qualquer quadrado para enviar ou substituir o documento.
+              </p>
+            </div>
+          </TabsContent>
+
           {/* TAB 7 — Score e Risco */}
           <TabsContent value="score" className="mt-4">
             <div className="space-y-4">
               {/* Score principal */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
                 <div className="flex flex-col lg:flex-row items-center gap-8">
                   <div className="flex flex-col items-center gap-3 shrink-0">
                     <ScoreGauge score={resultadoScore.score} size="lg" showLabel showDescription animated />

@@ -405,6 +405,7 @@ CREATE TABLE config_factoring (
   dias_carencia            INT           NOT NULL DEFAULT 0,
   multa_atraso             DECIMAL(8,4)  NOT NULL DEFAULT 2.00,
   juros_mora_diario        DECIMAL(8,6)  NOT NULL DEFAULT 0.033300,
+  saldo_inicial_caixa      DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   msg_aprovacao            TEXT,
   msg_liberacao            TEXT,
   msg_vencimento           TEXT,

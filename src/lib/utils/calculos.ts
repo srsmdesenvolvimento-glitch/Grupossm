@@ -51,7 +51,7 @@ export function calcularJurosCompostos(
 
     tabela.push({
       numero_parcela: i,
-      data_vencimento: formatISO(addMonths(dataInicio, i)),
+      data_vencimento: formatISO(addMonths(dataInicio, i - 1)),
       valor_principal: principalParcela,
       valor_juros: juros,
       valor_parcela: totalParcela,
@@ -91,7 +91,7 @@ export function calcularJurosSimples(
     saldo = Math.max(0, Math.round((saldo - principalMensal) * 100) / 100)
     tabela.push({
       numero_parcela: i,
-      data_vencimento: formatISO(addMonths(dataInicio, i)),
+      data_vencimento: formatISO(addMonths(dataInicio, i - 1)),
       valor_principal: principalMensal,
       valor_juros: juros,
       valor_parcela: parcela,
@@ -107,6 +107,8 @@ export function calcularJurosSimples(
   }
 }
 
+// Juros compostos diários: valor × (1 + taxaDiaria%)^dias − valor
+// Idêntico ao que agiotas/financeiras cobram: o juro de hoje incide sobre o saldo de ontem
 export function calcularJurosAtraso(
   valorOriginal: number,
   taxa: number,
@@ -115,7 +117,24 @@ export function calcularJurosAtraso(
 ): number {
   if (diasAtraso <= 0) return 0
   const taxaDiaria = tipoTaxa === 'mensal' ? taxa / 100 / 30 : taxa / 100
-  return Math.round(valorOriginal * taxaDiaria * diasAtraso * 100) / 100
+  const montante = valorOriginal * Math.pow(1 + taxaDiaria, diasAtraso)
+  return Math.round((montante - valorOriginal) * 100) / 100
+}
+
+// Calcula mora composta de uma parcela em atraso até hoje usando taxa diária (% puro, ex: 0.033)
+export function calcularMoraHoje(
+  valorParcela: number,
+  dataVencimento: string,
+  taxaDiariaPct: number,
+): number {
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  const venc = new Date(dataVencimento + 'T00:00:00')
+  const dias = Math.max(0, Math.floor((hoje.getTime() - venc.getTime()) / 86400000))
+  if (dias === 0) return 0
+  const taxaDiaria = taxaDiariaPct / 100
+  const montante = valorParcela * Math.pow(1 + taxaDiaria, dias)
+  return Math.round((montante - valorParcela) * 100) / 100
 }
 
 export function calcularMulta(valorOriginal: number, taxaMulta: number): number {
@@ -170,7 +189,7 @@ export function calcularSAC(
     saldo = Math.max(0, Math.round((saldo - amortParcela) * 100) / 100)
     tabela.push({
       numero_parcela: i,
-      data_vencimento: formatISO(addMonths(dataInicio, i)),
+      data_vencimento: formatISO(addMonths(dataInicio, i - 1)),
       valor_principal: amortParcela,
       valor_juros: juros,
       valor_parcela: totalParcela,

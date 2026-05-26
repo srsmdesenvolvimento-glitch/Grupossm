@@ -133,7 +133,7 @@ export default function ContasReceberPage() {
       { key: 'vencimento',  label: 'Vencimento'  },
       { key: 'valor',       label: 'Valor'       },
       { key: 'multa',       label: 'Multa'       },
-      { key: 'juros_mora',  label: 'Juros Mora'  },
+      { key: 'juros_mora',  label: 'Juros Diários'  },
       { key: 'total',       label: 'Total'       },
       { key: 'dias_atraso', label: 'Dias Atraso' },
       { key: 'status',      label: 'Status'      },

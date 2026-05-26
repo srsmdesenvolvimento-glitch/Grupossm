@@ -62,7 +62,7 @@ type MovimentacaoCaixa = {
 
 type EmprestimoRow = {
   id: string
-  valor_liberado: number
+  valor_principal: number
   data_liberacao: string | null
 }
 
@@ -155,13 +155,14 @@ export default function RelatorioFinanceiroFactoringPage() {
           .order('data_movimentacao', { ascending: false }),
         supabase
           .from('emprestimos')
-          .select('id, valor_liberado, data_liberacao')
+          .select('id, valor_principal, data_liberacao')
           .eq('empresa_id', empresaAtual.id)
           .gte('data_liberacao', periodoAtivo.inicio)
           .lte('data_liberacao', periodoAtivo.fim),
         supabase
           .from('parcelas_emprestimo')
           .select('id, status, data_pagamento, valor_juros')
+          .eq('empresa_id', empresaAtual.id)
           .eq('status', 'pago')
           .gte('data_pagamento', periodoAtivo.inicio)
           .lte('data_pagamento', periodoAtivo.fim),
@@ -196,7 +197,7 @@ export default function RelatorioFinanceiroFactoringPage() {
   // ─── Computed stats ───────────────────────────────────────────────────
 
   const totalLiberado = useMemo(
-    () => emprestimos.reduce((s, e) => s + Number(e.valor_liberado ?? 0), 0),
+    () => emprestimos.reduce((s, e) => s + Number(e.valor_principal ?? 0), 0),
     [emprestimos],
   )
 
@@ -240,7 +241,7 @@ export default function RelatorioFinanceiroFactoringPage() {
       const dia = e.data_liberacao?.split('T')[0] ?? ''
       if (!dia) return
       const prev = mapa.get(dia) ?? { data: dia, liberado: 0, recebido: 0 }
-      mapa.set(dia, { ...prev, liberado: prev.liberado + Number(e.valor_liberado ?? 0) })
+      mapa.set(dia, { ...prev, liberado: prev.liberado + Number(e.valor_principal ?? 0) })
     })
 
     movimentacoes

@@ -88,10 +88,9 @@ export const MENU_FACTORING: MenuItem[] = [
     href: '/factoring/parcelas',
     icon: 'CalendarDays',
     subitems: [
-      { label: 'Receber Parcela', href: '/factoring/parcelas/pagamento', icon: 'CheckCircle' },
       { label: 'Todas as Parcelas', href: '/factoring/parcelas', icon: 'List' },
       { label: 'Inadimplentes', href: '/factoring/parcelas/inadimplentes', icon: 'AlertTriangle' },
-      { label: 'Devedores', href: '/factoring/parcelas/devendo', icon: 'AlertCircle' },
+      { label: 'Todos Devedores', href: '/factoring/parcelas/todos-devem', icon: 'Users' },
     ],
   },
   {
@@ -99,15 +98,11 @@ export const MENU_FACTORING: MenuItem[] = [
     href: '/factoring/financeiro',
     icon: 'Wallet',
     subitems: [
+      { label: 'Caixa', href: '/factoring/financeiro/caixa', icon: 'Wallet' },
       { label: 'Contas a Receber', href: '/factoring/financeiro/contas-receber', icon: 'TrendingUp' },
-      { label: 'Contas a Pagar', href: '/factoring/financeiro/pagar', icon: 'TrendingDown' },
+      { label: 'Contas a Pagar', href: '/factoring/financeiro/contas-pagar', icon: 'TrendingDown' },
       { label: 'Relatório', href: '/factoring/financeiro/relatorio', icon: 'BarChart3' },
     ],
-  },
-  {
-    label: 'Mensagens',
-    href: '/factoring/mensagens',
-    icon: 'MessageCircle',
   },
   {
     label: 'Configurações',

@@ -19,7 +19,6 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
-import { PageHelp } from '@/components/shared/PageHelp'
 import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
 import { Download } from 'lucide-react'
@@ -427,22 +426,7 @@ export default function ClientesPage() {
 
   return (
     <AppShell empresa="emporio" titulo="Clientes">
-      <PageHelp
-        storageKey="help.emporio.clientes.v1"
-        titulo="Clientes — Empório"
-        oQueE="Cadastre e gerencie todos os clientes do empório. Veja o histórico de compras, contatos e situação financeira de cada cliente."
-        passos={[
-          'Clique em "Novo Cliente" para cadastrar um cliente.',
-          'Use a busca para localizar pelo nome, CPF, telefone ou e-mail.',
-          'Clique em um cliente para ver o perfil completo e histórico de compras.',
-          'Use o ícone de mensagem para enviar WhatsApp diretamente pelo sistema.',
-        ]}
-        dicas={[
-          'Mantenha o telefone atualizado para usar a integração com WhatsApp.',
-          'Clientes com vendas em aberto aparecem destacados.',
-          'Exporte a lista de clientes em CSV para usar em planilhas.',
-        ]}
-      />
+
       {/* Stats */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
