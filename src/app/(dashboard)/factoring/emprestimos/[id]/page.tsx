@@ -74,6 +74,7 @@ export default function EmprestimoDetalhePage() {
   const [pagando, setPagando] = useState(false)
   const [partialOption, setPartialOption] = useState<'proxima' | 'diluir' | 'extra'>('proxima')
   const [partialDueDate, setPartialDueDate] = useState('')
+  const [partialJurosPct, setPartialJurosPct] = useState('')
 
   async function handleGerarRecibo(p: ParcelaEmprestimo) {
     if (!cliente || !emprestimo) return
@@ -249,6 +250,8 @@ export default function EmprestimoDetalhePage() {
         
         // Organize remaining balance according to option chosen
         if (partialOption === 'proxima') {
+          const jurosPct = Number(partialJurosPct) || 0
+          const restanteComJuros = Math.round(restante * (1 + jurosPct / 100) * 100) / 100
           // Transfer remainder to the next pending parcel
           const { data: proximas } = await supabase
             .from('parcelas_emprestimo')
@@ -261,13 +264,13 @@ export default function EmprestimoDetalhePage() {
           const proxima = proximas?.[0]
           if (proxima) {
             const { error: errProxima } = await supabase.from('parcelas_emprestimo')
-              .update({ valor: Math.round((proxima.valor + restante) * 100) / 100 })
+              .update({ valor: Math.round((proxima.valor + restanteComJuros) * 100) / 100 })
               .eq('id', proxima.id)
               .eq('empresa_id', empresaAtual.id)
             if (errProxima) {
-              toast.error(`Saldo de ${formatarMoeda(restante)} não pôde ser somado à parcela ${proxima.numero_parcela}.`)
+              toast.error(`Saldo de ${formatarMoeda(restanteComJuros)} não pôde ser somado à parcela ${proxima.numero_parcela}.`)
             } else {
-              toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} somado à parcela ${proxima.numero_parcela}.`)
+              toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} somado à parcela ${proxima.numero_parcela}.`)
             }
           } else {
             // Last parcel — fallback: create a new one with next month date
@@ -277,13 +280,13 @@ export default function EmprestimoDetalhePage() {
             await supabase.from('parcelas_emprestimo').insert({
               empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
               numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
-              valor: restante, valor_principal: restante, valor_juros: 0,
-              saldo_devedor_antes: restante, saldo_devedor_apos: 0,
+              valor: restanteComJuros, valor_principal: restanteComJuros, valor_juros: 0,
+              saldo_devedor_antes: restanteComJuros, saldo_devedor_apos: 0,
               valor_pago: null, data_vencimento: novoVenc, data_pagamento: null, tipo_pagamento: null,
               multa: 0, juros_mora: 0, status: 'pendente',
               observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
             })
-            toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} criado como nova parcela.`)
+            toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} criado como nova parcela.`)
           }
         } else if (partialOption === 'diluir') {
           // Dilute remainder among other pending/atrasado parcelas
@@ -995,7 +998,7 @@ export default function EmprestimoDetalhePage() {
                     {/* Explicações da opção */}
                     <div className="text-[10px] text-muted-foreground/80 leading-relaxed font-medium bg-muted/20 p-2 rounded-lg">
                       {partialOption === 'proxima' && (
-                        <span>O saldo de {formatarMoeda(restante)} será integralmente somado ao valor da próxima parcela a vencer.</span>
+                        <span>O saldo de {formatarMoeda(restante)} será somado ao valor da próxima parcela a vencer.</span>
                       )}
                       {partialOption === 'diluir' && (
                         <span>O saldo de {formatarMoeda(restante)} será dividido igualmente e somado em todas as parcelas restantes em aberto.</span>
@@ -1004,6 +1007,47 @@ export default function EmprestimoDetalhePage() {
                         <span>Será criada uma nova parcela avulsa com o valor de {formatarMoeda(restante)} para a data de vencimento escolhida abaixo.</span>
                       )}
                     </div>
+
+                    {/* Juros sobre saldo remanescente — só para "Somar à Próxima" */}
+                    {partialOption === 'proxima' && (() => {
+                      const jurosPct = Number(partialJurosPct) || 0
+                      const restanteComJuros = Math.round(restante * (1 + jurosPct / 100) * 100) / 100
+                      return (
+                        <div className="space-y-2 pt-2 border-t border-[#FA903E]/15">
+                          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                            Juros sobre o saldo remanescente (opcional)
+                          </Label>
+                          <div className="relative flex items-center">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              placeholder="0"
+                              value={partialJurosPct}
+                              onChange={e => setPartialJurosPct(e.target.value)}
+                              className="h-9 pr-8 focus-visible:ring-1 focus-visible:ring-[#FA903E] focus-visible:border-[#FA903E] rounded-lg text-sm font-semibold"
+                            />
+                            <span className="absolute right-3 text-xs font-bold text-muted-foreground/60">%</span>
+                          </div>
+                          {jurosPct > 0 && (
+                            <div className="rounded-lg bg-[#FA903E]/8 border border-[#FA903E]/20 p-2.5 space-y-1 text-[11px] font-semibold">
+                              <div className="flex justify-between text-muted-foreground">
+                                <span>Saldo restante</span>
+                                <span>{formatarMoeda(restante)}</span>
+                              </div>
+                              <div className="flex justify-between text-[#FA903E]">
+                                <span>+ {jurosPct}% juros</span>
+                                <span>+ {formatarMoeda(restanteComJuros - restante)}</span>
+                              </div>
+                              <div className="flex justify-between text-foreground font-black border-t border-[#FA903E]/15 pt-1">
+                                <span>Valor que vai para a próxima</span>
+                                <span>{formatarMoeda(restanteComJuros)}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                     {/* Vencimento da Parcela Extra */}
                     {partialOption === 'extra' && (
