@@ -363,7 +363,10 @@ export default function NovoClienteFactoringPage() {
                 <span className="font-semibold text-foreground">{nome}</span> foi adicionado com sucesso ao sistema e já está apto para operações.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm pt-4">
+            <p className="text-base text-muted-foreground font-medium">
+              Deseja criar um empréstimo para este cliente agora?
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm pt-2">
               <Button
                 variant="outline"
                 className="flex-1 gap-2 h-11 rounded-full border-border hover:bg-muted/50"
@@ -377,7 +380,7 @@ export default function NovoClienteFactoringPage() {
                 onClick={() => router.push(`/factoring/emprestimos/novo?cliente_id=${clienteCriadoId}`)}
               >
                 <Banknote size={16} />
-                Iniciar Empréstimo
+                Criar Empréstimo
               </Button>
             </div>
           </div>

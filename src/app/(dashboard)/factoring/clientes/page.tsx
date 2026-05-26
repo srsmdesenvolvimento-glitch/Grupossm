@@ -237,7 +237,7 @@ export default function FactoringClientesPage() {
             <TooltipTrigger
               className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-border/40 hover:border-[#1A73E8]/35 hover:bg-[#E8F0FE] transition-all duration-150 shadow-sm hover:scale-105 active:scale-95 shrink-0"
               style={{ color: '#1A73E8' }}
-              onClick={() => router.push(`/factoring/emprestimos/novo?cliente=${c.id}`)}
+              onClick={() => router.push(`/factoring/emprestimos/novo?cliente_id=${c.id}`)}
             >
               <PlusCircle size={14} />
             </TooltipTrigger>
