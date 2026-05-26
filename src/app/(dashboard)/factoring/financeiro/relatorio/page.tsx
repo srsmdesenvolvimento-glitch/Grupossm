@@ -3,9 +3,12 @@
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingPage'
+import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
+import { StatusBadge } from '@/components/shared/StatusBadge'
 import { toast } from 'sonner'
 import { formatarMoeda, formatarData } from '@/lib/utils/formatters'
 import { cn } from '@/lib/utils'
@@ -21,7 +24,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -103,18 +105,22 @@ function CustomTooltip({
 }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-xl bg-white border border-slate-200 shadow-lg p-3 text-xs">
-      <p className="font-semibold text-slate-700 mb-1.5">{label}</p>
-      {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2">
-          <span
-            className="inline-block w-2 h-2 rounded-full"
-            style={{ background: p.color }}
-          />
-          <span className="text-slate-500">{p.name}:</span>
-          <span className="font-medium text-slate-800">{formatarMoeda(p.value)}</span>
-        </div>
-      ))}
+    <div className="rounded-2xl bg-card border border-border/50 shadow-m3-2 p-4 text-xs space-y-2">
+      <p className="font-bold text-foreground leading-none">{label}</p>
+      <div className="space-y-1.5 border-t border-border/40 pt-2">
+        {payload.map((p) => (
+          <div key={p.name} className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ background: p.color }}
+              />
+              <span className="text-muted-foreground font-medium">{p.name}:</span>
+            </div>
+            <span className="font-bold text-foreground font-mono">{formatarMoeda(p.value)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -314,7 +320,7 @@ export default function RelatorioFinanceiroFactoringPage() {
       key: 'data_movimentacao',
       header: 'Data',
       render: (row) => (
-        <span className="text-sm text-slate-700 tabular-nums">
+        <span className="text-sm font-semibold font-mono text-muted-foreground/80 tabular-nums">
           {formatarData(row.data_movimentacao)}
         </span>
       ),
@@ -323,31 +329,32 @@ export default function RelatorioFinanceiroFactoringPage() {
       key: 'tipo',
       header: 'Tipo',
       render: (row) => (
-        <Badge
-          variant="outline"
+        <span 
           className={cn(
-            'text-xs font-normal border',
-            row.tipo === 'entrada'
-              ? 'bg-green-50 text-green-700 border-green-200'
-              : 'bg-red-50 text-red-700 border-red-200',
+            "flex items-center gap-1.5 text-xs font-bold leading-none px-2 py-0.5 rounded-full border w-fit",
+            row.tipo === 'entrada' 
+              ? "bg-[var(--gt-green-light)] text-[var(--gt-green)] border-[var(--gt-green-light)]" 
+              : "bg-[var(--gt-red-light)] text-[var(--gt-red)] border-[var(--gt-red-light)]"
           )}
         >
           {row.tipo === 'entrada' ? 'Entrada' : 'Saída'}
-        </Badge>
+        </span>
       ),
     },
     {
       key: 'categoria',
       header: 'Categoria',
       render: (row) => (
-        <span className="text-sm text-slate-600 capitalize">{row.categoria}</span>
+        <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border/40 font-medium capitalize">
+          {row.categoria}
+        </span>
       ),
     },
     {
       key: 'descricao',
       header: 'Descrição',
       render: (row) => (
-        <span className="text-sm text-slate-700">{row.descricao}</span>
+        <span className="text-sm font-semibold text-foreground leading-normal">{row.descricao}</span>
       ),
     },
     {
@@ -355,15 +362,13 @@ export default function RelatorioFinanceiroFactoringPage() {
       header: 'Valor',
       className: 'text-right',
       render: (row) => (
-        <span
-          className={cn(
-            'text-sm font-semibold tabular-nums',
-            row.tipo === 'entrada' ? 'text-green-600' : 'text-red-500',
-          )}
-        >
-          {row.tipo === 'saida' ? '- ' : '+ '}
-          {formatarMoeda(Number(row.valor))}
-        </span>
+        <MoneyDisplay 
+          valor={row.valor} 
+          tamanho="sm" 
+          positivo={row.tipo === 'entrada'} 
+          negativo={row.tipo === 'saida'} 
+          className="font-bold font-mono"
+        />
       ),
     },
   ]
@@ -374,224 +379,250 @@ export default function RelatorioFinanceiroFactoringPage() {
 
   return (
     <AppShell titulo="Relatório Financeiro" empresa="factoring">
-      {/* Period selector */}
-      <div className="flex flex-col sm:flex-row items-end gap-3 mb-6 p-4 rounded-xl bg-[#EDF4FE] border border-[#1E5AA8]/20">
-        <div className="space-y-1.5 flex-1">
-          <Label htmlFor="dataInicio" className="text-xs font-medium text-[#1E5AA8]">
-            Data Inicial
-          </Label>
-          <Input
-            id="dataInicio"
-            type="date"
-            value={dataInicio}
-            onChange={(e) => setDataInicio(e.target.value)}
-            className="h-9 bg-white"
-          />
-        </div>
-        <div className="space-y-1.5 flex-1">
-          <Label htmlFor="dataFim" className="text-xs font-medium text-[#1E5AA8]">
-            Data Final
-          </Label>
-          <Input
-            id="dataFim"
-            type="date"
-            value={dataFim}
-            onChange={(e) => setDataFim(e.target.value)}
-            className="h-9 bg-white"
-          />
-        </div>
-        <Button
-          onClick={aplicarPeriodo}
-          className="bg-[#1E5AA8] hover:bg-[#174a8c] text-white border-0 h-9 px-5 shrink-0"
-        >
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Aplicar
-        </Button>
-      </div>
+      <div className="space-y-6">
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <StatCard
-          titulo="Total Liberado"
-          valor={formatarValorCurto(totalLiberado)}
-          subtitulo={`${emprestimos.length} operação${emprestimos.length !== 1 ? 'ões' : ''}`}
-          icone={DollarSign}
-          corIcone="#1E5AA8"
-          corFundo="#EDF4FE"
-        />
-        <StatCard
-          titulo="Total Recebido"
-          valor={formatarValorCurto(totalRecebido)}
-          subtitulo="Entradas no período"
-          icone={TrendingUp}
-          corIcone="#22C55E"
-          corFundo="#F0FDF4"
-        />
-        <StatCard
-          titulo="Juros Recebidos"
-          valor={formatarValorCurto(jurosRecebidos)}
-          subtitulo="Parcelas pagas"
+        {/* Header */}
+        <PageHeader 
+          titulo="Relatório Financeiro"
+          descricao="Visualize a performance financeira global e o saldo consolidado da factoring"
           icone={BarChart3}
-          corIcone="#D4A528"
-          corFundo="#FEFCE8"
+          corIcone="var(--gt-blue)"
         />
-        <StatCard
-          titulo="Em Aberto"
-          valor={formatarValorCurto(emAberto)}
-          subtitulo="Saldo a receber"
-          icone={TrendingDown}
-          corIcone="#F59E0B"
-          corFundo="#FFFBEB"
-        />
-        <StatCard
-          titulo="Taxa Inadimplência"
-          valor={`${taxaInadimplencia.toFixed(1)}%`}
-          subtitulo="Do total liberado"
-          icone={AlertTriangle}
-          corIcone={taxaInadimplencia > 10 ? '#EF4444' : '#22C55E'}
-          corFundo={taxaInadimplencia > 10 ? '#FEF2F2' : '#F0FDF4'}
-        />
-      </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-        {/* Bar chart */}
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4">
-            Liberações vs Recebimentos
-          </h3>
-          {barChartData.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
-              Sem dados no período
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={barChartData} barCategoryGap="30%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis
-                  dataKey="dataLabel"
-                  tick={{ fontSize: 11, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tickFormatter={(v: number) => formatarValorCurto(v)}
-                  tick={{ fontSize: 11, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={70}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend
-                  wrapperStyle={{ fontSize: 12, color: '#64748b' }}
-                  iconType="circle"
-                  iconSize={8}
-                />
-                <Bar dataKey="liberado" name="Liberado" fill="#1E5AA8" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="recebido" name="Recebido" fill="#22C55E" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+        {/* Period selector */}
+        <div className="flex flex-col md:flex-row items-end gap-4 p-5 rounded-2xl bg-muted/20 border border-border/50 shadow-m3-1">
+          <div className="space-y-1.5 flex-1 w-full">
+            <Label htmlFor="dataInicio" className="text-xs font-bold text-foreground/80 uppercase tracking-wider">
+              Data Inicial
+            </Label>
+            <Input
+              id="dataInicio"
+              type="date"
+              value={dataInicio}
+              onChange={(e) => setDataInicio(e.target.value)}
+              className="h-10 bg-card rounded-xl border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] font-semibold"
+            />
+          </div>
+          <div className="space-y-1.5 flex-1 w-full">
+            <Label htmlFor="dataFim" className="text-xs font-bold text-foreground/80 uppercase tracking-wider">
+              Data Final
+            </Label>
+            <Input
+              id="dataFim"
+              type="date"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              className="h-10 bg-card rounded-xl border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] font-semibold"
+            />
+          </div>
+          <Button
+            onClick={aplicarPeriodo}
+            className="bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] text-white border-0 h-10 px-6 shrink-0 rounded-full font-semibold shadow-sm flex items-center gap-2 transition-all duration-200 w-full md:w-auto"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Filtrar Período
+          </Button>
         </div>
 
-        {/* Line chart */}
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4">
-            Recebimentos Diários
-          </h3>
-          {lineChartData.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
-              Sem recebimentos no período
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={lineChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis
-                  dataKey="dataLabel"
-                  tick={{ fontSize: 11, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tickFormatter={(v: number) => formatarValorCurto(v)}
-                  tick={{ fontSize: 11, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={70}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="valor"
-                  name="Recebido"
-                  stroke="#D4A528"
-                  strokeWidth={2.5}
-                  dot={{ fill: '#D4A528', r: 4 }}
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-5">
+          <StatCard
+            titulo="Total Liberado"
+            valor={formatarValorCurto(totalLiberado)}
+            subtitulo={`${emprestimos.length} operação${emprestimos.length !== 1 ? 'ões' : ''}`}
+            icone={DollarSign}
+            corIcone="var(--gt-blue)"
+            corFundo="var(--gt-blue-light)"
+            delay={0}
+          />
+          <StatCard
+            titulo="Total Recebido"
+            valor={formatarValorCurto(totalRecebido)}
+            subtitulo="Entradas no período"
+            icone={TrendingUp}
+            corIcone="var(--gt-green)"
+            corFundo="var(--gt-green-light)"
+            delay={0.07}
+          />
+          <StatCard
+            titulo="Juros Recebidos"
+            valor={formatarValorCurto(jurosRecebidos)}
+            subtitulo="Parcelas pagas"
+            icone={BarChart3}
+            corIcone="var(--gt-yellow)"
+            corFundo="var(--gt-yellow-light)"
+            delay={0.14}
+          />
+          <StatCard
+            titulo="Em Aberto"
+            valor={formatarValorCurto(emAberto)}
+            subtitulo="Saldo a receber"
+            icone={TrendingDown}
+            corIcone="var(--gt-orange)"
+            corFundo="var(--gt-orange-light)"
+            delay={0.21}
+          />
+          <StatCard
+            titulo="Inadimplência"
+            valor={`${taxaInadimplencia.toFixed(1)}%`}
+            subtitulo="Do total liberado"
+            icone={AlertTriangle}
+            corIcone={taxaInadimplencia > 10 ? 'var(--gt-red)' : 'var(--gt-green)'}
+            corFundo={taxaInadimplencia > 10 ? 'var(--gt-red-light)' : 'var(--gt-green-light)'}
+            delay={0.28}
+          />
         </div>
-      </div>
 
-      {/* Table */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-          <h3 className="text-sm font-semibold text-slate-800">
-            Movimentações do Período
-          </h3>
-          <div className="flex items-center gap-2">
-            <Select
-              value={tipoFiltro}
-              onValueChange={(v) => setTipoFiltro(v as 'todos' | 'entrada' | 'saida')}
-            >
-              <SelectTrigger className="h-8 w-32 text-xs">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="entrada">Entradas</SelectItem>
-                <SelectItem value="saida">Saídas</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={exportarCSV}
-              className="h-8 text-xs border-[#1E5AA8]/30 text-[#1E5AA8] hover:bg-[#EDF4FE]"
-            >
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              Exportar CSV
-            </Button>
+        {/* Charts */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Bar chart */}
+          <div className="rounded-2xl border border-border/50 bg-card p-5 shadow-m3-1 hover:shadow-m3-2 transition-shadow duration-200">
+            <h3 className="text-sm font-bold text-foreground mb-4 tracking-tight">
+              Liberações vs Recebimentos
+            </h3>
+            {barChartData.length === 0 ? (
+              <div className="flex items-center justify-center h-60 text-sm text-muted-foreground/60 font-semibold border border-dashed border-border rounded-xl">
+                Sem liberações ou recebimentos no período
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={barChartData} barCategoryGap="30%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.08)" />
+                  <XAxis
+                    dataKey="dataLabel"
+                    tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={(v: number) => formatarValorCurto(v)}
+                    tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={70}
+                  />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(26,115,232,0.03)' }} />
+                  <Legend
+                    wrapperStyle={{ fontSize: 12, fontWeight: 700, paddingTop: 10 }}
+                    iconType="circle"
+                    iconSize={8}
+                  />
+                  <Bar dataKey="liberado" name="Liberado" fill="var(--gt-blue)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="recebido" name="Recebido" fill="var(--gt-green)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          {/* Line chart */}
+          <div className="rounded-2xl border border-border/50 bg-card p-5 shadow-m3-1 hover:shadow-m3-2 transition-shadow duration-200">
+            <h3 className="text-sm font-bold text-foreground mb-4 tracking-tight">
+              Recebimentos Diários
+            </h3>
+            {lineChartData.length === 0 ? (
+              <div className="flex items-center justify-center h-60 text-sm text-muted-foreground/60 font-semibold border border-dashed border-border rounded-xl">
+                Sem recebimentos registrados no período
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={lineChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.08)" />
+                  <XAxis
+                    dataKey="dataLabel"
+                    tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={(v: number) => formatarValorCurto(v)}
+                    tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={70}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Line
+                    type="monotone"
+                    dataKey="valor"
+                    name="Recebido"
+                    stroke="var(--gt-yellow)"
+                    strokeWidth={3}
+                    dot={{ fill: 'var(--gt-yellow)', r: 4, strokeWidth: 1 }}
+                    activeDot={{ r: 6, fill: 'var(--gt-yellow)' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
-        {/* Summary row */}
-        <div className="flex items-center gap-4 mb-4 p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs">
-          <span className="text-slate-500">
-            {movimentacoesFiltradas.length} registro{movimentacoesFiltradas.length !== 1 ? 's' : ''}
-          </span>
-          <span className="text-green-600 font-medium">
-            Entradas: {formatarMoeda(totalRecebido)}
-          </span>
-          <span className="text-red-500 font-medium">
-            Saídas: {formatarMoeda(totalSaida)}
-          </span>
-          <span className={cn('font-semibold ml-auto', totalRecebido - totalSaida >= 0 ? 'text-green-600' : 'text-red-500')}>
-            Saldo: {formatarMoeda(totalRecebido - totalSaida)}
-          </span>
-        </div>
+        {/* Table */}
+        <div className="rounded-2xl border border-border/50 bg-card p-6 shadow-m3-1">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-5 gap-4">
+            <h3 className="text-sm font-bold text-foreground tracking-tight">
+              Movimentações Registradas
+            </h3>
+            <div className="flex items-center gap-2.5">
+              <Select
+                value={tipoFiltro}
+                onValueChange={(v) => setTipoFiltro(v as 'todos' | 'entrada' | 'saida')}
+              >
+                <SelectTrigger className="h-10 w-36 text-xs rounded-full border-border/60">
+                  <SelectValue placeholder="Tipo" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl">
+                  <SelectItem value="todos">Todos Tipos</SelectItem>
+                  <SelectItem value="entrada">Entradas</SelectItem>
+                  <SelectItem value="saida">Saídas</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                size="default"
+                variant="outline"
+                onClick={exportarCSV}
+                className="h-10 text-xs rounded-full border-border/60 hover:bg-muted font-bold px-4 flex items-center gap-1.5"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Exportar CSV
+              </Button>
+            </div>
+          </div>
 
-        <DataTable
-          columns={columns}
-          data={movimentacoesFiltradas}
-          keyExtractor={(row) => row.id}
-          loading={loading}
-          emptyMessage="Nenhuma movimentação encontrada no período"
-          perPage={25}
-        />
+          {/* Summary row */}
+          <div className="flex flex-wrap items-center gap-5 mb-5 p-4 rounded-xl bg-muted/20 border border-border/40 text-xs font-bold text-muted-foreground">
+            <span>
+              Total: {movimentacoesFiltradas.length} registro{movimentacoesFiltradas.length !== 1 ? 's' : ''}
+            </span>
+            <span className="text-[var(--gt-green)] flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-[var(--gt-green)] inline-block" />
+              Entradas: {formatarMoeda(totalRecebido)}
+            </span>
+            <span className="text-[var(--gt-red)] flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-[var(--gt-red)] inline-block" />
+              Saídas: {formatarMoeda(totalSaida)}
+            </span>
+            <div className="sm:ml-auto flex items-center gap-2">
+              <span className="text-muted-foreground uppercase text-[10px] tracking-wider font-extrabold">Saldo do Fluxo:</span>
+              <MoneyDisplay 
+                valor={totalRecebido - totalSaida} 
+                positivo={totalRecebido - totalSaida >= 0} 
+                negativo={totalRecebido - totalSaida < 0} 
+                tamanho="sm"
+              />
+            </div>
+          </div>
+
+          <div className="border border-border/40 rounded-2xl overflow-hidden">
+            <DataTable
+              columns={columns}
+              data={movimentacoesFiltradas}
+              keyExtractor={(row) => row.id}
+              loading={loading}
+              emptyMessage="Nenhuma movimentação encontrada no período"
+              perPage={25}
+            />
+          </div>
+        </div>
       </div>
     </AppShell>
   )

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 interface ScoreGaugeProps {
   score: number
@@ -17,23 +17,15 @@ const SIZE_CONFIG = {
 }
 
 const SCORE_ZONES = [
-  { min: 0,  max: 30,  color: '#EF4444', label: 'Crítico',     desc: 'Negar crédito' },
-  { min: 30, max: 50,  color: '#F97316', label: 'Alto Risco',  desc: 'Analisar com cautela' },
-  { min: 50, max: 70,  color: '#D4A528', label: 'Médio Risco', desc: 'Analisar caso' },
-  { min: 70, max: 101, color: '#16A34A', label: 'Baixo Risco', desc: 'Aprovar crédito' },
+  { min: 0,  max: 30,  color: '#EA4335', label: 'Crítico',     desc: 'Negar crédito' },
+  { min: 30, max: 50,  color: '#FA903E', label: 'Alto Risco',  desc: 'Analisar com cautela' },
+  { min: 50, max: 70,  color: '#FBBC04', label: 'Médio Risco', desc: 'Analisar caso' },
+  { min: 70, max: 101, color: '#34A853', label: 'Baixo Risco', desc: 'Aprovar crédito' },
 ]
 
 function getZone(score: number) {
   return SCORE_ZONES.find(z => score >= z.min && score < z.max) ?? SCORE_ZONES[0]
 }
-
-// Arc math: 240° gauge from 210° to -30° (clockwise)
-// In SVG coords: angle 0 = right, increases clockwise
-// startAngle = 210° (lower-left), endAngle = 210° + 240° = 450° = 90° (bottom)
-// But we want the gauge top-arc style: from lower-left, sweeping through top, to lower-right
-// Using polar: startAngle=210°, sweep=240° clockwise to 210°+240°=450°=90° → that's bottom
-// Classic speedometer: start 225°, end -45° (going clockwise through 0/top)
-// Let's use: startAngle=215°, sweep=250° → endAngle=215°+250°=465°=105°
 
 const START_DEG = 215
 const SWEEP_DEG = 250
@@ -53,14 +45,12 @@ function describeArc(cx: number, cy: number, r: number, startDeg: number, sweepD
   return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`
 }
 
-// Zone segments — each zone covers proportional degrees of the 250° arc
 function buildZoneSegments(cx: number, cy: number, r: number, strokeWidth: number) {
-  // zones: 0-30 (30%), 30-50 (20%), 50-70 (20%), 70-100 (30%)
   const segments = [
-    { color: '#EF4444', from: 0,  to: 30 },
-    { color: '#F97316', from: 30, to: 50 },
-    { color: '#D4A528', from: 50, to: 70 },
-    { color: '#16A34A', from: 70, to: 100 },
+    { color: '#EA4335', from: 0,  to: 30 },
+    { color: '#FA903E', from: 30, to: 50 },
+    { color: '#FBBC04', from: 50, to: 70 },
+    { color: '#34A853', from: 70, to: 100 },
   ]
 
   return segments.map(seg => {
@@ -85,7 +75,6 @@ export function ScoreGauge({
   const cfg = SIZE_CONFIG[size]
   const px = cfg.px
   const cx = px / 2
-  // Shift center down slightly so arc top clears the viewbox
   const cy = px * 0.52
   const sw = cfg.strokeWidth
   const r  = cx - sw / 2 - 4
@@ -93,28 +82,31 @@ export function ScoreGauge({
   const clampedScore = Math.max(0, Math.min(100, Math.round(score)))
   const zone = getZone(clampedScore)
 
-  // Full arc circumference via strokeDasharray on a circle
   const circumference = 2 * Math.PI * r
   const arcFraction = SWEEP_DEG / 360
   const arcLength = circumference * arcFraction
   const fillLength = arcLength * (clampedScore / 100)
   const targetOffset = arcLength - fillLength
 
-  // Animation
-  const [offset, setOffset] = useState(arcLength) // start empty
-  const prefersReducedMotion = useRef(false)
+  const [offset, setOffset] = useState(arcLength)
+  const [transition, setTransition] = useState('none')
 
   useEffect(() => {
-    prefersReducedMotion.current =
+    const prefersReduced =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-    if (!animated || prefersReducedMotion.current) {
+    if (animated && !prefersReduced) {
+      setTransition('stroke-dashoffset 1.2s cubic-bezier(0.22, 1, 0.36, 1)')
+    } else {
+      setTransition('none')
+    }
+
+    if (!animated || prefersReduced) {
       setOffset(targetOffset)
       return
     }
 
-    // Start from empty, animate to fill
     setOffset(arcLength)
     const raf = requestAnimationFrame(() => {
       const timeout = setTimeout(() => {
@@ -125,24 +117,13 @@ export function ScoreGauge({
     return () => cancelAnimationFrame(raf)
   }, [clampedScore, arcLength, targetOffset, animated])
 
-  // Track path (full arc, gray)
   const trackPath = describeArc(cx, cy, r, START_DEG, SWEEP_DEG)
-
-  // Score fill path — full arc path, but controlled via strokeDashoffset
-  // We draw the full arc as a single path and use dash trick
   const fillPath = describeArc(cx, cy, r, START_DEG, SWEEP_DEG)
-
-  // Zone segments (decorative background zones)
   const zoneSegs = buildZoneSegments(cx, cy, r, sw)
 
-  // Text positions
   const scoreY = cy + (size === 'sm' ? 4 : size === 'md' ? 6 : 8)
   const labelY = cy + (size === 'sm' ? 16 : size === 'md' ? 24 : 34)
   const descY  = cy + (size === 'sm' ? 24 : size === 'md' ? 36 : 50)
-
-  const transition = animated && !prefersReducedMotion.current
-    ? 'stroke-dashoffset 1.2s ease-out'
-    : 'none'
 
   return (
     <svg
@@ -153,6 +134,17 @@ export function ScoreGauge({
       role="img"
       style={{ overflow: 'visible' }}
     >
+      {/* Drop shadow filter for the fill arc */}
+      <defs>
+        <filter id={`gauge-glow-${size}`} x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="2" />
+        </filter>
+        <linearGradient id={`gauge-grad-${size}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={zone.color} stopOpacity="1" />
+          <stop offset="100%" stopColor={zone.color} stopOpacity="0.7" />
+        </linearGradient>
+      </defs>
+
       {/* Zone segments (subtle color bands as track) */}
       {zoneSegs.map((seg, i) => (
         <path
@@ -162,7 +154,7 @@ export function ScoreGauge({
           stroke={seg.color}
           strokeWidth={sw}
           strokeLinecap="butt"
-          opacity={0.18}
+          opacity={0.12}
         />
       ))}
 
@@ -170,17 +162,31 @@ export function ScoreGauge({
       <path
         d={trackPath}
         fill="none"
-        stroke="#E2E8F0"
+        stroke="var(--border)"
         strokeWidth={sw}
         strokeLinecap="round"
-        opacity={0.6}
+        opacity={0.5}
       />
 
-      {/* Colored fill arc via dashoffset animation */}
+      {/* Glow effect behind fill */}
       <path
         d={fillPath}
         fill="none"
         stroke={zone.color}
+        strokeWidth={sw + 4}
+        strokeLinecap="round"
+        strokeDasharray={`${arcLength} ${circumference}`}
+        strokeDashoffset={offset}
+        style={{ transition }}
+        opacity={0.15}
+        filter={`url(#gauge-glow-${size})`}
+      />
+
+      {/* Colored fill arc */}
+      <path
+        d={fillPath}
+        fill="none"
+        stroke={`url(#gauge-grad-${size})`}
         strokeWidth={sw}
         strokeLinecap="round"
         strokeDasharray={`${arcLength} ${circumference}`}
@@ -198,6 +204,7 @@ export function ScoreGauge({
         fontWeight="800"
         fill={zone.color}
         fontFamily="inherit"
+        letterSpacing="-0.02em"
       >
         {clampedScore}
       </text>
@@ -211,7 +218,7 @@ export function ScoreGauge({
           dominantBaseline="middle"
           fontSize={cfg.labelSize}
           fontWeight="600"
-          fill="#475569"
+          fill="var(--muted-foreground)"
           fontFamily="inherit"
         >
           {zone.label}
@@ -227,8 +234,9 @@ export function ScoreGauge({
           dominantBaseline="middle"
           fontSize={cfg.descSize}
           fontWeight="400"
-          fill="#94A3B8"
+          fill="var(--muted-foreground)"
           fontFamily="inherit"
+          opacity="0.7"
         >
           {zone.desc}
         </text>

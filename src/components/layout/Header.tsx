@@ -1,8 +1,7 @@
 'use client'
 
-import { Menu, LogOut, User, ChevronDown, Building2, Search, ChevronRight } from 'lucide-react'
+import { Menu, LogOut, User, ChevronDown, Building2, ChevronRight } from 'lucide-react'
 import { NotificationsBell } from './NotificationsBell'
-import { CommandPalette } from './CommandPalette'
 import { ThemeToggle } from './ThemeToggle'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
@@ -22,7 +21,7 @@ interface HeaderProps {
 
 const EMPRESA_CONFIG: Record<TipoEmpresa, { primary: string; nome: string; emoji: string }> = {
   emporio:  { primary: '#D4A528', nome: 'Empório dos Móveis', emoji: '🪑' },
-  factoring: { primary: '#1E5AA8', nome: 'SRS M Factoring',    emoji: '💰' },
+  factoring: { primary: '#1A73E8', nome: 'SRS M Factoring',    emoji: '💰' },
 }
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -82,34 +81,37 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
   const outrasEmpresas = empresas.filter(e => e.id !== empresaAtual?.id)
 
   return (
-    <header className="h-14 bg-background/95 backdrop-blur-sm flex items-center justify-between px-4 lg:px-6 shrink-0 border-b border-border/60 shadow-[0_1px_0_rgba(0,0,0,0.04)]">
+    <header
+      className="h-16 bg-background/80 backdrop-blur-xl flex items-center justify-between px-4 lg:px-6 shrink-0 border-b border-border/40"
+      style={{ boxShadow: 'var(--shadow-m3-1, 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06))' }}
+    >
       {/* Left: hamburger + breadcrumb */}
       <div className="flex items-center gap-3 min-w-0 overflow-hidden">
         <button
           onClick={onMenuClick}
-          className="lg:hidden p-2 rounded-lg hover:bg-accent transition-colors shrink-0"
+          className="lg:hidden p-2.5 rounded-xl hover:bg-accent transition-colors duration-200 shrink-0"
           aria-label="Abrir menu"
         >
-          <Menu size={18} className="text-muted-foreground" />
+          <Menu size={20} className="text-muted-foreground" />
         </button>
 
-        {/* Accent dot */}
+        {/* Accent line */}
         <div
-          className="hidden lg:block w-1.5 h-1.5 rounded-full shrink-0"
+          className="hidden lg:block w-0.5 h-5 rounded-full shrink-0"
           style={{ backgroundColor: cfg.primary }}
         />
 
-        <nav className="flex items-center gap-0.5 text-sm min-w-0" aria-label="Breadcrumb">
+        <nav className="flex items-center gap-1 text-sm min-w-0" aria-label="Breadcrumb">
           {breadcrumbs.map((crumb, i) => (
-            <span key={crumb.href} className="flex items-center gap-0.5 shrink-0">
+            <span key={crumb.href} className="flex items-center gap-1 shrink-0">
               {i > 0 && (
-                <ChevronRight size={13} className="text-muted-foreground/40 shrink-0 mx-0.5" />
+                <ChevronRight size={12} className="text-muted-foreground/30 shrink-0 mx-0.5" />
               )}
               <span
                 className={
                   crumb.isLast
-                    ? 'font-semibold text-foreground max-w-[180px] truncate text-sm'
-                    : 'text-muted-foreground/60 max-w-[80px] truncate text-sm hover:text-muted-foreground transition-colors'
+                    ? 'font-semibold text-foreground max-w-[180px] truncate text-[13px]'
+                    : 'text-muted-foreground/50 max-w-[80px] truncate text-[13px] hover:text-muted-foreground transition-colors duration-200'
                 }
                 title={crumb.label}
               >
@@ -120,37 +122,25 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
         </nav>
       </div>
 
-      {/* Right: command palette + empresa selector + bell + avatar */}
-      <div className="flex items-center gap-1 shrink-0">
-        <CommandPalette />
-        {/* Mobile search icon — opens same command palette */}
-        <button
-          className="md:hidden p-2 rounded-lg hover:bg-accent transition-colors"
-          aria-label="Buscar"
-          onClick={() => {
-            const evt = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true })
-            document.dispatchEvent(evt)
-          }}
-        >
-          <Search size={18} className="text-muted-foreground" />
-        </button>
+      {/* Right: empresa selector + bell + avatar */}
+      <div className="flex items-center gap-1.5 shrink-0">
         {outrasEmpresas.length > 0 && (
           <DropdownMenu>
-            <DropdownMenuTrigger className="hidden sm:inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-foreground hover:bg-accent transition-colors text-xs font-medium">
+            <DropdownMenuTrigger className="hidden sm:inline-flex items-center gap-1.5 h-9 px-2.5 rounded-xl text-foreground hover:bg-accent transition-colors duration-200 text-xs font-medium">
               <Building2 size={14} className="text-muted-foreground" />
               <span className="max-w-[110px] truncate">
                 {empresaAtual?.nome ?? cfg.nome}
               </span>
-              <ChevronDown size={12} className="text-muted-foreground" />
+              <ChevronDown size={12} className="text-muted-foreground/60" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className="w-52 rounded-xl">
               <p className="px-2 py-1.5 text-xs text-muted-foreground font-medium">Trocar empresa</p>
               <DropdownMenuSeparator />
               {outrasEmpresas.map(e => (
                 <DropdownMenuItem
                   key={e.id}
                   onClick={() => handleTrocarEmpresa(e.id)}
-                  className="gap-2"
+                  className="gap-2 rounded-lg"
                 >
                   <span>{EMPRESA_CONFIG[e.tipo].emoji}</span>
                   <span className="truncate">{e.nome}</span>
@@ -164,8 +154,8 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
         <NotificationsBell />
 
         <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-2 h-9 px-2 rounded-md hover:bg-accent transition-colors outline-none">
-            <Avatar className="h-7 w-7 shrink-0">
+          <DropdownMenuTrigger className="flex items-center gap-2 h-10 px-2 rounded-xl hover:bg-accent transition-colors duration-200 outline-none">
+            <Avatar className="h-8 w-8 shrink-0">
               <AvatarFallback
                 className="text-xs text-white font-bold"
                 style={{ backgroundColor: cfg.primary }}
@@ -173,24 +163,24 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
                 {initials}
               </AvatarFallback>
             </Avatar>
-            <span className="hidden sm:block text-sm text-foreground max-w-[100px] truncate">
+            <span className="hidden sm:block text-sm text-foreground max-w-[100px] truncate font-medium">
               {perfil?.nome ?? user?.email}
             </span>
-            <ChevronDown size={13} className="text-muted-foreground hidden sm:block" />
+            <ChevronDown size={13} className="text-muted-foreground/60 hidden sm:block" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <div className="px-2 py-1.5">
+          <DropdownMenuContent align="end" className="w-56 rounded-xl">
+            <div className="px-3 py-2.5">
               <p className="text-sm font-semibold text-foreground truncate">{perfil?.nome ?? '—'}</p>
-              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+              <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{user?.email}</p>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2">
+            <DropdownMenuItem className="gap-2.5 rounded-lg mx-1">
               <User size={15} />
               Meu Perfil
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="gap-2 text-red-600 focus:text-red-600"
+              className="gap-2.5 text-red-600 focus:text-red-600 rounded-lg mx-1"
               onClick={handleSignOut}
             >
               <LogOut size={15} />

@@ -28,14 +28,17 @@ export function FileUpload({
   return (
     <div
       className={cn(
-        'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
-        dragOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300 bg-slate-50',
+        'border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 bg-muted/20 dark:bg-card/30 flex flex-col items-center justify-center gap-3',
+        dragOver 
+          ? 'border-[var(--gt-blue)] bg-[var(--gt-blue-light)]/30 dark:bg-[var(--gt-blue)]/5 scale-[1.01]' 
+          : 'border-border/60 hover:border-[var(--gt-blue)]/50 hover:bg-muted/40 dark:hover:bg-card/60',
         className
       )}
       onClick={() => inputRef.current?.click()}
       onDragOver={e => { e.preventDefault(); setDragOver(true) }}
       onDragLeave={() => setDragOver(false)}
       onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
+      role="presentation"
     >
       <input
         ref={inputRef}
@@ -45,11 +48,20 @@ export function FileUpload({
         className="hidden"
         onChange={e => handleFiles(e.target.files)}
       />
-      <Upload size={24} className="mx-auto text-slate-400 mb-2" />
-      <p className="text-sm text-slate-500">
-        Arraste arquivos ou <span className="text-blue-600 underline">clique para selecionar</span>
-      </p>
-      <p className="text-xs text-slate-400 mt-1">Máximo {maxSizeMB}MB</p>
+      <div className={cn(
+        'w-12 h-12 rounded-full flex items-center justify-center transition-colors duration-200 shadow-sm border border-border/40',
+        dragOver ? 'bg-[var(--gt-blue)] text-white' : 'bg-card text-muted-foreground/60'
+      )}>
+        <Upload size={20} className={dragOver ? 'animate-bounce' : ''} />
+      </div>
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-foreground">
+          Arraste seus arquivos aqui ou <span className="text-[var(--gt-blue)] hover:underline">clique para buscar</span>
+        </p>
+        <p className="text-xs text-muted-foreground/80">
+          Aceita arquivos {accept.replace('/*', '').toUpperCase()} até {maxSizeMB}MB
+        </p>
+      </div>
     </div>
   )
 }

@@ -3,11 +3,13 @@
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { StatusBadge } from '@/components/shared/StatusBadge'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { toast } from 'sonner'
 import { formatarMoeda, formatarData } from '@/lib/utils/formatters'
@@ -102,34 +104,34 @@ const CATEGORIA_COLORS: Record<
   { bg: string; text: string; border: string }
 > = {
   fornecedor: {
-    bg: 'bg-blue-50',
-    text: 'text-blue-700',
-    border: 'border-blue-200',
+    bg: 'bg-[var(--gt-blue-light)] dark:bg-[var(--gt-blue)]/10',
+    text: 'text-[var(--gt-blue)] dark:text-blue-400',
+    border: 'border-[var(--gt-blue-light)] dark:border-[var(--gt-blue)]/20',
   },
   aluguel: {
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200',
+    bg: 'bg-[var(--gt-orange-light)] dark:bg-[var(--gt-orange)]/10',
+    text: 'text-[var(--gt-orange)] dark:text-orange-400',
+    border: 'border-[var(--gt-orange-light)] dark:border-[var(--gt-orange)]/20',
   },
   salario: {
-    bg: 'bg-green-50',
-    text: 'text-green-700',
-    border: 'border-green-200',
+    bg: 'bg-[var(--gt-green-light)] dark:bg-[var(--gt-green)]/10',
+    text: 'text-[var(--gt-green)] dark:text-green-400',
+    border: 'border-[var(--gt-green-light)] dark:border-[var(--gt-green)]/20',
   },
   imposto: {
-    bg: 'bg-red-50',
-    text: 'text-red-700',
-    border: 'border-red-200',
+    bg: 'bg-[var(--gt-red-light)] dark:bg-[var(--gt-red)]/10',
+    text: 'text-[var(--gt-red)] dark:text-red-400',
+    border: 'border-[var(--gt-red-light)] dark:border-[var(--gt-red)]/20',
   },
   servico: {
-    bg: 'bg-purple-50',
-    text: 'text-purple-700',
-    border: 'border-purple-200',
+    bg: 'bg-[var(--gt-purple-light)] dark:bg-[var(--gt-purple)]/10',
+    text: 'text-[var(--gt-purple)] dark:text-purple-400',
+    border: 'border-[var(--gt-purple-light)] dark:border-[var(--gt-purple)]/20',
   },
   outros: {
-    bg: 'bg-gray-50',
-    text: 'text-gray-700',
-    border: 'border-gray-200',
+    bg: 'bg-muted dark:bg-card/40',
+    text: 'text-muted-foreground dark:text-muted-foreground',
+    border: 'border-border/60 dark:border-border/40',
   },
 }
 
@@ -372,6 +374,7 @@ export default function ContasPagarFactoringPage() {
           .from('contas_pagar')
           .update(payload)
           .eq('id', contaEditando.id)
+          .eq('empresa_id', empresaAtual.id)
         if (error) throw error
         toast.success('Conta atualizada com sucesso!')
       } else {
@@ -421,6 +424,7 @@ export default function ContasPagarFactoringPage() {
           tipo_pagamento: pagarForm.tipo_pagamento,
         })
         .eq('id', conta.id)
+        .eq('empresa_id', empresaAtual.id)
 
       if (errUpdate) throw errUpdate
 
@@ -453,13 +457,14 @@ export default function ContasPagarFactoringPage() {
 
   async function confirmarDelete() {
     const conta = deleteDialog.conta
-    if (!conta) return
+    if (!conta || !empresaAtual) return
     setDeletando(true)
     try {
       const { error } = await supabase
         .from('contas_pagar')
         .delete()
         .eq('id', conta.id)
+        .eq('empresa_id', empresaAtual.id)
       if (error) throw error
       toast.success('Conta excluída')
       setDeleteDialog({ open: false, conta: null })
@@ -479,12 +484,12 @@ export default function ContasPagarFactoringPage() {
       header: 'Descrição',
       render: (row) => (
         <div>
-          <p className="font-medium text-sm">{row.descricao}</p>
+          <p className="font-bold text-sm text-foreground leading-tight">{row.descricao}</p>
           {row.fornecedor_nome && (
-            <p className="text-xs text-muted-foreground">{row.fornecedor_nome}</p>
+            <p className="text-xs text-muted-foreground mt-1.5 font-medium">{row.fornecedor_nome}</p>
           )}
           {row.numero_documento && (
-            <p className="text-xs text-muted-foreground font-mono">
+            <p className="text-[10px] text-muted-foreground/60 font-mono mt-1">
               Doc: {row.numero_documento}
             </p>
           )}
@@ -500,7 +505,7 @@ export default function ContasPagarFactoringPage() {
           <Badge
             variant="outline"
             className={cn(
-              'text-xs font-normal border',
+              'text-[10px] font-bold border rounded-full px-2.5 py-0.5 whitespace-nowrap',
               colors.bg,
               colors.text,
               colors.border,
@@ -530,14 +535,14 @@ export default function ContasPagarFactoringPage() {
           <div>
             <p
               className={cn(
-                'text-sm',
-                row.status === 'atrasado' && 'text-red-500 font-medium',
+                'text-sm font-semibold font-mono',
+                row.status === 'atrasado' ? 'text-[var(--gt-red)]' : 'text-muted-foreground',
               )}
             >
               {formatarData(row.data_vencimento)}
             </p>
             {diasAtraso > 0 && (
-              <p className="text-xs text-red-500">{diasAtraso}d em atraso</p>
+              <p className="text-xs text-[var(--gt-red)] font-bold mt-1">{diasAtraso}d em atraso</p>
             )}
           </div>
         )
@@ -546,31 +551,20 @@ export default function ContasPagarFactoringPage() {
     {
       key: 'status',
       header: 'Status',
-      render: (row) => {
-        const map: Record<ContaPagar['status'], { label: string; cls: string }> = {
-          pendente: { label: 'Pendente', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-          pago: { label: 'Pago', cls: 'bg-green-50 text-green-700 border-green-200' },
-          atrasado: { label: 'Atrasado', cls: 'bg-red-50 text-red-700 border-red-200' },
-          cancelado: { label: 'Cancelado', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
-        }
-        const s = map[row.status]
-        return (
-          <Badge variant="outline" className={cn('text-xs font-normal border', s.cls)}>
-            {s.label}
-          </Badge>
-        )
-      },
+      render: (row) => (
+        <StatusBadge status={row.status} />
+      ),
     },
     {
       key: 'acoes',
       header: '',
-      className: 'text-right w-[140px]',
+      className: 'text-right w-[150px]',
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
           {['pendente', 'atrasado'].includes(row.status) && (
             <Button
-              size="sm"
-              className="text-xs h-7 px-2.5 bg-[#D4A528] hover:bg-[#B8891F] text-white border-0"
+              size="default"
+              className="text-[11px] font-bold h-7.5 px-3 bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] text-white border-0 rounded-full shadow-sm shrink-0 mr-1.5"
               onClick={(e) => {
                 e.stopPropagation()
                 abrirPagarDialog(row)
@@ -583,26 +577,26 @@ export default function ContasPagarFactoringPage() {
             size="icon"
             variant="ghost"
             aria-label="Editar conta"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            className="h-7.5 w-7.5 rounded-full text-muted-foreground/60 hover:text-foreground flex items-center justify-center border border-border/40 shadow-sm bg-card hover:bg-muted"
             onClick={(e) => {
               e.stopPropagation()
               abrirEditarConta(row)
             }}
           >
-            <Pencil className="h-3.5 w-3.5" />
+            <Pencil className="h-3 w-3" />
           </Button>
           {row.status !== 'pago' && (
             <Button
               size="icon"
               variant="ghost"
               aria-label="Excluir conta"
-              className="h-7 w-7 text-muted-foreground hover:text-red-500"
+              className="h-7.5 w-7.5 rounded-full text-muted-foreground/60 hover:text-[var(--gt-red)] hover:bg-[var(--gt-red-light)]/20 hover:border-[var(--gt-red-light)] flex items-center justify-center border border-border/40 shadow-sm bg-card"
               onClick={(e) => {
                 e.stopPropagation()
                 setDeleteDialog({ open: true, conta: row })
               }}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3 w-3" />
             </Button>
           )}
         </div>
@@ -616,162 +610,226 @@ export default function ContasPagarFactoringPage() {
 
   return (
     <AppShell titulo="Contas a Pagar" empresa="factoring">
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard
-          titulo="Total Pendente"
-          valor={formatarMoeda(totalPendente)}
-          subtitulo={`${pendentes.length} conta${pendentes.length !== 1 ? 's' : ''}`}
+      <div className="space-y-6">
+        
+        {/* Header */}
+        <PageHeader 
+          titulo="Contas a Pagar"
+          descricao="Gerencie todas as despesas operacionais e saídas de caixa"
           icone={TrendingDown}
-          corIcone="#EF4444"
-          corFundo="#FEF2F2"
+          corIcone="var(--gt-red)"
         />
-        <StatCard
-          titulo="Vence Hoje"
-          valor={`${vencendoHoje.length} conta${vencendoHoje.length !== 1 ? 's' : ''}`}
-          subtitulo={formatarData(hoje)}
-          icone={Calendar}
-          corIcone="#F59E0B"
-          corFundo="#FFFBEB"
-        />
-        <StatCard
-          titulo="Em Atraso"
-          valor={`${atrasadas.length} conta${atrasadas.length !== 1 ? 's' : ''}`}
-          subtitulo="Vencidas"
-          icone={AlertTriangle}
-          corIcone="#EF4444"
-          corFundo="#FEF2F2"
-        />
-        <StatCard
-          titulo="Pago este Mês"
-          valor={formatarMoeda(pagoMes)}
-          subtitulo="Mês atual"
-          icone={CheckCircle2}
-          corIcone="#22C55E"
-          corFundo="#F0FDF4"
-        />
-      </div>
 
-      {/* Tabs */}
-      <Tabs
-        value={tabAtiva}
-        onValueChange={(v) => setTabAtiva(v as TabAtiva)}
-        className="space-y-4"
-      >
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <TabsList className="bg-muted/60 h-9">
-            <TabsTrigger value="todas" className="text-xs">
-              Todas
-            </TabsTrigger>
-            <TabsTrigger value="pendentes" className="text-xs">
-              Pendentes
-            </TabsTrigger>
-            <TabsTrigger value="vencendo" className="text-xs">
-              Vencendo (7d)
-              {vencendoSete.length > 0 && (
-                <Badge className="ml-1.5 h-4 min-w-4 px-1 text-[10px] bg-[#F59E0B] text-white border-0">
-                  {vencendoSete.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="atrasadas" className="text-xs">
-              Atrasadas
-              {atrasadas.length > 0 && (
-                <Badge className="ml-1.5 h-4 min-w-4 px-1 text-[10px] bg-red-500 text-white border-0">
-                  {atrasadas.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="pagas" className="text-xs">
-              Pagas
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Actions bar */}
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder="Buscar conta..."
-              className="flex-1 sm:w-52"
-            />
-            <Select
-              value={categoriaFiltro}
-              onValueChange={(v) => setCategoriaFiltro(v as Categoria | 'todas')}
-            >
-              <SelectTrigger className="w-36 h-9 text-xs">
-                <SelectValue placeholder="Categoria" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todas">Todas categorias</SelectItem>
-                <SelectItem value="fornecedor">Fornecedor</SelectItem>
-                <SelectItem value="aluguel">Aluguel</SelectItem>
-                <SelectItem value="salario">Salário</SelectItem>
-                <SelectItem value="imposto">Imposto</SelectItem>
-                <SelectItem value="servico">Serviço</SelectItem>
-                <SelectItem value="outros">Outros</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={abrirNovaConta}
-              className="bg-[#1E5AA8] hover:bg-[#174a8c] text-white border-0 h-9 px-4 text-sm shrink-0"
-            >
-              <Plus className="h-4 w-4 mr-1.5" />
-              Nova Conta
-            </Button>
-          </div>
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+          <StatCard
+            titulo="Total Pendente"
+            valor={formatarMoeda(totalPendente)}
+            subtitulo={`${pendentes.length} conta${pendentes.length !== 1 ? 's' : ''}`}
+            icone={TrendingDown}
+            corIcone="var(--gt-red)"
+            corFundo="var(--gt-red-light)"
+            delay={0}
+          />
+          <StatCard
+            titulo="Vence Hoje"
+            valor={`${vencendoHoje.length} conta${vencendoHoje.length !== 1 ? 's' : ''}`}
+            subtitulo={formatarData(hoje)}
+            icone={Calendar}
+            corIcone="var(--gt-yellow)"
+            corFundo="var(--gt-yellow-light)"
+            delay={0.07}
+          />
+          <StatCard
+            titulo="Em Atraso"
+            valor={`${atrasadas.length} conta${atrasadas.length !== 1 ? 's' : ''}`}
+            subtitulo="Contas vencidas"
+            icone={AlertTriangle}
+            corIcone="var(--gt-red)"
+            corFundo="var(--gt-red-light)"
+            delay={0.14}
+          />
+          <StatCard
+            titulo="Pago este Mês"
+            valor={formatarMoeda(pagoMes)}
+            subtitulo="Mês de competência"
+            icone={CheckCircle2}
+            corIcone="var(--gt-green)"
+            corFundo="var(--gt-green-light)"
+            delay={0.21}
+          />
         </div>
 
-        <TabsContent value={tabAtiva} className="mt-0">
-          <DataTable
-            columns={columns}
-            data={contasFiltradas}
-            keyExtractor={(row) => row.id}
-            loading={loading}
-            emptyMessage="Nenhuma conta encontrada"
-            perPage={20}
-          />
-        </TabsContent>
-      </Tabs>
+        {/* Tabs */}
+        <Tabs
+          value={tabAtiva}
+          onValueChange={(v) => setTabAtiva(v as TabAtiva)}
+          className="space-y-6"
+        >
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+            
+            {/* Google Filter chips selector */}
+            <div className="flex rounded-full border border-border/60 bg-muted/20 p-1 overflow-x-auto scrollbar-none items-center max-w-full">
+              <button
+                type="button"
+                onClick={() => setTabAtiva('todas')}
+                className={cn(
+                  "px-4.5 py-1.5 text-xs font-bold rounded-full transition-all duration-200 whitespace-nowrap",
+                  tabAtiva === 'todas' ? "bg-[var(--gt-blue)] text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Todas
+              </button>
+              <button
+                type="button"
+                onClick={() => setTabAtiva('pendentes')}
+                className={cn(
+                  "px-4.5 py-1.5 text-xs font-bold rounded-full transition-all duration-200 whitespace-nowrap",
+                  tabAtiva === 'pendentes' ? "bg-[var(--gt-blue)] text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Pendentes
+              </button>
+              <button
+                type="button"
+                onClick={() => setTabAtiva('vencendo')}
+                className={cn(
+                  "px-4.5 py-1.5 text-xs font-bold rounded-full transition-all duration-200 whitespace-nowrap flex items-center gap-1.5",
+                  tabAtiva === 'vencendo' ? "bg-[var(--gt-blue)] text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Vencendo (7d)
+                {vencendoSete.length > 0 && (
+                  <span className={cn(
+                    "h-4.5 px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center border border-transparent shadow-sm",
+                    tabAtiva === 'vencendo' ? "bg-white text-[var(--gt-blue)]" : "bg-[var(--gt-yellow)] text-white"
+                  )}>
+                    {vencendoSete.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTabAtiva('atrasadas')}
+                className={cn(
+                  "px-4.5 py-1.5 text-xs font-bold rounded-full transition-all duration-200 whitespace-nowrap flex items-center gap-1.5",
+                  tabAtiva === 'atrasadas' ? "bg-[var(--gt-blue)] text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Atrasadas
+                {atrasadas.length > 0 && (
+                  <span className={cn(
+                    "h-4.5 px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center border border-transparent shadow-sm",
+                    tabAtiva === 'atrasadas' ? "bg-white text-[var(--gt-blue)]" : "bg-[var(--gt-red)] text-white"
+                  )}>
+                    {atrasadas.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTabAtiva('pagas')}
+                className={cn(
+                  "px-4.5 py-1.5 text-xs font-bold rounded-full transition-all duration-200 whitespace-nowrap",
+                  tabAtiva === 'pagas' ? "bg-[var(--gt-blue)] text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Pagas
+              </button>
+            </div>
+
+            {/* Actions bar */}
+            <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+              <SearchInput
+                value={search}
+                onChange={setSearch}
+                placeholder="Buscar conta..."
+                className="flex-1 min-w-[200px] sm:flex-none sm:w-56"
+              />
+              <Select
+                value={categoriaFiltro}
+                onValueChange={(v) => setCategoriaFiltro(v as Categoria | 'todas')}
+              >
+                <SelectTrigger className="w-40 h-11 text-xs rounded-full border-border/60 bg-card">
+                  <SelectValue placeholder="Categoria" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl">
+                  <SelectItem value="todas">Todas categorias</SelectItem>
+                  <SelectItem value="fornecedor">Fornecedor</SelectItem>
+                  <SelectItem value="aluguel">Aluguel</SelectItem>
+                  <SelectItem value="salario">Salário</SelectItem>
+                  <SelectItem value="imposto">Imposto</SelectItem>
+                  <SelectItem value="servico">Serviço</SelectItem>
+                  <SelectItem value="outros">Outros</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                onClick={abrirNovaConta}
+                className="bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] text-white border-0 h-11 px-5 text-sm shrink-0 rounded-full font-medium shadow-sm transition-all duration-200"
+              >
+                <Plus className="h-4.5 w-4.5 mr-1.5" />
+                Nova Conta
+              </Button>
+            </div>
+          </div>
+
+          <TabsContent value={tabAtiva} className="mt-0">
+            <div className="bg-card border border-border/50 rounded-2xl shadow-m3-1 overflow-hidden">
+              <DataTable
+                columns={columns}
+                data={contasFiltradas}
+                keyExtractor={(row) => row.id}
+                loading={loading}
+                emptyMessage="Nenhuma conta encontrada"
+                perPage={20}
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
 
       {/* Sheet: Nova / Editar Conta */}
       <Sheet open={sheetAberto} onOpenChange={setSheetAberto}>
-        <SheetContent className="sm:max-w-lg w-full overflow-y-auto">
+        <SheetContent className="sm:max-w-lg w-full overflow-y-auto border-l border-border/50 shadow-m3-3">
           <SheetHeader className="mb-6">
-            <SheetTitle className="text-[#1A1A2E]">
+            <SheetTitle className="text-foreground font-bold text-lg flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-[var(--gt-blue-light)] dark:bg-[var(--gt-blue)]/20 flex items-center justify-center">
+                <Plus size={16} className="text-[var(--gt-blue)]" />
+              </div>
               {contaEditando ? 'Editar Conta' : 'Nova Conta a Pagar'}
             </SheetTitle>
           </SheetHeader>
 
-          <form onSubmit={handleSubmit(onSubmitConta)} className="space-y-4">
+          <form onSubmit={handleSubmit(onSubmitConta)} className="space-y-5">
             <div className="space-y-1.5">
-              <Label htmlFor="descricao">
-                Descrição <span className="text-red-500">*</span>
+              <Label htmlFor="descricao" className="font-semibold text-xs text-foreground/85">
+                Descrição <span className="text-[var(--gt-red)]">*</span>
               </Label>
               <Input
                 id="descricao"
                 placeholder="Ex: Nota fiscal fornecedor XYZ"
                 {...register('descricao')}
+                className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
               />
               {errors.descricao && (
-                <p className="text-xs text-red-500">{errors.descricao.message}</p>
+                <p className="text-xs text-[var(--gt-red)] font-bold">{errors.descricao.message}</p>
               )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>
-                  Categoria <span className="text-red-500">*</span>
+                <Label className="font-semibold text-xs text-foreground/85">
+                  Categoria <span className="text-[var(--gt-red)]">*</span>
                 </Label>
                 <Controller
                   name="categoria"
                   control={control}
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-11 rounded-xl border-border/60">
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="rounded-2xl">
                         <SelectItem value="fornecedor">Fornecedor</SelectItem>
                         <SelectItem value="aluguel">Aluguel</SelectItem>
                         <SelectItem value="salario">Salário</SelectItem>
@@ -783,24 +841,25 @@ export default function ContasPagarFactoringPage() {
                   )}
                 />
                 {errors.categoria && (
-                  <p className="text-xs text-red-500">{errors.categoria.message}</p>
+                  <p className="text-xs text-[var(--gt-red)] font-bold">{errors.categoria.message}</p>
                 )}
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="fornecedor_nome">Fornecedor</Label>
+                <Label htmlFor="fornecedor_nome" className="font-semibold text-xs text-foreground/85">Fornecedor</Label>
                 <Input
                   id="fornecedor_nome"
                   placeholder="Nome do fornecedor"
                   {...register('fornecedor_nome')}
+                  className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="valor">
-                  Valor (R$) <span className="text-red-500">*</span>
+                <Label htmlFor="valor" className="font-semibold text-xs text-foreground/85">
+                  Valor (R$) <span className="text-[var(--gt-red)]">*</span>
                 </Label>
                 <Input
                   id="valor"
@@ -809,62 +868,66 @@ export default function ContasPagarFactoringPage() {
                   min="0"
                   placeholder="0,00"
                   {...register('valor', { valueAsNumber: true })}
+                  className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] font-mono font-bold"
                 />
                 {errors.valor && (
-                  <p className="text-xs text-red-500">{errors.valor.message}</p>
+                  <p className="text-xs text-[var(--gt-red)] font-bold">{errors.valor.message}</p>
                 )}
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="data_vencimento">
-                  Vencimento <span className="text-red-500">*</span>
+                <Label htmlFor="data_vencimento" className="font-semibold text-xs text-foreground/85">
+                  Vencimento <span className="text-[var(--gt-red)]">*</span>
                 </Label>
                 <Input
                   id="data_vencimento"
                   type="date"
                   {...register('data_vencimento')}
+                  className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] font-semibold"
                 />
                 {errors.data_vencimento && (
-                  <p className="text-xs text-red-500">{errors.data_vencimento.message}</p>
+                  <p className="text-xs text-[var(--gt-red)] font-bold">{errors.data_vencimento.message}</p>
                 )}
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="numero_documento">Nº Documento</Label>
+              <Label htmlFor="numero_documento" className="font-semibold text-xs text-foreground/85">Nº Documento</Label>
               <Input
                 id="numero_documento"
                 placeholder="Ex: NF-001, Boleto 123..."
                 {...register('numero_documento')}
+                className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="observacoes">Observações</Label>
+              <Label htmlFor="observacoes" className="font-semibold text-xs text-foreground/85">Observações</Label>
               <Textarea
                 id="observacoes"
-                placeholder="Observações opcionais..."
+                placeholder="Observações adicionais ou notas..."
                 rows={3}
                 {...register('observacoes')}
+                className="rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
               />
             </div>
 
-            <Separator />
+            <Separator className="my-2" />
 
-            <SheetFooter className="flex gap-2">
+            <SheetFooter className="flex flex-row items-center justify-end gap-2.5 pt-2">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setSheetAberto(false)}
                 disabled={salvandoConta}
-                className="flex-1"
+                className="h-10 rounded-full border-border hover:bg-muted text-sm font-medium px-5 flex-1"
               >
                 Cancelar
               </Button>
               <Button
                 type="submit"
                 disabled={salvandoConta}
-                className="flex-1 bg-[#1E5AA8] hover:bg-[#174a8c] text-white border-0"
+                className="h-10 rounded-full text-sm font-medium px-5 flex-1 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 transition-all duration-200 shadow-m3-1"
               >
                 {salvandoConta ? (
                   <>
@@ -889,26 +952,24 @@ export default function ContasPagarFactoringPage() {
           if (!salvandoPagamento) setPagarDialog((prev) => ({ ...prev, open }))
         }}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-[#1A1A2E]">Registrar Pagamento</DialogTitle>
-            <DialogDescription>{pagarDialog.conta?.descricao}</DialogDescription>
+        <DialogContent className="sm:max-w-md rounded-3xl p-6 border border-border/50 shadow-m3-3 bg-card gap-5">
+          <DialogHeader className="space-y-1 text-left">
+            <DialogTitle className="text-lg font-bold text-foreground tracking-tight leading-snug">Registrar Pagamento</DialogTitle>
+            <DialogDescription className="text-sm font-semibold text-foreground/80 mt-1">{pagarDialog.conta?.descricao}</DialogDescription>
           </DialogHeader>
 
           {pagarDialog.conta && (
-            <div className="space-y-4 py-2">
-              <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-center">
-                <p className="text-xs text-muted-foreground mb-1">Valor da conta</p>
-                <p className="text-2xl font-bold text-[#1E5AA8]">
-                  {formatarMoeda(Number(pagarDialog.conta.valor))}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Vence em {formatarData(pagarDialog.conta.data_vencimento)}
+            <div className="space-y-4 py-1">
+              <div className="rounded-2xl border-l-4 border-y border-r border-y-border/40 border-r-border/40 border-l-[var(--gt-blue)] bg-[var(--gt-blue-light)] dark:bg-[var(--gt-blue)]/5 p-4 text-center shadow-sm">
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1">Valor da conta</p>
+                <MoneyDisplay valor={Number(pagarDialog.conta.valor)} tamanho="lg" />
+                <p className="text-xs text-muted-foreground mt-2 font-medium">
+                  Vencimento original em {formatarData(pagarDialog.conta.data_vencimento)}
                 </p>
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="valor_pago">Valor Pago (R$)</Label>
+                <Label htmlFor="valor_pago" className="font-semibold text-xs text-foreground/85">Valor Efetivamente Pago (R$)</Label>
                 <Input
                   id="valor_pago"
                   type="number"
@@ -918,11 +979,12 @@ export default function ContasPagarFactoringPage() {
                   onChange={(e) =>
                     setPagarForm((f) => ({ ...f, valor_pago: Number(e.target.value) }))
                   }
+                  className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] font-mono font-bold"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="data_pagamento">Data do Pagamento</Label>
+                <Label htmlFor="data_pagamento" className="font-semibold text-xs text-foreground/85">Data do Pagamento</Label>
                 <Input
                   id="data_pagamento"
                   type="date"
@@ -930,27 +992,28 @@ export default function ContasPagarFactoringPage() {
                   onChange={(e) =>
                     setPagarForm((f) => ({ ...f, data_pagamento: e.target.value }))
                   }
+                  className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] font-semibold"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label>Forma de Pagamento</Label>
+                <Label className="font-semibold text-xs text-foreground/85">Meio de Pagamento</Label>
                 <Select
                   value={pagarForm.tipo_pagamento}
                   onValueChange={(v) =>
                     setPagarForm((f) => ({ ...f, tipo_pagamento: v ?? '' }))
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-11 rounded-xl border-border/60">
                     <SelectValue placeholder="Selecione..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="rounded-2xl">
                     <SelectItem value="dinheiro">Dinheiro</SelectItem>
                     <SelectItem value="pix">PIX</SelectItem>
-                    <SelectItem value="transferencia">Transferência</SelectItem>
+                    <SelectItem value="transferencia">Transferência Bancária</SelectItem>
                     <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
                     <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
-                    <SelectItem value="boleto">Boleto</SelectItem>
+                    <SelectItem value="boleto">Boleto Bancário</SelectItem>
                     <SelectItem value="cheque">Cheque</SelectItem>
                   </SelectContent>
                 </Select>
@@ -958,18 +1021,19 @@ export default function ContasPagarFactoringPage() {
             </div>
           )}
 
-          <DialogFooter className="gap-2">
+          <DialogFooter className="flex flex-row items-center justify-end gap-2.5 pt-2">
             <Button
               variant="outline"
               onClick={() => setPagarDialog({ open: false, conta: null })}
               disabled={salvandoPagamento}
+              className="h-10 rounded-full border-border hover:bg-muted text-sm font-medium px-5 flex-1 sm:flex-none"
             >
               Cancelar
             </Button>
             <Button
               onClick={confirmarPagamento}
               disabled={salvandoPagamento}
-              className="bg-[#1E5AA8] hover:bg-[#174a8c] text-white border-0 min-w-[130px]"
+              className="h-10 rounded-full text-sm font-medium px-5 flex-1 sm:flex-none text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 transition-all duration-200 shadow-m3-1 min-w-[130px]"
             >
               {salvandoPagamento ? (
                 <>

@@ -22,19 +22,22 @@ export function SectionCard({
   return (
     <div
       className={cn(
-        'bg-card rounded-2xl border border-border/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]',
-        noBorder && 'border-0 shadow-none',
+        'bg-card rounded-2xl border border-border/50 transition-shadow duration-200 hover:shadow-m3-2',
+        noBorder && 'border-0 shadow-none hover:shadow-none',
         className,
       )}
+      style={noBorder ? undefined : { boxShadow: 'var(--shadow-m3-1)' }}
     >
       {(titulo || acoes) && (
-        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border/60">
+        <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-border/50">
           <div className="min-w-0">
             {titulo && (
-              <h2 className="text-sm font-semibold text-foreground leading-snug">{titulo}</h2>
+              <h2 className="text-[15px] font-bold text-foreground leading-snug tracking-tight">
+                {titulo}
+              </h2>
             )}
             {descricao && (
-              <p className="text-xs text-muted-foreground mt-0.5">{descricao}</p>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{descricao}</p>
             )}
           </div>
           {acoes && (
@@ -42,7 +45,7 @@ export function SectionCard({
           )}
         </div>
       )}
-      <div className={padding ? 'p-5' : ''}>{children}</div>
+      <div className={padding ? 'p-6' : ''}>{children}</div>
     </div>
   )
 }

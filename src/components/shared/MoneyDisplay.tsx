@@ -10,15 +10,19 @@ interface MoneyDisplayProps {
 }
 
 export function MoneyDisplay({ valor, className, positivo, negativo, tamanho = 'md' }: MoneyDisplayProps) {
-  const tamanhos = { sm: 'text-sm', md: 'text-base', lg: 'text-xl font-bold' }
+  const tamanhos = { 
+    sm: 'text-sm font-semibold', 
+    md: 'text-base font-bold', 
+    lg: 'text-2xl font-black tracking-tight' 
+  }
 
   return (
     <span className={cn(
-      'font-mono tabular-nums',
+      'font-mono tabular-nums tracking-tight transition-colors duration-150',
       tamanhos[tamanho],
-      positivo && 'text-green-600',
-      negativo && 'text-red-600',
-      !positivo && !negativo && 'text-slate-800',
+      positivo && 'text-[var(--gt-green)] dark:text-green-400',
+      negativo && 'text-[var(--gt-red)] dark:text-red-400',
+      !positivo && !negativo && 'text-foreground/90 dark:text-foreground/95',
       className
     )}>
       {formatMoeda(valor)}

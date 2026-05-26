@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import {
   MessageCircle, Edit, Plus, Ban, DollarSign, CreditCard,
   AlertTriangle, Clock, MessageSquare, Trash2, Check, X,
-  User, MapPin, Banknote, Download, ChevronDown, FileText,
+  User, Users, MapPin, Banknote, Download, ChevronDown, FileText,
   History, TrendingUp, CheckCircle, ArrowUpRight, Camera, Home,
   Paperclip, Eye, Upload, Search, Loader2,
 } from 'lucide-react'
@@ -169,10 +169,10 @@ interface Anotacao {
 
 function getRiscoBadge(score: number | null) {
   const s = score ?? 0
-  if (s >= 70) return { label: 'Baixo Risco', cls: 'bg-green-100 text-green-800 border-green-200' }
-  if (s >= 50) return { label: 'Risco Médio', cls: 'bg-yellow-100 text-yellow-800 border-yellow-200' }
-  if (s >= 30) return { label: 'Alto Risco', cls: 'bg-orange-100 text-orange-800 border-orange-200' }
-  return { label: 'Risco Crítico', cls: 'bg-red-100 text-red-800 border-red-200' }
+  if (s >= 70) return { label: 'Baixo Risco', cls: 'bg-[#E6F4EA] text-[#137333] border-[#34A853]/20' }
+  if (s >= 50) return { label: 'Risco Médio', cls: 'bg-[#FEF7E0] text-[#B06000] border-[#FBBC04]/20' }
+  if (s >= 30) return { label: 'Alto Risco', cls: 'bg-[#FEF0E1] text-[#C26400] border-[#FA903E]/20' }
+  return { label: 'Risco Crítico', cls: 'bg-[#FCE8E6] text-[#C5221F] border-[#EA4335]/20' }
 }
 
 function anotacaoIcon(assunto: string | null) {
@@ -188,11 +188,11 @@ function anotacaoIcon(assunto: string | null) {
 
 function anotacaoBorderColor(assunto: string | null) {
   switch (assunto) {
-    case 'nota': return 'border-l-blue-400'
-    case 'ligacao': return 'border-l-green-400'
-    case 'visita': return 'border-l-purple-400'
-    case 'negociacao': return 'border-l-amber-400'
-    case 'alerta': return 'border-l-red-400'
+    case 'nota': return 'border-l-[#1A73E8]'
+    case 'ligacao': return 'border-l-[#34A853]'
+    case 'visita': return 'border-l-[#A142F4]'
+    case 'negociacao': return 'border-l-[#FA903E]'
+    case 'alerta': return 'border-l-[#EA4335]'
     default: return 'border-l-slate-400'
   }
 }
@@ -210,7 +210,7 @@ function FormField({
 }) {
   return (
     <div className={cn('space-y-1.5', className)}>
-      <Label className="text-xs font-medium text-slate-600">{label}</Label>
+      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</Label>
       {children}
     </div>
   )
@@ -236,6 +236,9 @@ export default function ClientePerfilPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [bloqueandoOpen, setBloqueandoOpen] = useState(false)
   const [bloqueandoLoading, setBloqueandoLoading] = useState(false)
+
+  // Active Tab
+  const [activeTab, setActiveTab] = useState<string>('historico')
 
   // Tab filters
   const [filtroParcela, setFiltroParcela] = useState<string>('todos')
@@ -367,12 +370,6 @@ export default function ClientePerfilPage() {
     .filter(p => p.status === 'atrasado')
     .reduce((s, p) => s + ((p.valor ?? 0) + (p.juros_mora ?? 0) + (p.multa ?? 0) - (p.valor_pago ?? 0)), 0)
 
-  const parcelasFiltradas = filtroParcela === 'todos'
-    ? parcelas
-    : parcelas.filter(p => p.status === filtroParcela)
-
-  const parcelasAtrasadas = parcelas.filter(p => p.status === 'atrasado' || (p.dias_atraso ?? 0) > 0)
-
   // ─── Score calculation ────────────────────────────────────────────────────
 
   const dadosScore: DadosScore = {
@@ -397,7 +394,7 @@ export default function ClientePerfilPage() {
   // ─── Actions ─────────────────────────────────────────────────────────────
 
   async function bloquearCliente() {
-    if (!cliente) return
+    if (!cliente || !empresaAtual) return
     setBloqueandoLoading(true)
     const supabase = createClient()
     const novoStatus = cliente.status === 'bloqueado' ? 'ativo' : 'bloqueado'
@@ -405,6 +402,7 @@ export default function ClientePerfilPage() {
       .from('clientes_factoring')
       .update({ status: novoStatus })
       .eq('id', id)
+      .eq('empresa_id', empresaAtual.id)
 
     if (error) {
       toast.error('Erro ao atualizar status do cliente.')
@@ -559,6 +557,7 @@ export default function ClientePerfilPage() {
       .from('referencias_cliente_factoring')
       .delete()
       .eq('id', refId)
+      .eq('cliente_id', id)
 
     if (error) {
       toast.error('Erro ao excluir referência.')
@@ -576,7 +575,7 @@ export default function ClientePerfilPage() {
     try {
       const meta = await uploadDocumentoCliente(supabase, empresaAtual.id, cliente.id, categoriaId, file)
       const novos = [...documentos.filter(d => d.categoria !== categoriaId), meta]
-      await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id)
+      await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
       setDocumentos(novos)
       toast.success(`${meta.label} enviado com sucesso!`)
     } catch (err) {
@@ -588,13 +587,13 @@ export default function ClientePerfilPage() {
   }
 
   async function deletarDocumento(doc: DocumentoMeta) {
-    if (!cliente) return
+    if (!cliente || !empresaAtual) return
     setDeletandoDocId(doc.id)
     const supabase = createClient()
     try {
       await deletarDocumentoCliente(supabase, doc.path)
       const novos = documentos.filter(d => d.id !== doc.id)
-      await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id)
+      await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
       setDocumentos(novos)
       toast.success('Documento removido.')
     } catch (err) {
@@ -630,177 +629,6 @@ export default function ClientePerfilPage() {
     }
   }
 
-  // ─── Column definitions ───────────────────────────────────────────────────
-
-  const colsEmprestimos: Column<Emprestimo>[] = [
-    {
-      key: 'numero_contrato',
-      header: 'Contrato',
-      render: r => <span className="font-mono text-xs font-semibold text-slate-700">{r.numero_contrato}</span>,
-    },
-    {
-      key: 'valor_principal',
-      header: 'Valor',
-      render: r => <span className="font-semibold">{formatarMoeda(r.valor_principal)}</span>,
-    },
-    {
-      key: 'parcelas',
-      header: 'Parcelas',
-      render: r => {
-        const pagas = parcelas.filter(p => p.emprestimo_id === r.id && p.status === 'pago').length
-        const total = parcelas.filter(p => p.emprestimo_id === r.id).length || r.prazo_meses
-        return <span className="text-slate-600">{pagas}/{total}x</span>
-      },
-    },
-    {
-      key: 'taxa_juros',
-      header: 'Taxa',
-      render: r => (
-        <span className="text-slate-600">
-          {r.taxa_juros}% {r.tipo_taxa === 'anual' ? 'a.a.' : 'a.m.'}
-        </span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: r => <StatusBadge status={r.status} />,
-    },
-    {
-      key: 'data_liberacao',
-      header: 'Liberação',
-      render: r => <span className="text-slate-500 text-xs">{formatarData(r.data_liberacao)}</span>,
-    },
-    {
-      key: 'saldo_devedor',
-      header: 'Saldo',
-      render: r => <span className="font-semibold text-slate-800">{formatarMoeda(r.saldo_devedor)}</span>,
-    },
-  ]
-
-  const colsParcelas: Column<Parcela>[] = [
-    {
-      key: 'numero_parcela',
-      header: 'Nº',
-      render: r => <span className="font-mono text-xs">{r.numero_parcela}/{r.total_parcelas}</span>,
-    },
-    {
-      key: 'contrato',
-      header: 'Contrato',
-      render: r => {
-        const emp = emprestimos.find(e => e.id === r.emprestimo_id)
-        return <span className="font-mono text-xs text-slate-600">{emp?.numero_contrato ?? '—'}</span>
-      },
-    },
-    {
-      key: 'data_vencimento',
-      header: 'Vencimento',
-      render: r => (
-        <span className={cn('text-xs', r.status === 'atrasado' ? 'text-red-600 font-semibold' : 'text-slate-600')}>
-          {formatarData(r.data_vencimento)}
-        </span>
-      ),
-    },
-    {
-      key: 'valor',
-      header: 'Valor',
-      render: r => <span className={cn(r.status === 'atrasado' ? 'text-red-600 font-semibold' : '')}>{formatarMoeda(r.valor)}</span>,
-    },
-    {
-      key: 'juros_mora',
-      header: 'Juros Diários',
-      render: r => <span className="text-slate-500 text-xs">{r.juros_mora ? formatarMoeda(r.juros_mora) : '—'}</span>,
-    },
-    {
-      key: 'multa',
-      header: 'Multa',
-      render: r => <span className="text-slate-500 text-xs">{r.multa ? formatarMoeda(r.multa) : '—'}</span>,
-    },
-    {
-      key: 'total_devido',
-      header: 'Total Devido',
-      render: r => {
-        const total = (r.valor ?? 0) + (r.juros_mora ?? 0) + (r.multa ?? 0)
-        return <span className="font-semibold">{formatarMoeda(total)}</span>
-      },
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: r => <StatusBadge status={r.status} />,
-    },
-    {
-      key: 'dias_atraso',
-      header: 'Atraso',
-      render: r => r.dias_atraso && r.dias_atraso > 0
-        ? <span className="text-red-600 font-semibold text-xs">{r.dias_atraso}d</span>
-        : <span className="text-slate-400 text-xs">—</span>,
-    },
-    {
-      key: 'acao',
-      header: 'Ação',
-      render: r => (
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-xs h-7 px-2"
-          onClick={e => {
-            e.stopPropagation()
-            router.push(`/factoring/emprestimos/${r.emprestimo_id}?parcela=${r.id}`)
-          }}
-        >
-          Receber
-        </Button>
-      ),
-    },
-  ]
-
-  const colsAtrasos: Column<Parcela>[] = [
-    {
-      key: 'numero_parcela',
-      header: 'Parcela',
-      render: r => <span className="font-mono text-xs">{r.numero_parcela}/{r.total_parcelas}</span>,
-    },
-    {
-      key: 'contrato',
-      header: 'Contrato',
-      render: r => {
-        const emp = emprestimos.find(e => e.id === r.emprestimo_id)
-        return <span className="font-mono text-xs text-slate-600">{emp?.numero_contrato ?? '—'}</span>
-      },
-    },
-    {
-      key: 'dias_atraso',
-      header: 'Dias Atraso',
-      render: r => (
-        <span className="text-red-600 font-bold">{r.dias_atraso ?? 0}d</span>
-      ),
-    },
-    {
-      key: 'multa',
-      header: 'Multa',
-      render: r => <span className="text-orange-600">{formatarMoeda(r.multa ?? 0)}</span>,
-    },
-    {
-      key: 'juros_mora',
-      header: 'Juros Diários',
-      render: r => <span className="text-orange-600">{formatarMoeda(r.juros_mora ?? 0)}</span>,
-    },
-    {
-      key: 'total_atualizado',
-      header: 'Total Atualizado',
-      render: r => {
-        const total = (r.valor ?? 0) + (r.juros_mora ?? 0) + (r.multa ?? 0)
-        return <span className="font-bold text-red-700">{formatarMoeda(total)}</span>
-      },
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: r => <StatusBadge status={r.status} />,
-    },
-  ]
-
   // ─── Render guards ────────────────────────────────────────────────────────
 
   if (loading) return <LoadingPage />
@@ -810,8 +638,8 @@ export default function ClientePerfilPage() {
       <AppShell empresa="factoring" titulo="Cliente">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <p className="text-slate-500 text-lg">{erro ?? 'Cliente não encontrado.'}</p>
-            <Button className="mt-4" variant="outline" onClick={() => router.back()}>
+            <p className="text-muted-foreground text-lg font-semibold">{erro ?? 'Cliente não encontrado.'}</p>
+            <Button className="mt-4 rounded-full" variant="outline" onClick={() => router.back()}>
               Voltar
             </Button>
           </div>
@@ -829,69 +657,72 @@ export default function ClientePerfilPage() {
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* ── Header Card ─────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <div className="flex flex-col lg:flex-row lg:items-start gap-6">
+        <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-[#1A73E8]" />
+          <div className="flex flex-col lg:flex-row lg:items-start gap-6 pt-1">
 
             {/* Avatar + info */}
-            <div className="flex items-start gap-5 flex-1">
+            <div className="flex flex-col sm:flex-row items-start gap-5 flex-1">
               <div
-                className="w-20 h-20 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shrink-0 shadow-lg"
-                style={{ backgroundColor: '#1E5AA8' }}
+                className="w-20 h-20 rounded-2xl flex items-center justify-center text-white text-2xl font-black shrink-0 shadow-m3-2 select-none"
+                style={{ backgroundColor: '#1A73E8' }}
               >
                 {iniciais(cliente.nome)}
               </div>
 
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h1 className="text-2xl font-bold text-slate-800 truncate">{cliente.nome}</h1>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h1 className="text-2xl font-extrabold text-foreground tracking-tight">{cliente.nome}</h1>
                   <StatusBadge status={cliente.status} />
                   <Badge
                     variant="outline"
-                    className={cn('text-xs font-semibold', risco.cls)}
+                    className={cn('text-xs font-bold px-2.5 py-0.5 rounded-full border', risco.cls)}
                   >
                     {risco.label}
                   </Badge>
                 </div>
-                <p className="text-slate-500 mt-1 text-sm">
-                  CPF: {formatarCPF(cliente.cpf ?? '')}
+                <p className="text-muted-foreground mt-1.5 text-sm font-medium flex items-center gap-4 flex-wrap">
+                  <span>CPF: {formatarCPF(cliente.cpf ?? '')}</span>
                   {cliente.telefone && (
-                    <span className="ml-4">Tel: {formatarTelefone(cliente.telefone)}</span>
+                    <span className="flex items-center gap-1">Tel: {formatarTelefone(cliente.telefone)}</span>
                   )}
                   {cliente.email && (
-                    <span className="ml-4">{cliente.email}</span>
+                    <span className="flex items-center gap-1">{cliente.email}</span>
                   )}
                 </p>
                 {cliente.ultima_operacao && (
-                  <p className="text-slate-400 text-xs mt-1">
+                  <p className="text-muted-foreground/60 text-xs mt-1 font-medium">
                     Última operação: {formatarData(cliente.ultima_operacao)}
                   </p>
                 )}
 
                 {/* Action buttons */}
-                <div className="flex flex-wrap gap-2 mt-4">
+                <div className="flex flex-wrap gap-2 mt-5">
                   {cliente.telefone && (
                     <a
                       href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      <Button size="sm" variant="outline" className="gap-2 text-green-700 border-green-200 hover:bg-green-50">
+                      <Button size="sm" variant="outline" className="gap-1.5 rounded-full text-[#34A853] border-[#34A853]/20 hover:bg-[#E6F4EA] font-semibold h-9 px-4">
                         <MessageCircle size={15} />
                         WhatsApp
                       </Button>
                     </a>
                   )}
-                  <Link href={`/factoring/clientes/${id}/editar`}>
-                    <Button size="sm" variant="outline" className="gap-2">
-                      <Edit size={15} />
-                      Editar
-                    </Button>
-                  </Link>
-                  <Link href={`/factoring/emprestimos/novo?cliente=${id}`}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 rounded-full font-semibold h-9 px-4 active:scale-95 transition-all duration-150"
+                    onClick={() => setActiveTab('dados')}
+                  >
+                    <Edit size={15} className="text-muted-foreground" />
+                    Editar Ficha
+                  </Button>
+                  <Link href={`/factoring/emprestimos/novo?cliente_id=${id}`}>
                     <Button
                       size="sm"
-                      className="gap-2 text-white"
-                      style={{ backgroundColor: '#1E5AA8' }}
+                      className="gap-1.5 rounded-full text-white bg-[#1A73E8] hover:bg-[#1557B0] font-semibold h-9 px-4 shadow-sm"
                     >
                       <Plus size={15} />
                       Novo Empréstimo
@@ -901,10 +732,10 @@ export default function ClientePerfilPage() {
                     size="sm"
                     variant="outline"
                     className={cn(
-                      'gap-2',
+                      'gap-1.5 rounded-full font-semibold h-9 px-4',
                       cliente.status === 'bloqueado'
-                        ? 'text-green-700 border-green-200 hover:bg-green-50'
-                        : 'text-red-600 border-red-200 hover:bg-red-50'
+                        ? 'text-[#34A853] border-[#34A853]/20 hover:bg-[#E6F4EA]'
+                        : 'text-[#EA4335] border-[#EA4335]/20 hover:bg-[#FCE8E6]'
                     )}
                     onClick={() => setBloqueandoOpen(true)}
                   >
@@ -916,9 +747,9 @@ export default function ClientePerfilPage() {
             </div>
 
             {/* Score gauge */}
-            <div className="flex flex-col items-center gap-1 shrink-0">
+            <div className="flex flex-col items-center gap-1.5 shrink-0 bg-muted/20 border border-border/40 rounded-2xl p-4 shadow-sm">
               <ScoreGauge score={cliente.score_interno ?? 0} size="md" />
-              <span className="text-xs text-slate-400 font-medium">Score Interno</span>
+              <span className="text-xs text-muted-foreground/80 font-bold uppercase tracking-wider">Score Interno</span>
             </div>
           </div>
         </div>
@@ -929,76 +760,76 @@ export default function ClientePerfilPage() {
             titulo="Total Emprestado"
             valor={formatarMoeda(cliente.valor_total_emprestado)}
             icone={DollarSign}
-            corIcone="#1E5AA8"
-            corFundo="#EFF6FF"
+            corIcone="#1A73E8"
+            corFundo="#E8F0FE"
           />
           <StatCard
-            titulo="Total Pago"
+            titulo="Total Recebido"
             valor={formatarMoeda(totalPago)}
             icone={CreditCard}
-            corIcone="#16a34a"
-            corFundo="#f0fdf4"
+            corIcone="#34A853"
+            corFundo="#E6F4EA"
           />
           <StatCard
             titulo="Em Aberto"
             valor={formatarMoeda(emAberto)}
             icone={Clock}
-            corIcone="#d97706"
-            corFundo="#fffbeb"
+            corIcone="#FBBC04"
+            corFundo="#FEF7E0"
           />
           <StatCard
             titulo="Em Atraso"
             valor={formatarMoeda(emAtraso)}
             icone={AlertTriangle}
-            corIcone="#dc2626"
-            corFundo="#fef2f2"
+            corIcone="#EA4335"
+            corFundo="#FCE8E6"
           />
         </div>
 
         {/* ── Tabs ────────────────────────────────────────────────────── */}
-        <Tabs defaultValue="historico">
-          <TabsList className="w-full justify-start h-auto flex-wrap gap-1 bg-slate-100 p-1 rounded-xl">
-            <TabsTrigger value="historico" className="text-sm px-4 py-2 rounded-lg gap-1.5">
-              <History size={14} />
-              Histórico
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="w-full justify-start h-auto flex-wrap gap-1.5 bg-muted/50 p-1.5 rounded-full border border-border/30">
+            <TabsTrigger value="historico" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+              <History size={13} />
+              Linha do Tempo
             </TabsTrigger>
-            <TabsTrigger value="emprestimos" className="text-sm px-4 py-2 rounded-lg">
-              Títulos
+            <TabsTrigger value="emprestimos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+              Títulos Ativos
               {emprestimos.length > 0 && (
-                <Badge variant="outline" className="ml-1.5 text-xs h-4 min-w-4 rounded-full p-0 px-1 flex items-center justify-center">
+                <Badge variant="outline" className="ml-0.5 text-[10px] font-bold h-5 min-w-5 rounded-full p-0 flex items-center justify-center bg-[#E8F0FE] text-[#1A73E8] border-[#1A73E8]/20">
                   {emprestimos.length}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="pagamentos" className="text-sm px-4 py-2 rounded-lg">
-              Pagamentos
+            <TabsTrigger value="pagamentos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+              Recibos
             </TabsTrigger>
-            <TabsTrigger value="dados" className="text-sm px-4 py-2 rounded-lg">
-              Dados
+            <TabsTrigger value="dados" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+              Dados Cadastrais
             </TabsTrigger>
-            <TabsTrigger value="anotacoes" className="text-sm px-4 py-2 rounded-lg">
+            <TabsTrigger value="anotacoes" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
               Anotações
             </TabsTrigger>
-            <TabsTrigger value="documentos" className="text-sm px-4 py-2 rounded-lg gap-1.5">
+            <TabsTrigger value="documentos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
               <FileText size={13} />
               Documentos
               {documentos.length > 0 && (
-                <Badge variant="outline" className="ml-1 text-xs h-4 min-w-4 rounded-full p-0 px-1 flex items-center justify-center">
+                <Badge variant="outline" className="ml-0.5 text-[10px] font-bold h-5 min-w-5 rounded-full p-0 flex items-center justify-center bg-[#E8F0FE] text-[#1A73E8] border-[#1A73E8]/20">
                   {documentos.length}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="score" className="text-sm px-4 py-2 rounded-lg">
-              Score e Risco
+            <TabsTrigger value="score" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+              Risco & Score
             </TabsTrigger>
           </TabsList>
 
           {/* TAB 0 — Histórico unificado */}
-          <TabsContent value="historico" className="mt-4">
-            <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-              <h3 className="font-semibold text-slate-800 mb-5 flex items-center gap-2">
-                <History size={16} className="text-slate-400" />
-                Linha do tempo
+          <TabsContent value="historico" className="outline-none">
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 space-y-5">
+              <h3 className="font-bold text-foreground text-base flex items-center gap-2 pb-3 border-b border-border/60">
+                <History size={18} className="text-muted-foreground" />
+                Linha do Tempo
               </h3>
               {(() => {
                 type EventoTimeline = {
@@ -1018,7 +849,7 @@ export default function ClientePerfilPage() {
                     titulo: `Contrato ${e.numero_contrato} — ${e.status}`,
                     subtitulo: `${e.prazo_meses}x de ${formatarMoeda(e.valor_parcela)} · Taxa ${e.taxa_juros}% a.m.`,
                     valor: e.valor_principal,
-                    cor: '#1E5AA8',
+                    cor: '#1A73E8',
                   })),
                   ...pagamentos.map(p => ({
                     id: `pag-${p.id}`,
@@ -1027,7 +858,7 @@ export default function ClientePerfilPage() {
                     titulo: 'Pagamento registrado',
                     subtitulo: p.descricao ?? '',
                     valor: p.valor,
-                    cor: '#16a34a',
+                    cor: '#34A853',
                   })),
                   ...anotacoes.map(a => ({
                     id: `anot-${a.id}`,
@@ -1035,39 +866,39 @@ export default function ClientePerfilPage() {
                     tipo: 'anotacao' as const,
                     titulo: a.assunto ?? 'Anotação',
                     subtitulo: a.mensagem ?? '',
-                    cor: '#7C3AED',
+                    cor: '#A142F4',
                   })),
                 ].sort((a, b) => b.data.localeCompare(a.data))
 
                 if (eventos.length === 0) return (
-                  <p className="text-slate-400 text-sm text-center py-10">Nenhum evento registrado.</p>
+                  <p className="text-muted-foreground/60 text-sm text-center py-10 font-semibold">Nenhum evento registrado.</p>
                 )
 
                 return (
-                  <div className="relative">
-                    <div className="absolute left-5 top-0 bottom-0 w-px bg-slate-200" />
-                    <div className="space-y-4">
+                  <div className="relative pl-2 pt-2">
+                    <div className="absolute left-7 top-4 bottom-4 w-0.5 bg-border/60" />
+                    <div className="space-y-6">
                       {eventos.map(ev => (
-                        <div key={ev.id} className="flex gap-4 relative">
+                        <div key={ev.id} className="flex gap-4 relative group">
                           <div
-                            className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10 border-2 border-white shadow-sm"
-                            style={{ backgroundColor: `${ev.cor}18`, borderColor: `${ev.cor}40` }}
+                            className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10 border-2 border-card shadow-sm transition-all group-hover:scale-105 duration-300"
+                            style={{ backgroundColor: `${ev.cor}18`, borderColor: ev.cor }}
                           >
                             {ev.tipo === 'emprestimo' && <Banknote size={16} style={{ color: ev.cor }} />}
                             {ev.tipo === 'pagamento' && <CheckCircle size={16} style={{ color: ev.cor }} />}
                             {ev.tipo === 'anotacao' && <MessageSquare size={16} style={{ color: ev.cor }} />}
                           </div>
-                          <div className="flex-1 min-w-0 pb-4">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-800">{ev.titulo}</p>
-                                {ev.subtitulo && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{ev.subtitulo}</p>}
+                          <div className="flex-1 min-w-0 pb-2">
+                            <div className="flex items-start justify-between gap-4 flex-wrap bg-muted/10 border border-border/40 hover:border-border/80 hover:bg-muted/20 p-4 rounded-xl transition-all duration-300">
+                              <div className="space-y-1">
+                                <p className="text-sm font-bold text-foreground capitalize">{ev.titulo}</p>
+                                {ev.subtitulo && <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">{ev.subtitulo}</p>}
                               </div>
                               <div className="text-right shrink-0">
                                 {ev.valor !== undefined && (
                                   <p className="text-sm font-bold" style={{ color: ev.cor }}>{formatarMoeda(ev.valor)}</p>
                                 )}
-                                <p className="text-[11px] text-slate-400">{formatarData(ev.data)}</p>
+                                <p className="text-[10px] text-muted-foreground/60 font-semibold mt-1">{formatarData(ev.data)}</p>
                               </div>
                             </div>
                           </div>
@@ -1081,15 +912,15 @@ export default function ClientePerfilPage() {
           </TabsContent>
 
           {/* TAB 1 — Títulos */}
-          <TabsContent value="emprestimos" className="mt-4">
-            <div className="space-y-3">
+          <TabsContent value="emprestimos" className="outline-none">
+            <div className="space-y-4">
               {emprestimos.length === 0 ? (
-                <div className="bg-card rounded-xl border border-border shadow-sm p-12 text-center">
-                  <FileText size={40} className="mx-auto mb-3 text-slate-300" />
-                  <p className="text-slate-400">Nenhum título encontrado.</p>
-                  <Link href={`/factoring/emprestimos/novo?cliente=${id}`}>
-                    <Button size="sm" className="mt-4 text-white gap-2" style={{ backgroundColor: '#1E5AA8' }}>
-                      <Plus size={14} /> Novo Empréstimo
+                <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-12 text-center">
+                  <FileText size={40} className="mx-auto mb-3 text-muted-foreground/30 animate-pulse" />
+                  <p className="text-muted-foreground/60 font-semibold">Nenhum título registrado.</p>
+                  <Link href={`/factoring/emprestimos/novo?cliente_id=${id}`}>
+                    <Button size="sm" className="mt-4 text-white gap-1.5 rounded-full bg-[#1A73E8] hover:bg-[#1557B0] shadow-sm font-semibold px-5">
+                      <Plus size={14} /> Iniciar Empréstimo
                     </Button>
                   </Link>
                 </div>
@@ -1101,50 +932,50 @@ export default function ClientePerfilPage() {
                   const emAtrasoEmp = empParcelas.filter(p => p.status === 'atrasado').length
                   const isExpanded = expandedIds.has(emp.id)
                   const progress = total > 0 ? Math.round((pagas / total) * 100) : 0
-                  const statusColor = emp.status === 'quitado' ? '#16a34a'
-                    : emp.status === 'inadimplente' ? '#dc2626'
+                  const statusColor = emp.status === 'quitado' ? '#34A853'
+                    : emp.status === 'inadimplente' ? '#EA4335'
                     : emp.status === 'cancelado' ? '#6b7280'
-                    : emp.status === 'renegociado' ? '#d97706'
-                    : '#1E5AA8'
+                    : emp.status === 'renegociado' ? '#FA903E'
+                    : '#1A73E8'
 
                   return (
-                    <div key={emp.id} className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+                    <div key={emp.id} className="bg-card rounded-2xl border border-border shadow-m3-1 overflow-hidden transition-all duration-300">
                       {/* Card header */}
                       <div className="flex items-stretch">
                         <div className="w-1.5 shrink-0" style={{ backgroundColor: statusColor }} />
-                        <div className="flex-1 p-4">
+                        <div className="flex-1 p-5">
                           <div className="flex items-start justify-between gap-4 flex-wrap">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-mono text-sm font-bold text-slate-700">{emp.numero_contrato}</span>
+                              <div className="flex items-center gap-2.5 flex-wrap">
+                                <span className="font-mono text-sm font-bold text-foreground">{emp.numero_contrato}</span>
                                 <StatusBadge status={emp.status} />
                                 {emAtrasoEmp > 0 && (
-                                  <Badge className="text-xs bg-red-100 text-red-700 border border-red-200 gap-1 flex items-center">
+                                  <Badge className="text-[10px] font-bold bg-[#FCE8E6] text-[#EA4335] border border-[#EA4335]/20 gap-1 flex items-center rounded-full px-2 py-0.5">
                                     <AlertTriangle size={10} />
                                     {emAtrasoEmp} em atraso
                                   </Badge>
                                 )}
                               </div>
 
-                              <div className="mt-1.5 flex items-center gap-3 flex-wrap text-sm">
-                                <span className="font-semibold text-slate-800">{formatarMoeda(emp.valor_principal)}</span>
+                              <div className="mt-2.5 flex items-center gap-4 flex-wrap text-sm font-semibold">
+                                <span className="text-foreground text-base">{formatarMoeda(emp.valor_principal)}</span>
                                 {emp.data_liberacao && (
-                                  <span className="text-xs text-slate-400">Lib: {formatarData(emp.data_liberacao)}</span>
+                                  <span className="text-xs text-muted-foreground/60 font-medium">Liberação: {formatarData(emp.data_liberacao)}</span>
                                 )}
-                                <span className="text-xs text-slate-500">
-                                  {pagas}/{total} parcelas · {emp.taxa_juros}% {emp.tipo_taxa === 'anual' ? 'a.a.' : 'a.m.'}
+                                <span className="text-xs text-muted-foreground font-medium">
+                                  {pagas}/{total} parcelas · Taxa {emp.taxa_juros}% {emp.tipo_taxa === 'anual' ? 'a.a.' : 'a.m.'}
                                 </span>
                               </div>
 
-                              <div className="mt-2">
-                                <div className="flex items-center gap-2">
-                                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div className="mt-3.5 max-w-md">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                                     <div
-                                      className="h-full rounded-full"
+                                      className="h-full rounded-full transition-all duration-500"
                                       style={{ width: `${progress}%`, backgroundColor: statusColor }}
                                     />
                                   </div>
-                                  <span className="text-xs text-slate-400 shrink-0">{progress}%</span>
+                                  <span className="text-xs font-bold text-muted-foreground/60 shrink-0">{progress}% quitado</span>
                                 </div>
                               </div>
                             </div>
@@ -1153,17 +984,16 @@ export default function ClientePerfilPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="gap-1.5 text-xs h-8"
+                                className="gap-1.5 text-xs h-8 rounded-full font-semibold border-border hover:bg-muted/50"
                                 disabled={gerandoContratoId === emp.id}
                                 onClick={() => handleGerarContratoPerfil(emp)}
                               >
-                                <Download size={12} />
-                                {gerandoContratoId === emp.id ? 'Gerando...' : 'Contrato'}
+                                <Download size={12} className="text-muted-foreground" />
+                                {gerandoContratoId === emp.id ? 'Gerando...' : 'Contrato PDF'}
                               </Button>
                               <Button
                                 size="sm"
-                                className="gap-1.5 text-xs h-8 text-white"
-                                style={{ backgroundColor: '#1E5AA8' }}
+                                className="gap-1.5 text-xs h-8 text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-semibold shadow-sm"
                                 onClick={() => router.push(`/factoring/emprestimos/${emp.id}`)}
                               >
                                 <DollarSign size={12} />
@@ -1172,13 +1002,13 @@ export default function ClientePerfilPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-8 w-8 p-0"
+                                className="h-8 w-8 p-0 rounded-full hover:bg-muted"
                                 onClick={() => toggleExpanded(emp.id)}
                                 aria-label={isExpanded ? 'Recolher' : 'Expandir'}
                               >
                                 <ChevronDown
                                   size={16}
-                                  className={cn('transition-transform duration-200', isExpanded && 'rotate-180')}
+                                  className={cn('transition-transform duration-200 text-muted-foreground', isExpanded && 'rotate-180')}
                                 />
                               </Button>
                             </div>
@@ -1188,82 +1018,82 @@ export default function ClientePerfilPage() {
 
                       {/* Expanded body */}
                       {isExpanded && (
-                        <div className="border-t border-slate-100 p-4 bg-slate-50 space-y-4">
+                        <div className="border-t border-border/60 p-5 bg-muted/20 space-y-5">
                           {/* Mini stats */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div className="bg-white rounded-lg p-3 border border-slate-100">
-                              <p className="text-xs text-slate-400 mb-0.5">Capital</p>
-                              <p className="font-bold text-slate-800 text-sm">{formatarMoeda(emp.valor_principal)}</p>
+                            <div className="bg-card rounded-xl p-3.5 border border-border/60 shadow-sm">
+                              <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Capital</p>
+                              <p className="font-extrabold text-foreground text-sm">{formatarMoeda(emp.valor_principal)}</p>
                             </div>
-                            <div className="bg-white rounded-lg p-3 border border-slate-100">
-                              <p className="text-xs text-slate-400 mb-0.5">Taxa</p>
-                              <p className="font-bold text-slate-800 text-sm">{emp.taxa_juros}% {emp.tipo_taxa === 'anual' ? 'a.a.' : 'a.m.'}</p>
+                            <div className="bg-card rounded-xl p-3.5 border border-border/60 shadow-sm">
+                              <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Taxa de Juros</p>
+                              <p className="font-extrabold text-foreground text-sm">{emp.taxa_juros}% {emp.tipo_taxa === 'anual' ? 'a.a.' : 'a.m.'}</p>
                             </div>
-                            <div className="bg-white rounded-lg p-3 border border-slate-100">
-                              <p className="text-xs text-slate-400 mb-0.5">Valor Parcela</p>
-                              <p className="font-bold text-slate-800 text-sm">{formatarMoeda(emp.valor_parcela)}</p>
+                            <div className="bg-card rounded-xl p-3.5 border border-border/60 shadow-sm">
+                              <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Valor da Parcela</p>
+                              <p className="font-extrabold text-foreground text-sm">{formatarMoeda(emp.valor_parcela)}</p>
                             </div>
-                            <div className="bg-white rounded-lg p-3 border border-slate-100">
-                              <p className="text-xs text-slate-400 mb-0.5">Saldo Devedor</p>
-                              <p className="font-bold text-slate-800 text-sm">{formatarMoeda(emp.saldo_devedor)}</p>
+                            <div className="bg-card rounded-xl p-3.5 border border-border/60 shadow-sm">
+                              <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Saldo Devedor</p>
+                              <p className="font-extrabold text-foreground text-sm">{formatarMoeda(emp.saldo_devedor)}</p>
                             </div>
                           </div>
 
                           {/* Parcelas table */}
-                          <div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Histórico de Parcelas</p>
-                            <div className="overflow-x-auto rounded-lg border border-slate-200">
+                          <div className="space-y-2">
+                            <p className="text-xs font-bold text-muted-foreground/80 uppercase tracking-wider">Detalhamento das Parcelas</p>
+                            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
                               <table className="w-full text-xs">
                                 <thead>
-                                  <tr className="bg-slate-100 text-slate-500">
-                                    <th className="px-3 py-2 text-left font-medium">Nº</th>
-                                    <th className="px-3 py-2 text-left font-medium">Vencimento</th>
-                                    <th className="px-3 py-2 text-right font-medium">Valor</th>
-                                    <th className="px-3 py-2 text-right font-medium">Pago</th>
-                                    <th className="px-3 py-2 text-left font-medium">Pago em</th>
-                                    <th className="px-3 py-2 text-left font-medium">Status</th>
-                                    <th className="px-3 py-2 text-center font-medium">Ação</th>
+                                  <tr className="bg-muted/40 text-muted-foreground border-b border-border/80 text-[10px] font-bold uppercase tracking-wider">
+                                    <th className="px-4 py-3 text-left font-bold">Nº</th>
+                                    <th className="px-4 py-3 text-left font-bold">Vencimento</th>
+                                    <th className="px-4 py-3 text-right font-bold">Valor</th>
+                                    <th className="px-4 py-3 text-right font-bold">Pago</th>
+                                    <th className="px-4 py-3 text-left font-bold">Pago em</th>
+                                    <th className="px-4 py-3 text-left font-bold">Status</th>
+                                    <th className="px-4 py-3 text-center font-bold">Ação</th>
                                   </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-border/40 font-medium">
                                   {empParcelas.length === 0 ? (
                                     <tr>
-                                      <td colSpan={7} className="px-3 py-6 text-center text-slate-400">
-                                        Nenhuma parcela gerada.
+                                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground/60 font-semibold">
+                                        Nenhuma parcela disponível.
                                       </td>
                                     </tr>
                                   ) : empParcelas.map(p => (
                                     <tr
                                       key={p.id}
                                       className={cn(
-                                        'bg-white',
-                                        p.status === 'atrasado' && 'bg-red-50',
-                                        p.status === 'pago' && 'bg-green-50/50',
+                                        'hover:bg-muted/10 transition-colors',
+                                        p.status === 'atrasado' && 'bg-[#FCE8E6]/20',
+                                        p.status === 'pago' && 'bg-[#E6F4EA]/15',
                                       )}
                                     >
-                                      <td className="px-3 py-2 font-mono text-slate-600">{p.numero_parcela}</td>
-                                      <td className={cn('px-3 py-2', p.status === 'atrasado' && 'text-red-600 font-semibold')}>
+                                      <td className="px-4 py-3 font-mono text-muted-foreground font-semibold">{p.numero_parcela}</td>
+                                      <td className={cn('px-4 py-3', p.status === 'atrasado' && 'text-[#EA4335] font-bold')}>
                                         {formatarData(p.data_vencimento)}
                                         {(p.dias_atraso ?? 0) > 0 && (
-                                          <span className="text-red-500 ml-1">({p.dias_atraso}d)</span>
+                                          <span className="text-[#EA4335] ml-1.5 font-bold">({p.dias_atraso}d)</span>
                                         )}
                                       </td>
-                                      <td className="px-3 py-2 text-right font-medium">{formatarMoeda(p.valor)}</td>
-                                      <td className="px-3 py-2 text-right text-slate-600">
+                                      <td className="px-4 py-3 text-right font-bold text-foreground">{formatarMoeda(p.valor)}</td>
+                                      <td className="px-4 py-3 text-right text-[#34A853] font-semibold">
                                         {p.valor_pago ? formatarMoeda(p.valor_pago) : '—'}
                                       </td>
-                                      <td className="px-3 py-2 text-slate-400">
+                                      <td className="px-4 py-3 text-muted-foreground/60 font-semibold">
                                         {p.data_pagamento ? formatarData(p.data_pagamento) : '—'}
                                       </td>
-                                      <td className="px-3 py-2">
+                                      <td className="px-4 py-3">
                                         <StatusBadge status={p.status} />
                                       </td>
-                                      <td className="px-3 py-2 text-center">
+                                      <td className="px-4 py-3 text-center">
                                         {p.status !== 'pago' && p.status !== 'cancelado' && (
                                           <Button
                                             size="sm"
                                             variant="outline"
-                                            className="text-xs h-6 px-2"
+                                            className="text-xs h-7 px-3 rounded-full font-semibold border-border hover:bg-muted/50"
                                             onClick={() => router.push(`/factoring/emprestimos/${p.emprestimo_id}?parcela=${p.id}`)}
                                           >
                                             Receber
@@ -1280,9 +1110,9 @@ export default function ClientePerfilPage() {
                           <div className="flex justify-end">
                             <Link
                               href={`/factoring/emprestimos/${emp.id}`}
-                              className="text-xs font-semibold text-blue-600 hover:underline"
+                              className="text-xs font-bold text-[#1A73E8] hover:text-[#1557B0] hover:underline flex items-center gap-1"
                             >
-                              Ver detalhes completos →
+                              Ver detalhes completos <ArrowUpRight size={13} />
                             </Link>
                           </div>
                         </div>
@@ -1295,34 +1125,38 @@ export default function ClientePerfilPage() {
           </TabsContent>
 
           {/* TAB 2 — Pagamentos */}
-          <TabsContent value="pagamentos" className="mt-4">
-            <div className="bg-card rounded-xl border border-border shadow-sm p-4">
+          <TabsContent value="pagamentos" className="outline-none">
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5">
+              <h3 className="font-bold text-foreground text-sm flex items-center gap-2 pb-3 border-b border-border/60 mb-3">
+                <CreditCard size={18} className="text-muted-foreground" />
+                Histórico de Recebimentos
+              </h3>
               {pagamentos.length === 0 ? (
-                <div className="text-center py-12 text-slate-400">
-                  <CreditCard size={40} className="mx-auto mb-3 opacity-30" />
-                  <p>Nenhum pagamento registrado.</p>
+                <div className="text-center py-12 text-muted-foreground/60 font-semibold">
+                  <CreditCard size={40} className="mx-auto mb-3 opacity-30 animate-pulse" />
+                  <p>Nenhum recibo de pagamento registrado.</p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-border/40">
                   {pagamentos.map(pag => (
-                    <div key={pag.id} className="py-4 flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center shrink-0">
-                        <CreditCard size={18} className="text-green-600" />
+                    <div key={pag.id} className="py-4 flex items-start gap-4 hover:bg-muted/10 rounded-xl px-2 transition-colors duration-300">
+                      <div className="w-10 h-10 rounded-full bg-[#E6F4EA] flex items-center justify-center shrink-0 border border-[#34A853]/20">
+                        <CreditCard size={18} className="text-[#34A853]" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <p className="font-semibold text-slate-800">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <p className="font-extrabold text-base text-[#137333]">
                             {formatarMoeda(pag.valor)}
                           </p>
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-muted-foreground/60 font-bold">
                             {formatarData(pag.data_movimentacao)}
                           </span>
                         </div>
                         {pag.descricao && (
-                          <p className="text-sm text-slate-600 mt-0.5">{pag.descricao}</p>
+                          <p className="text-sm text-muted-foreground font-medium mt-0.5">{pag.descricao}</p>
                         )}
                         {pag.categoria && (
-                          <Badge variant="outline" className="mt-1.5 text-xs">
+                          <Badge variant="outline" className="mt-1.5 text-xs font-semibold rounded-full bg-muted/40">
                             {pag.categoria}
                           </Badge>
                         )}
@@ -1335,20 +1169,22 @@ export default function ClientePerfilPage() {
           </TabsContent>
 
           {/* TAB 3 — Dados */}
-          <TabsContent value="dados" className="mt-4">
+          <TabsContent value="dados" className="outline-none">
             <div className="space-y-6">
 
               {/* Dados Pessoais */}
-              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-                <div className="flex items-center gap-2 mb-5">
-                  <User size={18} className="text-slate-500" />
-                  <h3 className="font-semibold text-slate-700">Dados Pessoais</h3>
+              <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+                <div className="flex items-center gap-2 mb-5 pb-2 border-b border-border/60">
+                  <User size={18} className="text-[#1A73E8]" />
+                  <h3 className="font-bold text-foreground text-sm">Dados Pessoais</h3>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                   <FormField label="Nome Completo">
                     <Input
                       value={formData.nome ?? ''}
                       onChange={e => setFormData(p => ({ ...p, nome: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="CPF">
@@ -1356,18 +1192,21 @@ export default function ClientePerfilPage() {
                       value={formData.cpf ?? ''}
                       onChange={e => setFormData(p => ({ ...p, cpf: e.target.value }))}
                       placeholder="000.000.000-00"
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="RG">
                     <Input
                       value={formData.rg ?? ''}
                       onChange={e => setFormData(p => ({ ...p, rg: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Órgão Emissor">
                     <Input
                       value={formData.orgao_emissor ?? ''}
                       onChange={e => setFormData(p => ({ ...p, orgao_emissor: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Data Nascimento">
@@ -1375,6 +1214,7 @@ export default function ClientePerfilPage() {
                       type="date"
                       value={formData.data_nascimento?.slice(0, 10) ?? ''}
                       onChange={e => setFormData(p => ({ ...p, data_nascimento: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Estado Civil">
@@ -1382,7 +1222,7 @@ export default function ClientePerfilPage() {
                       value={formData.estado_civil ?? ''}
                       onValueChange={v => setFormData(p => ({ ...p, estado_civil: v ?? '' }))}
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="h-11 px-4 focus:ring-1 focus:ring-[#1A73E8] focus:border-[#1A73E8] rounded-lg transition-all w-full">
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1398,6 +1238,7 @@ export default function ClientePerfilPage() {
                     <Input
                       value={formData.profissao ?? ''}
                       onChange={e => setFormData(p => ({ ...p, profissao: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Renda Mensal (R$)">
@@ -1405,6 +1246,7 @@ export default function ClientePerfilPage() {
                       type="number"
                       value={formData.renda_mensal ?? ''}
                       onChange={e => setFormData(p => ({ ...p, renda_mensal: parseFloat(e.target.value) || null }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Telefone">
@@ -1412,6 +1254,7 @@ export default function ClientePerfilPage() {
                       value={formData.telefone ?? ''}
                       onChange={e => setFormData(p => ({ ...p, telefone: e.target.value }))}
                       placeholder="(00) 00000-0000"
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Telefone 2">
@@ -1419,6 +1262,7 @@ export default function ClientePerfilPage() {
                       value={formData.telefone2 ?? ''}
                       onChange={e => setFormData(p => ({ ...p, telefone2: e.target.value }))}
                       placeholder="(00) 00000-0000"
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="E-mail">
@@ -1426,18 +1270,20 @@ export default function ClientePerfilPage() {
                       type="email"
                       value={formData.email ?? ''}
                       onChange={e => setFormData(p => ({ ...p, email: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                 </div>
               </div>
 
               {/* Endereço */}
-              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-                <div className="flex items-center gap-2 mb-5">
-                  <MapPin size={18} className="text-slate-500" />
-                  <h3 className="font-semibold text-slate-700">Endereço</h3>
+              <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+                <div className="flex items-center gap-2 mb-5 pb-2 border-b border-border/60">
+                  <MapPin size={18} className="text-[#1A73E8]" />
+                  <h3 className="font-bold text-foreground text-sm">Endereço</h3>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                   <FormField label="CEP">
                     <div className="flex gap-2 items-center">
                       <Input
@@ -1446,7 +1292,7 @@ export default function ClientePerfilPage() {
                         onBlur={e => buscarCep(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && buscarCep(formData.cep ?? '')}
                         placeholder="00000-000"
-                        className="flex-1"
+                        className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all flex-1"
                         maxLength={9}
                       />
                       <Button
@@ -1455,11 +1301,11 @@ export default function ClientePerfilPage() {
                         size="sm"
                         onClick={() => buscarCep(formData.cep ?? '')}
                         disabled={cepLoading || (formData.cep ?? '').replace(/\D/g,'').length < 8}
-                        className="shrink-0 px-2"
+                        className="shrink-0 h-11 px-3 border-border hover:bg-muted/50 rounded-lg"
                       >
                         {cepLoading
-                          ? <Loader2 size={14} className="animate-spin" />
-                          : <Search size={14} />
+                          ? <Loader2 size={16} className="animate-spin text-[#1A73E8]" />
+                          : <Search size={16} className="text-muted-foreground" />
                         }
                       </Button>
                     </div>
@@ -1468,30 +1314,35 @@ export default function ClientePerfilPage() {
                     <Input
                       value={formData.endereco ?? ''}
                       onChange={e => setFormData(p => ({ ...p, endereco: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Número">
                     <Input
                       value={formData.numero ?? ''}
                       onChange={e => setFormData(p => ({ ...p, numero: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Complemento">
                     <Input
                       value={formData.complemento ?? ''}
                       onChange={e => setFormData(p => ({ ...p, complemento: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Bairro">
                     <Input
                       value={formData.bairro ?? ''}
                       onChange={e => setFormData(p => ({ ...p, bairro: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Cidade">
                     <Input
                       value={formData.cidade ?? ''}
                       onChange={e => setFormData(p => ({ ...p, cidade: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Estado (UF)">
@@ -1500,34 +1351,39 @@ export default function ClientePerfilPage() {
                       onChange={e => setFormData(p => ({ ...p, estado: e.target.value }))}
                       maxLength={2}
                       placeholder="UF"
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                 </div>
               </div>
 
               {/* Dados Bancários */}
-              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-                <div className="flex items-center gap-2 mb-5">
-                  <Banknote size={18} className="text-slate-500" />
-                  <h3 className="font-semibold text-slate-700">Dados Bancários</h3>
+              <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+                <div className="flex items-center gap-2 mb-5 pb-2 border-b border-border/60">
+                  <Banknote size={18} className="text-[#1A73E8]" />
+                  <h3 className="font-bold text-foreground text-sm">Dados Bancários</h3>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                   <FormField label="Banco">
                     <Input
                       value={formData.banco ?? ''}
                       onChange={e => setFormData(p => ({ ...p, banco: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Agência">
                     <Input
                       value={formData.agencia ?? ''}
                       onChange={e => setFormData(p => ({ ...p, agencia: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Conta">
                     <Input
                       value={formData.conta ?? ''}
                       onChange={e => setFormData(p => ({ ...p, conta: e.target.value }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Tipo de Conta">
@@ -1535,7 +1391,7 @@ export default function ClientePerfilPage() {
                       value={formData.tipo_conta ?? ''}
                       onValueChange={v => setFormData(p => ({ ...p, tipo_conta: v ?? '' }))}
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="h-11 px-4 focus:ring-1 focus:ring-[#1A73E8] focus:border-[#1A73E8] rounded-lg w-full">
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1550,6 +1406,7 @@ export default function ClientePerfilPage() {
                       value={formData.pix ?? ''}
                       onChange={e => setFormData(p => ({ ...p, pix: e.target.value }))}
                       placeholder="CPF, e-mail, telefone ou chave"
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                   <FormField label="Limite de Crédito (R$)">
@@ -1557,19 +1414,21 @@ export default function ClientePerfilPage() {
                       type="number"
                       value={formData.limite_credito ?? ''}
                       onChange={e => setFormData(p => ({ ...p, limite_credito: parseFloat(e.target.value) || null }))}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
                 </div>
               </div>
 
               {/* Observações */}
-              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-                <FormField label="Observações">
+              <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+                <FormField label="Observações de Análise de Risco / Gerais">
                   <Textarea
                     value={formData.observacoes ?? ''}
                     onChange={e => setFormData(p => ({ ...p, observacoes: e.target.value }))}
                     rows={4}
-                    className="resize-none"
+                    className="resize-none focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all mt-1"
                   />
                 </FormField>
               </div>
@@ -1579,25 +1438,25 @@ export default function ClientePerfilPage() {
                 <Button
                   onClick={salvarDados}
                   disabled={salvandoDados}
-                  className="text-white px-8"
-                  style={{ backgroundColor: '#1E5AA8' }}
+                  className="text-white px-8 rounded-full h-11 bg-[#1A73E8] hover:bg-[#1557B0] font-semibold transition-all shadow-sm"
                 >
-                  {salvandoDados ? 'Salvando...' : 'Salvar Dados'}
+                  {salvandoDados ? 'Salvando...' : 'Salvar Ficha Cadastral'}
                 </Button>
               </div>
 
               {/* ── Referências ─────────────────────────────────────── */}
-              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-                <div className="flex items-center justify-between mb-5">
+              <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+                <div className="flex items-center justify-between mb-5 pb-2 border-b border-border/60">
                   <div className="flex items-center gap-2">
-                    <User size={18} className="text-slate-500" />
-                    <h3 className="font-semibold text-slate-700">Referências</h3>
-                    <Badge variant="outline" className="text-xs ml-1">{referencias.length}</Badge>
+                    <Users size={18} className="text-[#1A73E8]" />
+                    <h3 className="font-bold text-foreground text-sm">Contatos de Referência</h3>
+                    <Badge variant="outline" className="text-xs ml-1 bg-muted/60 rounded-full font-bold">{referencias.length}</Badge>
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="gap-2"
+                    className="gap-1.5 rounded-full font-semibold border-border hover:bg-muted/50"
                     onClick={() => setNovaRefOpen(true)}
                   >
                     <Plus size={14} />
@@ -1606,50 +1465,54 @@ export default function ClientePerfilPage() {
                 </div>
 
                 {referencias.length === 0 && !novaRefOpen ? (
-                  <p className="text-slate-400 text-sm text-center py-6">
-                    Nenhuma referência cadastrada.
+                  <p className="text-muted-foreground/60 text-sm text-center py-8 font-semibold">
+                    Nenhuma referência de contato registrada.
                   </p>
                 ) : (
                   <div className="space-y-3">
                     {referencias.map(ref => (
-                      <div key={ref.id} className="border border-slate-200 rounded-lg p-4">
+                      <div key={ref.id} className="border border-border/80 rounded-xl p-4 bg-muted/10 hover:bg-muted/20 transition-all duration-300">
                         {editRefId === ref.id ? (
                           <div className="space-y-3">
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <FormField label="Nome">
                                 <Input
                                   value={editRefData.nome ?? ref.nome}
                                   onChange={e => setEditRefData(p => ({ ...p, nome: e.target.value }))}
+                                  className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                                 />
                               </FormField>
                               <FormField label="Parentesco">
                                 <Input
                                   value={editRefData.parentesco ?? ref.parentesco ?? ''}
                                   onChange={e => setEditRefData(p => ({ ...p, parentesco: e.target.value }))}
+                                  className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                                 />
                               </FormField>
                               <FormField label="Telefone">
                                 <Input
                                   value={editRefData.telefone ?? ref.telefone ?? ''}
                                   onChange={e => setEditRefData(p => ({ ...p, telefone: e.target.value }))}
+                                  className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                                 />
                               </FormField>
                               <FormField label="Observações">
                                 <Input
                                   value={editRefData.observacoes ?? ref.observacoes ?? ''}
                                   onChange={e => setEditRefData(p => ({ ...p, observacoes: e.target.value }))}
+                                  className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                                 />
                               </FormField>
                             </div>
                             <div className="flex gap-2">
-                              <Button size="sm" onClick={() => salvarEdicaoRef(ref.id)} className="gap-1">
+                              <Button size="sm" onClick={() => salvarEdicaoRef(ref.id)} className="gap-1 rounded-full text-white bg-[#1A73E8] hover:bg-[#1557B0] font-semibold">
                                 <Check size={13} /> Salvar
                               </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => { setEditRefId(null); setEditRefData({}) }}
-                                className="gap-1"
+                                className="gap-1 rounded-full border-border hover:bg-muted font-semibold"
                               >
                                 <X size={13} /> Cancelar
                               </Button>
@@ -1657,33 +1520,33 @@ export default function ClientePerfilPage() {
                           </div>
                         ) : (
                           <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
+                            <div className="flex-1 space-y-1">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <p className="font-semibold text-slate-800">{ref.nome}</p>
+                                <p className="font-bold text-foreground text-sm">{ref.nome}</p>
                                 {ref.parentesco && (
-                                  <Badge variant="outline" className="text-xs">{ref.parentesco}</Badge>
+                                  <Badge variant="outline" className="text-[10px] font-bold rounded-full bg-muted/60">{ref.parentesco}</Badge>
                                 )}
                               </div>
                               {ref.telefone && (
-                                <p className="text-sm text-slate-500 mt-0.5">{formatarTelefone(ref.telefone)}</p>
+                                <p className="text-sm text-[#1A73E8] font-semibold">{formatarTelefone(ref.telefone)}</p>
                               )}
                               {ref.observacoes && (
-                                <p className="text-xs text-slate-400 mt-1">{ref.observacoes}</p>
+                                <p className="text-xs text-muted-foreground/80 leading-relaxed font-medium mt-1 pr-6">{ref.observacoes}</p>
                               )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-7 w-7 p-0"
+                                className="h-8 w-8 p-0 rounded-full hover:bg-muted"
                                 onClick={() => { setEditRefId(ref.id); setEditRefData({}) }}
                               >
-                                <Edit size={13} />
+                                <Edit size={13} className="text-muted-foreground" />
                               </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                className="h-8 w-8 p-0 rounded-full text-[#EA4335] hover:text-[#EA4335] hover:bg-[#FCE8E6]"
                                 onClick={() => setDeletandoRefId(ref.id)}
                               >
                                 <Trash2 size={13} />
@@ -1698,49 +1561,55 @@ export default function ClientePerfilPage() {
 
                 {/* Nova referência inline form */}
                 {novaRefOpen && (
-                  <div className="mt-4 border border-dashed border-slate-300 rounded-lg p-4 bg-slate-50">
-                    <h4 className="text-sm font-semibold text-slate-600 mb-3">Nova Referência</h4>
-                    <div className="grid grid-cols-2 gap-3">
+                  <div className="mt-4 border border-dashed border-border rounded-xl p-4 bg-muted/30">
+                    <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-4">Cadastrar Nova Referência</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <FormField label="Nome *">
                         <Input
                           value={novaRef.nome}
                           onChange={e => setNovaRef(p => ({ ...p, nome: e.target.value }))}
                           placeholder="Nome completo"
+                          className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                         />
                       </FormField>
                       <FormField label="Parentesco">
                         <Input
                           value={novaRef.parentesco}
                           onChange={e => setNovaRef(p => ({ ...p, parentesco: e.target.value }))}
-                          placeholder="Ex: Cônjuge, Filho..."
+                          placeholder="Ex: Cônjuge, Filho, Sócio..."
+                          className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                         />
                       </FormField>
                       <FormField label="Telefone">
                         <Input
                           value={novaRef.telefone}
-                          onChange={e => setNovaRef(p => ({ ...p, telefone: e.target.value }))}
+                          onChange={e => setNovaRef(p => ({ ...p, telefone: formatarTelefone(e.target.value) }))}
                           placeholder="(00) 00000-0000"
+                          className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                         />
                       </FormField>
                       <FormField label="Observações">
                         <Input
                           value={novaRef.observacoes}
                           onChange={e => setNovaRef(p => ({ ...p, observacoes: e.target.value }))}
+                          placeholder="Cargo, local de trabalho, notas..."
+                          className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                         />
                       </FormField>
                     </div>
-                    <div className="flex gap-2 mt-3">
+                    <div className="flex gap-2 mt-4">
                       <Button
                         size="sm"
                         onClick={adicionarReferencia}
                         disabled={salvandoRef || !novaRef.nome.trim()}
-                        className="gap-1"
+                        className="gap-1 rounded-full text-white bg-[#1A73E8] hover:bg-[#1557B0] font-semibold h-9 px-4"
                       >
-                        <Plus size={13} /> {salvandoRef ? 'Salvando...' : 'Adicionar'}
+                        <Plus size={13} /> {salvandoRef ? 'Adicionando...' : 'Adicionar Contato'}
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
+                        className="rounded-full border-border hover:bg-muted font-semibold h-9 px-4"
                         onClick={() => {
                           setNovaRefOpen(false)
                           setNovaRef({ nome: '', parentesco: '', telefone: '', observacoes: '' })
@@ -1756,18 +1625,18 @@ export default function ClientePerfilPage() {
           </TabsContent>
 
           {/* TAB 6 — Anotações */}
-          <TabsContent value="anotacoes" className="mt-4">
-            <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-              <div className="flex items-center justify-between mb-6">
+          <TabsContent value="anotacoes" className="outline-none">
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+              <div className="flex items-center justify-between mb-6 pb-2 border-b border-border/60">
                 <div className="flex items-center gap-2">
-                  <MessageSquare size={18} className="text-slate-500" />
-                  <h3 className="font-semibold text-slate-700">Histórico de Anotações</h3>
-                  <Badge variant="outline" className="text-xs ml-1">{anotacoes.length}</Badge>
+                  <MessageSquare size={18} className="text-[#1A73E8]" />
+                  <h3 className="font-bold text-foreground text-sm">Linha de Contato / Anotações</h3>
+                  <Badge variant="outline" className="text-xs ml-1 bg-muted/60 rounded-full font-bold">{anotacoes.length}</Badge>
                 </div>
                 <Button
                   size="sm"
-                  className="gap-2 text-white"
-                  style={{ backgroundColor: '#1E5AA8' }}
+                  className="gap-1.5 rounded-full text-white bg-[#1A73E8] hover:bg-[#1557B0] font-semibold shadow-sm"
                   onClick={() => setAnotacaoOpen(true)}
                 >
                   <Plus size={14} />
@@ -1776,40 +1645,40 @@ export default function ClientePerfilPage() {
               </div>
 
               {anotacoes.length === 0 ? (
-                <div className="text-center py-12 text-slate-400">
-                  <MessageSquare size={40} className="mx-auto mb-3 opacity-30" />
+                <div className="text-center py-12 text-muted-foreground/60 font-semibold">
+                  <MessageSquare size={40} className="mx-auto mb-3 opacity-30 animate-pulse" />
                   <p>Nenhuma anotação registrada.</p>
-                  <p className="text-xs mt-1">Registre ligações, visitas ou observações importantes.</p>
+                  <p className="text-xs font-medium text-muted-foreground/50 mt-1">Gere anotações para registrar telefonemas, reuniões ou avisos importantes.</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {anotacoes.map(anotacao => (
                     <div
                       key={anotacao.id}
                       className={cn(
-                        'border-l-4 pl-4 py-3 pr-3 rounded-r-lg bg-slate-50 border border-slate-200',
+                        'border-l-4 pl-4 py-3.5 pr-3.5 rounded-r-xl bg-muted/10 border border-border/40 hover:bg-muted/20 hover:border-border transition-all duration-300 shadow-sm relative',
                         anotacaoBorderColor(anotacao.assunto)
                       )}
                     >
                       <div className="flex items-start gap-3">
-                        <span className="text-xl shrink-0 mt-0.5" role="img" aria-label={anotacao.assunto ?? 'nota'}>
+                        <span className="text-xl shrink-0 mt-0.5 select-none" role="img" aria-label={anotacao.assunto ?? 'nota'}>
                           {anotacaoIcon(anotacao.assunto)}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                               {anotacao.assunto ?? 'nota'}
                             </span>
-                            <span className="text-xs text-slate-400">
+                            <span className="text-xs text-muted-foreground/60 font-semibold">
                               {formatarData(anotacao.created_at)}
                             </span>
                             {anotacao.status && (
-                              <Badge variant="outline" className="text-xs py-0 h-4">
+                              <Badge variant="outline" className="text-[10px] font-bold rounded-full py-0 h-4 bg-muted/40 uppercase">
                                 {anotacao.status}
                               </Badge>
                             )}
                           </div>
-                          <p className="text-sm text-slate-700 mt-1 whitespace-pre-wrap">
+                          <p className="text-sm text-foreground mt-1.5 leading-relaxed font-semibold whitespace-pre-wrap">
                             {anotacao.mensagem}
                           </p>
                         </div>
@@ -1822,17 +1691,18 @@ export default function ClientePerfilPage() {
           </TabsContent>
 
           {/* TAB 6 — Documentos */}
-          <TabsContent value="documentos" className="mt-4">
-            <div className="bg-card rounded-xl border border-border shadow-sm p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                  <FileText size={16} className="text-slate-400" />
-                  Documentos do cliente
+          <TabsContent value="documentos" className="outline-none">
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+              <div className="flex items-center justify-between pb-2 border-b border-border/60 mb-5">
+                <h3 className="font-bold text-foreground text-sm flex items-center gap-2">
+                  <FileText size={18} className="text-[#1A73E8]" />
+                  Central de Documentos
                 </h3>
-                <span className="text-xs text-slate-400">{documentos.length} arquivo(s)</span>
+                <span className="text-xs font-bold text-muted-foreground bg-muted px-2.5 py-1 rounded-full">{documentos.length} arquivo(s) enviados</span>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {CATEGORIAS_DOCUMENTO.map(cat => {
                   const doc = documentos.find(d => d.categoria === cat.id)
                   const isUploading = uploadingDoc === cat.id
@@ -1846,20 +1716,20 @@ export default function ClientePerfilPage() {
                     : Paperclip
 
                   return (
-                    <div key={cat.id} className="relative">
+                    <div key={cat.id} className="relative group">
                       {doc ? (
                         /* Documento enviado */
-                        <div className="rounded-xl border-2 border-green-200 bg-green-50 p-3 flex flex-col items-center gap-2 min-h-[130px] relative">
+                        <div className="rounded-xl border border-[#34A853]/20 bg-[#E6F4EA]/25 p-4 flex flex-col items-center gap-2.5 min-h-[150px] relative transition-all duration-300 shadow-sm">
                           {/* Botão remover */}
                           <button
                             type="button"
                             disabled={isDeletando}
                             onClick={() => deletarDocumento(doc)}
-                            className="absolute top-2 right-2 w-5 h-5 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center transition-colors disabled:opacity-50"
+                            className="absolute top-2 right-2 w-5.5 h-5.5 rounded-full bg-[#EA4335]/10 hover:bg-[#EA4335]/25 flex items-center justify-center transition-colors disabled:opacity-50"
                           >
                             {isDeletando
-                              ? <div className="w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin" />
-                              : <X size={11} className="text-red-500" />
+                              ? <div className="w-3 h-3 border border-[#EA4335] border-t-transparent rounded-full animate-spin" />
+                              : <X size={11} className="text-[#EA4335] font-bold" />
                             }
                           </button>
 
@@ -1868,33 +1738,33 @@ export default function ClientePerfilPage() {
                             <img
                               src={doc.url}
                               alt={doc.label}
-                              className="w-16 h-16 object-cover rounded-lg"
+                              className="w-16 h-16 object-cover rounded-lg shadow-sm border border-white"
                             />
                           ) : (
-                            <div className="w-16 h-16 rounded-lg bg-green-100 flex items-center justify-center">
-                              <IconeCat size={28} className="text-green-500" />
+                            <div className="w-16 h-16 rounded-lg bg-[#E6F4EA] flex items-center justify-center border border-[#34A853]/20">
+                              <IconeCat size={26} className="text-[#34A853]" />
                             </div>
                           )}
 
-                          <p className="text-xs font-medium text-green-700 text-center leading-tight">{cat.label}</p>
-                          <p className="text-[10px] text-slate-400">{formatarTamanho(doc.tamanho)}</p>
+                          <p className="text-[11px] font-extrabold text-[#137333] text-center leading-tight mt-1 truncate w-full">{cat.label}</p>
+                          <p className="text-[9px] text-muted-foreground/80 font-bold">{formatarTamanho(doc.tamanho)}</p>
 
                           {/* Ações */}
-                          <div className="flex gap-1 mt-auto w-full">
+                          <div className="flex gap-1.5 mt-auto w-full">
                             <a
                               href={doc.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded-md py-1 transition-colors"
+                              className="flex-1 flex items-center justify-center gap-1 text-[9px] font-bold text-[#137333] bg-[#E6F4EA] hover:bg-[#34A853]/15 rounded-md py-1.5 transition-colors border border-[#34A853]/10"
                             >
-                              <Eye size={10} /> Ver
+                              <Eye size={9} /> Ver
                             </a>
                             <a
                               href={doc.url}
                               download={doc.nome_original}
-                              className="flex-1 flex items-center justify-center gap-1 text-[10px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md py-1 transition-colors"
+                              className="flex-1 flex items-center justify-center gap-1 text-[9px] font-bold text-muted-foreground bg-muted hover:bg-muted/80 rounded-md py-1.5 transition-colors border border-border/60"
                             >
-                              <Download size={10} /> Baixar
+                              <Download size={9} /> Baixar
                             </a>
                           </div>
                         </div>
@@ -1902,17 +1772,17 @@ export default function ClientePerfilPage() {
                         /* Slot vazio */
                         <label
                           htmlFor={inputId}
-                          className={`cursor-pointer rounded-xl border-2 border-dashed border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 p-3 flex flex-col items-center gap-2 min-h-[130px] transition-colors ${isUploading ? 'opacity-60 pointer-events-none' : ''}`}
+                          className={`cursor-pointer rounded-xl border-2 border-dashed border-border hover:border-[#1A73E8]/50 hover:bg-[#E8F0FE]/10 p-4 flex flex-col items-center gap-2.5 min-h-[150px] transition-all duration-300 group ${isUploading ? 'opacity-60 pointer-events-none' : ''}`}
                         >
-                          <div className="w-16 h-16 rounded-lg bg-slate-100 flex items-center justify-center mt-1">
+                          <div className="w-16 h-16 rounded-lg bg-muted/60 flex items-center justify-center mt-1 group-hover:bg-card transition-all border border-transparent group-hover:border-[#1A73E8]/10">
                             {isUploading
-                              ? <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                              : <IconeCat size={28} className="text-slate-300" />
+                              ? <div className="w-6 h-6 border-2 border-[#1A73E8] border-t-transparent rounded-full animate-spin" />
+                              : <IconeCat size={26} className="text-muted-foreground/40 group-hover:text-[#1A73E8]/60 transition-colors" />
                             }
                           </div>
-                          <p className="text-xs text-slate-500 text-center leading-tight">{cat.label}</p>
-                          <p className="text-[10px] text-blue-400 font-medium flex items-center gap-1">
-                            <Upload size={9} /> {isUploading ? 'Enviando...' : 'Clique para enviar'}
+                          <p className="text-[11px] font-bold text-muted-foreground text-center leading-tight mt-1">{cat.label}</p>
+                          <p className="text-[9px] text-[#1A73E8] font-bold flex items-center gap-1">
+                            <Upload size={9} /> {isUploading ? 'Enviando...' : 'Carregar arquivo'}
                           </p>
                         </label>
                       )}
@@ -1932,57 +1802,65 @@ export default function ClientePerfilPage() {
                 })}
               </div>
 
-              <p className="text-xs text-slate-400 text-center">
-                Clique em qualquer quadrado para enviar ou substituir o documento.
+              <p className="text-xs text-muted-foreground/60 text-center font-medium">
+                Selecione ou arraste qualquer documento para realizar upload de comprovação.
               </p>
             </div>
           </TabsContent>
 
           {/* TAB 7 — Score e Risco */}
-          <TabsContent value="score" className="mt-4">
-            <div className="space-y-4">
+          <TabsContent value="score" className="outline-none">
+            <div className="space-y-6">
               {/* Score principal */}
-              <div className="bg-card rounded-xl border border-border shadow-sm p-6">
-                <div className="flex flex-col lg:flex-row items-center gap-8">
-                  <div className="flex flex-col items-center gap-3 shrink-0">
+              <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+                <div className="flex flex-col lg:flex-row items-center gap-8 pt-1">
+                  <div className="flex flex-col items-center gap-3 shrink-0 bg-muted/10 border border-border/40 p-5 rounded-2xl shadow-sm">
                     <ScoreGauge score={resultadoScore.score} size="lg" showLabel showDescription animated />
                   </div>
-                  <div className="flex-1 space-y-4">
+                  <div className="flex-1 space-y-4 w-full">
                     {/* Recommendation */}
                     <div
-                      className="rounded-xl p-4 border"
+                      className="rounded-xl p-4 border relative overflow-hidden"
                       style={{
                         backgroundColor:
-                          resultadoScore.recomendacao === 'aprovar' ? '#f0fdf4' :
-                          resultadoScore.recomendacao === 'analisar' ? '#fffbeb' : '#fef2f2',
+                          resultadoScore.recomendacao === 'aprovar' ? '#E6F4EA' :
+                          resultadoScore.recomendacao === 'analisar' ? '#FEF7E0' : '#FCE8E6',
                         borderColor:
-                          resultadoScore.recomendacao === 'aprovar' ? '#bbf7d0' :
-                          resultadoScore.recomendacao === 'analisar' ? '#fde68a' : '#fecaca',
+                          resultadoScore.recomendacao === 'aprovar' ? '#34A853/20' :
+                          resultadoScore.recomendacao === 'analisar' ? '#FBBC04/20' : '#EA4335/20',
                       }}
                     >
-                      <p className="text-xs font-semibold uppercase tracking-wide mb-1"
-                        style={{ color: resultadoScore.recomendacao === 'aprovar' ? '#15803d' : resultadoScore.recomendacao === 'analisar' ? '#b45309' : '#b91c1c' }}>
-                        Recomendação
+                      <div className="absolute left-0 top-0 bottom-0 w-1"
+                        style={{
+                          backgroundColor:
+                            resultadoScore.recomendacao === 'aprovar' ? '#34A853' :
+                            resultadoScore.recomendacao === 'analisar' ? '#FBBC04' : '#EA4335'
+                        }}
+                      />
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                        style={{ color: resultadoScore.recomendacao === 'aprovar' ? '#137333' : resultadoScore.recomendacao === 'analisar' ? '#B06000' : '#C5221F' }}>
+                        Diretriz da Mesa de Crédito
                       </p>
-                      <p className="font-bold text-slate-800 text-lg capitalize">{resultadoScore.recomendacao}</p>
+                      <p className="font-extrabold text-foreground text-xl capitalize">{resultadoScore.recomendacao}</p>
                       {resultadoScore.faixa && (
-                        <p className="text-sm text-slate-500 mt-1">{resultadoScore.faixa.nome}</p>
+                        <p className="text-sm text-muted-foreground font-semibold mt-1">{resultadoScore.faixa.nome}</p>
                       )}
                     </div>
                     {/* Limit & rate */}
                     <div className="grid grid-cols-2 gap-4">
                       {resultadoScore.limiteSugerido != null && (
-                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
-                          <p className="text-xs text-slate-400 mb-0.5">Limite Sugerido</p>
-                          <p className="font-bold text-slate-800 text-base">
+                        <div className="bg-muted/20 rounded-xl p-4 border border-border/60 shadow-sm">
+                          <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Crédito Proposto</p>
+                          <p className="font-black text-[#1A73E8] text-lg">
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resultadoScore.limiteSugerido)}
                           </p>
                         </div>
                       )}
                       {resultadoScore.taxaSugerida != null && (
-                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
-                          <p className="text-xs text-slate-400 mb-0.5">Taxa Sugerida</p>
-                          <p className="font-bold text-slate-800 text-base">{resultadoScore.taxaSugerida.toFixed(2)}% a.m.</p>
+                        <div className="bg-muted/20 rounded-xl p-4 border border-border/60 shadow-sm">
+                          <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Taxa de Juros Proposta</p>
+                          <p className="font-black text-[#1A73E8] text-lg">{resultadoScore.taxaSugerida.toFixed(2)}% a.m.</p>
                         </div>
                       )}
                     </div>
@@ -1991,38 +1869,40 @@ export default function ClientePerfilPage() {
               </div>
 
               {/* Fatores */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Positivos */}
-                <div className="bg-white rounded-xl border border-green-100 shadow-sm p-5">
-                  <p className="text-sm font-semibold text-green-700 mb-3">Fatores Positivos</p>
-                  <div className="space-y-2">
+                <div className="bg-card rounded-2xl border border-[#34A853]/20 shadow-m3-1 p-5 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-[#34A853]" />
+                  <p className="text-xs font-bold text-[#137333] uppercase tracking-wider mb-4 border-b border-border/40 pb-2">Fatores Favoráveis</p>
+                  <div className="space-y-3">
                     {resultadoScore.fatores.filter(f => f.tipo === 'positivo' && f.pontos !== 0).length === 0 && (
-                      <p className="text-sm text-slate-400 italic">Nenhum fator positivo identificado.</p>
+                      <p className="text-sm text-muted-foreground/50 italic font-semibold py-4 text-center">Nenhum fator favorável catalogado.</p>
                     )}
                     {resultadoScore.fatores.filter(f => f.tipo === 'positivo' && f.pontos !== 0).map(f => (
-                      <div key={f.id} className="flex items-start gap-2">
-                        <span className="text-green-500 font-bold mt-0.5 shrink-0">+{f.pontos.toFixed(0)}</span>
+                      <div key={f.id} className="flex items-start gap-2.5 bg-[#E6F4EA]/15 p-2 rounded-xl border border-[#34A853]/10">
+                        <span className="text-[#34A853] font-black text-sm shrink-0 mt-0.5">+{f.pontos.toFixed(0)}</span>
                         <div>
-                          <p className="text-sm font-medium text-slate-700">{f.label}</p>
-                          <p className="text-xs text-slate-400">{f.descricao}</p>
+                          <p className="text-xs font-bold text-foreground">{f.label}</p>
+                          <p className="text-[10px] text-muted-foreground/80 font-medium leading-relaxed">{f.descricao}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
                 {/* Negativos */}
-                <div className="bg-white rounded-xl border border-red-100 shadow-sm p-5">
-                  <p className="text-sm font-semibold text-red-600 mb-3">Fatores Negativos</p>
-                  <div className="space-y-2">
+                <div className="bg-card rounded-2xl border border-[#EA4335]/20 shadow-m3-1 p-5 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-[#EA4335]" />
+                  <p className="text-xs font-bold text-[#C5221F] uppercase tracking-wider mb-4 border-b border-border/40 pb-2">Fatores Degradantes</p>
+                  <div className="space-y-3">
                     {resultadoScore.fatores.filter(f => f.tipo === 'negativo' && f.pontos !== 0).length === 0 && (
-                      <p className="text-sm text-slate-400 italic">Nenhum fator negativo identificado.</p>
+                      <p className="text-sm text-muted-foreground/50 italic font-semibold py-4 text-center">Nenhum agravante de risco identificado.</p>
                     )}
                     {resultadoScore.fatores.filter(f => f.tipo === 'negativo' && f.pontos !== 0).map(f => (
-                      <div key={f.id} className="flex items-start gap-2">
-                        <span className="text-red-500 font-bold mt-0.5 shrink-0">{f.pontos.toFixed(0)}</span>
+                      <div key={f.id} className="flex items-start gap-2.5 bg-[#FCE8E6]/15 p-2 rounded-xl border border-[#EA4335]/10">
+                        <span className="text-[#EA4335] font-black text-sm shrink-0 mt-0.5">{f.pontos.toFixed(0)}</span>
                         <div>
-                          <p className="text-sm font-medium text-slate-700">{f.label}</p>
-                          <p className="text-xs text-slate-400">{f.descricao}</p>
+                          <p className="text-xs font-bold text-foreground">{f.label}</p>
+                          <p className="text-[10px] text-muted-foreground/80 font-medium leading-relaxed">{f.descricao}</p>
                         </div>
                       </div>
                     ))}
@@ -2044,7 +1924,7 @@ export default function ClientePerfilPage() {
         descricao={
           cliente.status === 'bloqueado'
             ? `${cliente.nome} voltará a ter status ativo.`
-            : `${cliente.nome} ficará impedido de novas operações.`
+            : `${cliente.nome} ficará impedido de realizar novas operações de crédito.`
         }
         labelConfirmar={cliente.status === 'bloqueado' ? 'Desbloquear' : 'Bloquear'}
         variante={cliente.status === 'bloqueado' ? 'default' : 'danger'}
@@ -2057,7 +1937,7 @@ export default function ClientePerfilPage() {
         open={!!deletandoRefId}
         onOpenChange={open => { if (!open) setDeletandoRefId(null) }}
         titulo="Excluir referência?"
-        descricao="Esta ação não pode ser desfeita."
+        descricao="Esta ação não pode ser desfeita e removerá permanentemente este contato de segurança."
         labelConfirmar="Excluir"
         variante="danger"
         onConfirmar={() => { if (deletandoRefId) deletarReferencia(deletandoRefId) }}
@@ -2065,51 +1945,51 @@ export default function ClientePerfilPage() {
 
       {/* Nova Anotação */}
       <Dialog open={anotacaoOpen} onOpenChange={setAnotacaoOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md rounded-2xl border-border">
           <DialogHeader>
-            <DialogTitle>Nova Anotação</DialogTitle>
+            <DialogTitle className="font-extrabold text-foreground tracking-tight">Registrar Nova Anotação</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <FormField label="Tipo">
+            <FormField label="Tipo de Evento">
               <Select
                 value={anotacaoTipo}
                 onValueChange={v => setAnotacaoTipo(v ?? 'nota')}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full h-11 focus:ring-1 focus:ring-[#1A73E8] focus:border-[#1A73E8]">
                   <SelectValue placeholder="Selecione o tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="nota">📝 Nota</SelectItem>
-                  <SelectItem value="ligacao">📞 Ligação</SelectItem>
-                  <SelectItem value="visita">🏠 Visita</SelectItem>
-                  <SelectItem value="negociacao">🤝 Negociação</SelectItem>
-                  <SelectItem value="alerta">⚠️ Alerta</SelectItem>
+                  <SelectItem value="nota">📝 Nota Interna</SelectItem>
+                  <SelectItem value="ligacao">📞 Ligação Telefônica</SelectItem>
+                  <SelectItem value="visita">🏠 Visita de Análise</SelectItem>
+                  <SelectItem value="negociacao">🤝 Acordo / Negociação</SelectItem>
+                  <SelectItem value="alerta">⚠️ Alerta Crítico</SelectItem>
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField label="Conteúdo *">
+            <FormField label="Mensagem / Observação *">
               <Textarea
                 value={anotacaoConteudo}
                 onChange={e => setAnotacaoConteudo(e.target.value)}
-                placeholder="Descreva a anotação..."
+                placeholder="Descreva detalhadamente o evento..."
                 rows={5}
-                className="resize-none"
+                className="resize-none focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
               />
             </FormField>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button
               variant="outline"
               onClick={() => setAnotacaoOpen(false)}
               disabled={salvandoAnotacao}
+              className="rounded-full font-semibold border-border"
             >
               Cancelar
             </Button>
             <Button
               onClick={salvarAnotacao}
               disabled={salvandoAnotacao || !anotacaoConteudo.trim()}
-              className="text-white"
-              style={{ backgroundColor: '#1E5AA8' }}
+              className="text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-semibold"
             >
               {salvandoAnotacao ? 'Salvando...' : 'Salvar Anotação'}
             </Button>

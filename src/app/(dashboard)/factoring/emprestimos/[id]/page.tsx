@@ -20,6 +20,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { ScoreGauge } from '@/components/factoring/ScoreGauge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -37,12 +38,12 @@ const FORMAS_PAG: { key: TipoPagamento; label: string; icon: React.ReactNode }[]
 ]
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  analise:     { bg: '#f1f5f9', text: '#64748b', label: 'Em Análise' },
-  aprovado:    { bg: '#fefce8', text: '#ca8a04', label: 'Aprovado' },
-  ativo:       { bg: '#f0fdf4', text: '#16a34a', label: 'Ativo' },
-  quitado:     { bg: '#eff6ff', text: '#1E5AA8', label: 'Quitado' },
-  inadimplente:{ bg: '#fef2f2', text: '#dc2626', label: 'Inadimplente' },
-  cancelado:   { bg: '#f8fafc', text: '#94a3b8', label: 'Cancelado' },
+  analise:     { bg: '#F1F5F9', text: '#64748b', label: 'Em Análise' },
+  aprovado:    { bg: '#FEF7E0', text: '#B06000', label: 'Aprovado' },
+  ativo:       { bg: '#E6F4EA', text: '#137333', label: 'Ativo' },
+  quitado:     { bg: '#E8F0FE', text: '#1A73E8', label: 'Quitado' },
+  inadimplente:{ bg: '#FCE8E6', text: '#C5221F', label: 'Inadimplente' },
+  cancelado:   { bg: '#F8FAFC', text: '#94a3b8', label: 'Cancelado' },
 }
 
 export default function EmprestimoDetalhePage() {
@@ -165,6 +166,8 @@ export default function EmprestimoDetalhePage() {
         .eq('id', emp.cliente_id)
         .single()
       setCliente(cli ?? null)
+    } catch (error) {
+      logError('carregarDados', error)
     } finally {
       setLoading(false)
     }
@@ -210,7 +213,7 @@ export default function EmprestimoDetalhePage() {
     try {
       if (valorFinal < subtotal - 0.009) {
         const restante = Math.round((subtotal - valorFinal) * 100) / 100
-        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id)
+        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
         // Transfer remainder to the next pending parcel
         const { data: proximas } = await supabase
           .from('parcelas_emprestimo')
@@ -233,7 +236,7 @@ export default function EmprestimoDetalhePage() {
           }
         } else {
           // Last parcel — create a new one with next month date
-          const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id)
+          const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
           const maxNum = Math.max(...(todas?.map(x => x.numero_parcela) ?? [0]))
           const novoVenc = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
           await supabase.from('parcelas_emprestimo').insert({
@@ -248,10 +251,10 @@ export default function EmprestimoDetalhePage() {
           toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} criado como nova parcela.`)
         }
       } else {
-        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id)
-        const { data: restantes } = await supabase.from('parcelas_emprestimo').select('id').eq('emprestimo_id', emprestimo.id).in('status', ['pendente', 'atrasado'])
+        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
+        const { data: restantes } = await supabase.from('parcelas_emprestimo').select('id').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id).in('status', ['pendente', 'atrasado'])
         if (!restantes?.length) {
-          await supabase.from('emprestimos').update({ status: 'quitado', saldo_devedor: 0, data_quitacao: hoje }).eq('id', emprestimo.id)
+          await supabase.from('emprestimos').update({ status: 'quitado', saldo_devedor: 0, data_quitacao: hoje }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
         }
         toast.success(`${formatarMoeda(valorFinal)} registrado com sucesso!`)
       }
@@ -275,6 +278,7 @@ export default function EmprestimoDetalhePage() {
         .from('emprestimos')
         .update({ status: 'quitado', saldo_devedor: 0, data_quitacao: hoje })
         .eq('id', emprestimo.id)
+        .eq('empresa_id', empresaAtual.id)
       if (e1) throw e1
 
       // Mark all pending/atrasado parcelas as PAGO (not cancelled)
@@ -282,6 +286,7 @@ export default function EmprestimoDetalhePage() {
         .from('parcelas_emprestimo')
         .select('id, valor, numero_parcela, total_parcelas, data_vencimento')
         .eq('emprestimo_id', emprestimo.id)
+        .eq('empresa_id', empresaAtual.id)
         .in('status', ['pendente', 'atrasado'])
 
       if (pendentes && pendentes.length > 0) {
@@ -289,6 +294,7 @@ export default function EmprestimoDetalhePage() {
           .from('parcelas_emprestimo')
           .update({ status: 'pago', valor_pago: null, data_pagamento: hoje, tipo_pagamento: 'dinheiro' })
           .eq('emprestimo_id', emprestimo.id)
+          .eq('empresa_id', empresaAtual.id)
           .in('status', ['pendente', 'atrasado'])
 
         // Register one caixa entry for the total settled amount
@@ -320,8 +326,8 @@ export default function EmprestimoDetalhePage() {
     if (!emprestimo || !empresaAtual) return
     setProcessando(true)
     try {
-      await supabase.from('emprestimos').update({ status: 'cancelado' }).eq('id', emprestimo.id)
-      await supabase.from('parcelas_emprestimo').update({ status: 'cancelado' }).eq('emprestimo_id', emprestimo.id).in('status', ['pendente', 'atrasado'])
+      await supabase.from('emprestimos').update({ status: 'cancelado' }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+      await supabase.from('parcelas_emprestimo').update({ status: 'cancelado' }).eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id).in('status', ['pendente', 'atrasado'])
       toast.success('Contrato cancelado')
       setCancelarDialog(false)
       carregarDados()
@@ -337,10 +343,10 @@ export default function EmprestimoDetalhePage() {
   if (!emprestimo) return (
     <AppShell empresa="factoring" titulo="Empréstimo">
       <div className="flex flex-col items-center justify-center py-24 gap-4">
-        <X size={48} className="text-slate-300" />
-        <p className="text-slate-500 text-lg font-medium">Empréstimo não encontrado</p>
-        <Button variant="outline" onClick={() => router.push('/factoring/emprestimos')}>
-          <ChevronLeft size={16} className="mr-1" /> Voltar para empréstimos
+        <X size={48} className="text-muted-foreground/30 animate-pulse" />
+        <p className="text-muted-foreground text-lg font-bold">Empréstimo não localizado</p>
+        <Button variant="outline" className="rounded-full font-semibold border-border hover:bg-muted" onClick={() => router.push('/factoring/emprestimos')}>
+          <ChevronLeft size={16} className="mr-1" /> Voltar para lista
         </Button>
       </div>
     </AppShell>
@@ -353,80 +359,14 @@ export default function EmprestimoDetalhePage() {
   const totalJurosPagos = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + (p.valor_juros ?? 0), 0)
   const totalPrincipalPago = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + (p.valor_principal ?? 0), 0)
 
-  const parcelaColumns: Column<ParcelaEmprestimo>[] = [
-    { key: 'num', header: 'Nº', render: p => <span className="tabular-nums text-sm text-slate-500">{p.numero_parcela}/{p.total_parcelas}</span> },
-    { key: 'venc', header: 'Vencimento', render: p => <span className="tabular-nums text-sm">{formatarData(p.data_vencimento)}</span> },
-    { key: 'principal', header: 'Principal', render: p => <span className="tabular-nums text-sm">{formatarMoeda(p.valor_principal)}</span> },
-    { key: 'juros', header: 'Juros', render: p => <span className="tabular-nums text-sm text-orange-600">{formatarMoeda(p.valor_juros)}</span> },
-    { key: 'valor', header: 'Parcela', render: p => <span className="tabular-nums text-sm font-semibold">{formatarMoeda(p.valor)}</span> },
-    { key: 'pago', header: 'Pago', render: p => <span className="tabular-nums text-sm text-green-700">{formatarMoeda(p.valor_pago ?? 0)}</span> },
-    { key: 'saldo', header: 'Restante', render: p => <span className="tabular-nums text-sm">{p.status === 'pago' ? <span className="text-green-600">—</span> : formatarMoeda(Math.max(0, p.valor - (p.valor_pago ?? 0)))}</span> },
-    {
-      key: 'status',
-      header: 'Status',
-      render: p => {
-        const colors: Record<string, string> = { pago: '#22c55e', atrasado: '#ef4444', pendente: '#64748b', cancelado: '#94a3b8', renegociado: '#D4A528' }
-        const labels: Record<string, string> = { pago: 'Pago', atrasado: 'Atrasado', pendente: 'Pendente', cancelado: 'Cancelado', renegociado: 'Renegoc.' }
-        const c = colors[p.status] ?? '#64748b'
-        return <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ color: c, backgroundColor: `${c}18` }}>{labels[p.status] ?? p.status}</span>
-      },
-    },
-    {
-      key: 'dias',
-      header: 'Atraso',
-      render: p => {
-        const dias = calcDias(p.data_vencimento)
-        return dias > 0
-          ? <span className="text-xs font-semibold text-red-600">{dias}d</span>
-          : <span className="text-slate-300 text-xs">—</span>
-      },
-    },
-    {
-      key: 'acao',
-      header: '',
-      render: p => ['pendente', 'atrasado'].includes(p.status)
-        ? (
-          <Button
-            size="sm"
-            className="h-6 text-xs px-2 text-white gap-1"
-            style={{ backgroundColor: '#1E5AA8' }}
-            onClick={e => { e.stopPropagation(); abrirPagamento(p) }}
-          >
-            <DollarSign size={11} />
-            Receber
-          </Button>
-        ) : p.status === 'pago' ? (
-          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-            <button
-              title="Baixar comprovante de pagamento"
-              onClick={() => handleGerarRecibo(p)}
-              className="h-6 px-2 rounded flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors"
-            >
-              <Receipt size={11} />
-              Recibo
-            </button>
-            {cliente?.telefone && (
-              <button
-                title="Enviar comprovante via WhatsApp"
-                onClick={() => handleWhatsAppRecibo(p)}
-                className="h-6 w-6 rounded flex items-center justify-center text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-              >
-                <MessageCircle size={13} />
-              </button>
-            )}
-          </div>
-        ) : null,
-    },
-  ]
-
   function rowClass(p: ParcelaEmprestimo) {
-    if (p.status === 'pago') return 'bg-green-50/50'
-    if (p.status === 'atrasado') return 'bg-red-50/50'
+    if (p.status === 'pago') return 'bg-[#E6F4EA]/10 border-b border-border/40 hover:bg-[#E6F4EA]/20'
+    if (p.status === 'atrasado') return 'bg-[#FCE8E6]/25 border-b border-border/40 hover:bg-[#FCE8E6]/35 font-semibold text-[#C5221F]'
     if (p.status === 'pendente') {
       const hoje = new Date().toISOString().split('T')[0]
-      if (p.data_vencimento === hoje) return 'bg-yellow-50/50'
+      if (p.data_vencimento === hoje) return 'bg-[#FEF7E0]/30 border-b border-border/40 hover:bg-[#FEF7E0]/40 font-semibold'
     }
-    return ''
+    return 'border-b border-border/40 hover:bg-muted/10'
   }
 
   return (
@@ -434,25 +374,25 @@ export default function EmprestimoDetalhePage() {
       <div className="space-y-6">
 
         {/* Header */}
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border/60 pb-4">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" aria-label="Voltar para empréstimos" className="h-8 w-8" onClick={() => router.push('/factoring/emprestimos')}>
-              <ChevronLeft size={18} />
+            <Button variant="ghost" size="icon" aria-label="Voltar para empréstimos" className="h-9 w-9 rounded-full hover:bg-muted" onClick={() => router.push('/factoring/emprestimos')}>
+              <ChevronLeft size={20} className="text-muted-foreground" />
             </Button>
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-mono text-lg font-bold" style={{ color: '#1E5AA8' }}>
+              <div className="flex items-center gap-2.5 mb-1">
+                <span className="font-mono text-xl font-extrabold text-[#1A73E8]">
                   {emprestimo.numero_contrato}
                 </span>
                 <span
-                  className="px-2 py-0.5 rounded-full text-xs font-semibold"
-                  style={{ backgroundColor: statusInfo.bg, color: statusInfo.text }}
+                  className="px-2.5 py-0.5 rounded-full text-xs font-bold border"
+                  style={{ backgroundColor: statusInfo.bg, color: statusInfo.text, borderColor: `${statusInfo.text}18` }}
                 >
                   {statusInfo.label}
                 </span>
               </div>
-              <p className="text-sm text-slate-400">
-                {emprestimo.data_liberacao ? `Liberado em ${formatarData(emprestimo.data_liberacao)}` : 'Aguardando liberação'}
+              <p className="text-xs text-muted-foreground/60 font-semibold">
+                {emprestimo.data_liberacao ? `Data de Liberação: ${formatarData(emprestimo.data_liberacao)}` : 'Aguardando Liberação'}
               </p>
             </div>
           </div>
@@ -461,13 +401,13 @@ export default function EmprestimoDetalhePage() {
             <Button
               size="sm"
               variant="outline"
-              className="gap-1.5"
+              className="gap-1.5 rounded-full font-semibold h-9 px-4 border-border hover:bg-muted/50 text-xs"
               onClick={handleGerarContrato}
               disabled={gerandoPDF}
             >
               {gerandoPDF
-                ? <Loader2 size={14} className="animate-spin" />
-                : <Download size={14} />
+                ? <Loader2 size={14} className="animate-spin text-[#1A73E8]" />
+                : <Download size={14} className="text-muted-foreground" />
               }
               {gerandoPDF ? 'Gerando...' : 'Contrato PDF'}
             </Button>
@@ -475,7 +415,7 @@ export default function EmprestimoDetalhePage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50"
+                className="gap-1.5 text-[#34A853] border-[#34A853]/25 hover:bg-[#E6F4EA] rounded-full font-semibold h-9 px-4 text-xs"
                 onClick={handleGerarQuitacao}
                 disabled={gerandoPDF}
               >
@@ -488,8 +428,7 @@ export default function EmprestimoDetalhePage() {
               return proxima ? (
                 <Button
                   size="sm"
-                  className="gap-1.5 text-white"
-                  style={{ backgroundColor: '#1E5AA8' }}
+                  className="gap-1.5 text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-semibold h-9 px-4 shadow-sm text-xs"
                   onClick={() => abrirPagamento(proxima)}
                 >
                   <DollarSign size={14} />
@@ -498,13 +437,13 @@ export default function EmprestimoDetalhePage() {
               ) : null
             })()}
             {['ativo', 'inadimplente'].includes(emprestimo.status) && (
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setQuitarDialog(true)}>
-                <CheckCircle2 size={14} />
-                Quitar
+              <Button size="sm" variant="outline" className="gap-1.5 rounded-full font-semibold h-9 px-4 border-border hover:bg-muted/50 text-xs" onClick={() => setQuitarDialog(true)}>
+                <CheckCircle2 size={14} className="text-muted-foreground" />
+                Quitar Contrato
               </Button>
             )}
             {['analise', 'aprovado', 'ativo'].includes(emprestimo.status) && (
-              <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200" onClick={() => setCancelarDialog(true)}>
+              <Button size="sm" variant="outline" className="gap-1.5 text-[#EA4335] border-[#EA4335]/25 hover:bg-[#FCE8E6] rounded-full font-semibold h-9 px-4 text-xs" onClick={() => setCancelarDialog(true)}>
                 <X size={14} />
                 Cancelar
               </Button>
@@ -514,22 +453,26 @@ export default function EmprestimoDetalhePage() {
 
         {/* Info Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-card rounded-xl border border-border p-4">
-            <p className="text-xs text-muted-foreground mb-1">Valor Principal</p>
-            <p className="text-lg font-bold text-card-foreground">{formatarMoeda(emprestimo.valor_principal)}</p>
+          <div className="bg-card rounded-2xl border border-border p-4 shadow-m3-1 relative overflow-hidden transition-all hover:scale-[1.01]">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+            <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider mb-1">Valor Principal</p>
+            <p className="text-lg font-black text-foreground">{formatarMoeda(emprestimo.valor_principal)}</p>
           </div>
-          <div className="bg-card rounded-xl border border-border p-4">
-            <p className="text-xs text-muted-foreground mb-1">Taxa de Juros</p>
-            <p className="text-lg font-bold text-card-foreground">{emprestimo.taxa_juros}% a.m.</p>
-            <p className="text-xs text-muted-foreground mt-0.5">≡ {taxaAnual}% a.a. (compostos)</p>
+          <div className="bg-card rounded-2xl border border-border p-4 shadow-m3-1 relative overflow-hidden transition-all hover:scale-[1.01]">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+            <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider mb-1">Taxa de Juros</p>
+            <p className="text-lg font-black text-foreground">{emprestimo.taxa_juros}% a.m.</p>
+            <p className="text-[10px] font-semibold text-muted-foreground/60 mt-0.5">≡ {taxaAnual}% a.a. compostos</p>
           </div>
-          <div className="bg-card rounded-xl border border-border p-4">
-            <p className="text-xs text-muted-foreground mb-1">Prazo</p>
-            <p className="text-lg font-bold text-card-foreground">{emprestimo.prazo_meses} meses</p>
+          <div className="bg-card rounded-2xl border border-border p-4 shadow-m3-1 relative overflow-hidden transition-all hover:scale-[1.01]">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+            <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider mb-1">Prazo Contratual</p>
+            <p className="text-lg font-black text-foreground">{emprestimo.prazo_meses} parcelas</p>
           </div>
-          <div className="bg-card rounded-xl border border-border p-4">
-            <p className="text-xs text-muted-foreground mb-1">Parcela (Price)</p>
-            <p className="text-lg font-bold text-card-foreground">{formatarMoeda(emprestimo.valor_parcela)}</p>
+          <div className="bg-card rounded-2xl border border-border p-4 shadow-m3-1 relative overflow-hidden transition-all hover:scale-[1.01]">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+            <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider mb-1">Valor da Parcela (Price)</p>
+            <p className="text-lg font-black text-foreground">{formatarMoeda(emprestimo.valor_parcela)}</p>
           </div>
         </div>
 
@@ -537,18 +480,18 @@ export default function EmprestimoDetalhePage() {
           {/* Main content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Totals */}
-            <div className="bg-card rounded-xl border border-border p-5">
-              <h3 className="font-semibold text-card-foreground mb-3 text-sm">Resumo Financeiro</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 space-y-4">
+              <h3 className="font-bold text-foreground text-sm border-b border-border/60 pb-2">Demonstrativo Financeiro</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-1">
                 {[
-                  { l: 'Total a Pagar', v: emprestimo.total_pagar, color: '#1E5AA8' },
-                  { l: 'Total Pago', v: totalPago, color: '#22c55e' },
-                  { l: 'Saldo Devedor', v: emprestimo.saldo_devedor, color: '#f97316' },
-                  { l: 'Parcelas', v: `${parcelasPagas}/${emprestimo.prazo_meses}`, color: '#64748b', isText: true },
+                  { l: 'Total Pactuado', v: emprestimo.total_pagar, color: '#1A73E8' },
+                  { l: 'Total Recebido', v: totalPago, color: '#34A853' },
+                  { l: 'Saldo Devedor', v: emprestimo.saldo_devedor, color: '#FA903E' },
+                  { l: 'Parcelas Quitadas', v: `${parcelasPagas}/${emprestimo.prazo_meses}`, color: 'var(--muted-foreground)', isText: true },
                 ].map(c => (
-                  <div key={c.l} className="text-center">
-                    <p className="text-xs text-muted-foreground mb-0.5">{c.l}</p>
-                    <p className="font-bold" style={{ color: c.color }}>
+                  <div key={c.l} className="text-center space-y-0.5">
+                    <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider">{c.l}</p>
+                    <p className="text-base font-black" style={{ color: c.color }}>
                       {c.isText ? c.v : formatarMoeda(c.v as number)}
                     </p>
                   </div>
@@ -556,112 +499,115 @@ export default function EmprestimoDetalhePage() {
               </div>
               {/* Breakdown juros compostos — o que já foi pago */}
               {parcelasPagas > 0 && (
-                <div className="pt-3 border-t border-border">
-                  <p className="text-xs text-muted-foreground mb-2 font-medium">Composição do que foi pago</p>
-                  <div className="flex rounded-full overflow-hidden h-2 mb-1.5">
+                <div className="pt-3.5 border-t border-border/60 space-y-2">
+                  <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider">Composição dos Valores Recebidos</p>
+                  <div className="flex rounded-full overflow-hidden h-2.5 bg-muted/60 border border-border/40">
                     <div
-                      className="h-2 bg-[#1E5AA8]"
+                      className="h-full bg-[#1A73E8] transition-all duration-500"
                       style={{ width: totalPago > 0 ? `${Math.round((totalPrincipalPago / totalPago) * 100)}%` : '0%' }}
                     />
-                    <div className="h-2 bg-orange-400 flex-1" />
+                    <div className="h-full bg-[#FA903E] flex-1 transition-all duration-500" />
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground flex-wrap pt-0.5">
                     <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-[#1E5AA8] inline-block" />
-                      Principal amortizado: {formatarMoeda(totalPrincipalPago)}
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#1A73E8] inline-block shadow-sm" />
+                      Principal amortizado: <strong className="text-foreground">{formatarMoeda(totalPrincipalPago)}</strong>
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
-                      Juros pagos: {formatarMoeda(totalJurosPagos)}
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#FA903E] inline-block shadow-sm" />
+                      Juros faturados: <strong className="text-foreground">{formatarMoeda(totalJurosPagos)}</strong>
                     </span>
                   </div>
                 </div>
               )}
               {/* Projeção total do contrato */}
-              <div className="pt-3 border-t border-border mt-3">
-                <p className="text-xs text-muted-foreground mb-2 font-medium">Composição total do contrato</p>
-                <div className="flex rounded-full overflow-hidden h-2 mb-1.5">
+              <div className="pt-3.5 border-t border-border/60 space-y-2">
+                <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider font-semibold">Composição Geral Pactuada do Contrato</p>
+                <div className="flex rounded-full overflow-hidden h-2.5 bg-muted/60 border border-border/40">
                   <div
-                    className="h-2 bg-[#1E5AA8]"
+                    className="h-full bg-[#1A73E8] transition-all duration-500"
                     style={{ width: emprestimo.total_pagar > 0 ? `${Math.round((emprestimo.valor_principal / emprestimo.total_pagar) * 100)}%` : '0%' }}
                   />
-                  <div className="h-2 bg-orange-400 flex-1" />
+                  <div className="h-full bg-[#FA903E] flex-1 transition-all duration-500" />
                 </div>
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground flex-wrap pt-0.5">
                   <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#1E5AA8] inline-block" />
-                    Principal: {formatarMoeda(emprestimo.valor_principal)} ({emprestimo.total_pagar > 0 ? Math.round((emprestimo.valor_principal / emprestimo.total_pagar) * 100) : 0}%)
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#1A73E8] inline-block shadow-sm" />
+                    Amortização Principal: <strong className="text-foreground">{formatarMoeda(emprestimo.valor_principal)}</strong> ({emprestimo.total_pagar > 0 ? Math.round((emprestimo.valor_principal / emprestimo.total_pagar) * 100) : 0}%)
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
-                    Juros totais: {formatarMoeda(emprestimo.total_juros)} ({emprestimo.total_pagar > 0 ? Math.round((emprestimo.total_juros / emprestimo.total_pagar) * 100) : 0}%)
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#FA903E] inline-block shadow-sm" />
+                    Encargos de Juros Totais: <strong className="text-foreground">{formatarMoeda(emprestimo.total_juros)}</strong> ({emprestimo.total_pagar > 0 ? Math.round((emprestimo.total_juros / emprestimo.total_pagar) * 100) : 0}%)
                   </span>
                 </div>
               </div>
             </div>
 
             {/* Parcelas table */}
-            <div className="bg-card rounded-xl border border-border">
-              <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-                <h3 className="font-semibold text-card-foreground text-sm">Parcelas</h3>
-                <span className="text-xs text-muted-foreground">{parcelas.filter(p => p.status === 'pago').length}/{parcelas.length} pagas</span>
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 overflow-hidden">
+              <div className="px-5 py-4 border-b border-border/60 flex items-center justify-between bg-muted/10">
+                <h3 className="font-bold text-foreground text-sm">Quadro Demonstrativo de Parcelas</h3>
+                <span className="text-xs font-semibold text-muted-foreground bg-card border border-border/60 px-2.5 py-1 rounded-full">{parcelasPagas} de {parcelas.length} quitadas</span>
               </div>
               {/* Header */}
-              <div className="grid grid-cols-[36px_1fr_1fr_1fr_100px_auto] gap-2 px-5 py-2 border-b border-border text-xs text-muted-foreground font-medium bg-muted/30">
-                <span>#</span>
+              <div className="grid grid-cols-[40px_1.2fr_1.1fr_1.1fr_100px_auto] gap-2 px-5 py-3 border-b border-border text-[10px] font-bold text-muted-foreground uppercase tracking-wider bg-muted/30">
+                <span>Nº</span>
                 <span>Vencimento</span>
                 <span>Parcela</span>
                 <span>Pago</span>
                 <span>Status</span>
                 <span />
               </div>
-              <div>
+              <div className="divide-y divide-border/30">
                 {parcelas.map(p => {
-                  const statusColor: Record<string, string> = { pago: '#22c55e', atrasado: '#ef4444', pendente: '#64748b', cancelado: '#94a3b8', renegociado: '#D4A528' }
+                  const statusColor: Record<string, string> = { pago: '#34A853', atrasado: '#EA4335', pendente: '#64748b', cancelado: '#94a3b8', renegociado: '#FA903E' }
                   const statusLabel: Record<string, string> = { pago: 'Pago', atrasado: 'Atrasado', pendente: 'Pendente', cancelado: 'Cancelado', renegociado: 'Renegoc.' }
                   const cor = statusColor[p.status] ?? '#64748b'
                   return (
-                    <div key={p.id} className={cn('grid grid-cols-[36px_1fr_1fr_1fr_100px_auto] gap-2 px-5 py-3 border-b border-border last:border-0 text-sm items-center', rowClass(p))}>
-                      <span className="text-muted-foreground tabular-nums text-xs">{p.numero_parcela}</span>
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className={`tabular-nums truncate ${p.status === 'atrasado' ? 'text-red-600 font-medium' : ''}`}>
+                    <div key={p.id} className={cn('grid grid-cols-[40px_1.2fr_1.1fr_1.1fr_100px_auto] gap-2 px-5 py-3.5 text-sm items-center transition-all', rowClass(p))}>
+                      <span className="text-muted-foreground/80 font-bold tabular-nums text-xs">{p.numero_parcela}</span>
+                      <div className="flex items-center gap-1.5 min-w-0 font-semibold">
+                        <span className="tabular-nums truncate text-xs">
                           {formatarData(p.data_vencimento)}
                         </span>
                         {p.dias_atraso > 0 && (
-                          <span className="shrink-0 text-[10px] font-bold text-red-600 bg-red-50 dark:bg-red-950 px-1 py-0.5 rounded">
+                          <span className="shrink-0 text-[9px] font-black text-[#EA4335] bg-[#FCE8E6] px-1.5 py-0.5 rounded-full">
                             {p.dias_atraso}d
                           </span>
                         )}
                       </div>
-                      <span className="tabular-nums font-semibold">{formatarMoeda(p.valor)}</span>
-                      <span className="tabular-nums text-green-700">{formatarMoeda(p.valor_pago ?? 0)}</span>
-                      <span className="text-xs font-semibold" style={{ color: cor }}>
+                      <span className="tabular-nums font-bold">{formatarMoeda(p.valor)}</span>
+                      <span className="tabular-nums font-semibold text-[#34A853]">{p.valor_pago ? formatarMoeda(p.valor_pago) : '—'}</span>
+                      <span className="text-xs font-bold uppercase tracking-wider" style={{ color: cor }}>
                         {statusLabel[p.status] ?? p.status}
                       </span>
                       {['pendente', 'atrasado'].includes(p.status) ? (
                         <Button
-                          size="sm" variant="outline" className="h-6 text-xs px-2 shrink-0"
-                          onClick={() => abrirPagamento(p)}
+                          size="sm" className="h-7 text-xs px-3 rounded-full text-white bg-[#1A73E8] hover:bg-[#1557B0] font-semibold gap-1 shrink-0 shadow-sm"
+                          onClick={e => { e.stopPropagation(); abrirPagamento(p) }}
                         >
+                          <DollarSign size={12} />
                           Receber
                         </Button>
                       ) : p.status === 'pago' ? (
-                        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                           <button
-                            title="Baixar comprovante de pagamento"
+                            type="button"
+                            title="Baixar recibo oficial"
                             onClick={() => handleGerarRecibo(p)}
-                            className="h-6 px-2 rounded flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors"
+                            className="h-7 px-3 rounded-full flex items-center gap-1 text-[11px] font-semibold text-[#1557B0] bg-[#E8F0FE] hover:bg-[#1A73E8]/15 border border-[#1A73E8]/10 transition-colors shadow-sm"
                           >
-                            <Receipt size={11} />
+                            <Receipt size={12} />
                             Recibo
                           </button>
                           {cliente?.telefone && (
                             <button
+                              type="button"
                               title="Enviar comprovante via WhatsApp"
                               onClick={() => handleWhatsAppRecibo(p)}
-                              className="h-6 w-6 rounded flex items-center justify-center text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                              className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground/60 hover:text-[#34A853] hover:bg-[#E6F4EA] border border-transparent hover:border-[#34A853]/15 transition-all"
                             >
-                              <MessageCircle size={13} />
+                              <MessageCircle size={14} />
                             </button>
                           )}
                         </div>
@@ -673,28 +619,28 @@ export default function EmprestimoDetalhePage() {
             </div>
 
             {/* Timeline */}
-            <div className="bg-card rounded-xl border border-border p-5">
-              <h3 className="font-semibold text-slate-800 mb-4 text-sm">Histórico de Movimentações</h3>
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 space-y-4">
+              <h3 className="font-bold text-foreground text-sm border-b border-border/60 pb-2">Histórico de Caixa atrelado</h3>
               {movs.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-4">Nenhuma movimentação registrada</p>
+                <p className="text-xs text-muted-foreground/50 text-center py-6 font-semibold">Nenhuma movimentação de caixa lançada para este título.</p>
               ) : (
                 <div className="space-y-3">
                   {movs.map(m => (
-                    <div key={m.id} className="flex items-start gap-3">
-                      <div className={cn('w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5',
-                        m.tipo === 'entrada' ? 'bg-green-100' : 'bg-red-100')}>
+                    <div key={m.id} className="flex items-start gap-3 p-2 rounded-xl hover:bg-muted/10 transition-colors">
+                      <div className={cn('w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 border shadow-sm',
+                        m.tipo === 'entrada' ? 'bg-[#E6F4EA] border-[#34A853]/20' : 'bg-[#FCE8E6] border-[#EA4335]/20')}>
                         {m.tipo === 'entrada'
-                          ? <ArrowUpCircle size={14} className="text-green-600" />
-                          : <ArrowDownCircle size={14} className="text-red-600" />}
+                          ? <ArrowUpCircle size={14} className="text-[#34A853]" />
+                          : <ArrowDownCircle size={14} className="text-[#EA4335]" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-slate-800 truncate">{m.descricao}</p>
-                          <p className={cn('text-sm font-bold shrink-0', m.tipo === 'entrada' ? 'text-green-600' : 'text-red-600')}>
+                        <div className="flex items-center justify-between gap-3 flex-wrap font-semibold">
+                          <p className="text-xs text-foreground truncate">{m.descricao}</p>
+                          <p className={cn('text-xs font-bold shrink-0', m.tipo === 'entrada' ? 'text-[#34A853]' : 'text-[#EA4335]')}>
                             {m.tipo === 'entrada' ? '+' : '-'}{formatarMoeda(m.valor)}
                           </p>
                         </div>
-                        <p className="text-xs text-slate-400">{formatarData(m.data_movimentacao)} · {m.categoria}</p>
+                        <p className="text-[10px] text-muted-foreground/60 font-bold mt-0.5">{formatarData(m.data_movimentacao)} · CATEGORIA: {m.categoria?.toUpperCase()}</p>
                       </div>
                     </div>
                   ))}
@@ -706,36 +652,37 @@ export default function EmprestimoDetalhePage() {
           {/* Sidebar — Client + Info */}
           <div className="space-y-4">
             {cliente && (
-              <div className="bg-card rounded-xl border border-border p-5">
-                <h3 className="font-semibold text-slate-800 mb-3 text-sm flex items-center gap-1.5">
-                  <User size={14} />
-                  Cliente
+              <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 space-y-4 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+                <h3 className="font-bold text-foreground text-xs uppercase tracking-wider border-b border-border/40 pb-2 flex items-center gap-1.5">
+                  <User size={14} className="text-muted-foreground" />
+                  Tomador do Crédito
                 </h3>
-                <Link href={`/factoring/clientes/${cliente.id}`} className="group">
-                  <div className="flex items-center gap-3 mb-3">
+                <Link href={`/factoring/clientes/${cliente.id}`} className="group block">
+                  <div className="flex items-center gap-3">
                     <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
-                      style={{ backgroundColor: '#1E5AA8' }}
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-extrabold text-sm shrink-0 shadow-sm"
+                      style={{ backgroundColor: '#1A73E8' }}
                     >
                       {iniciais(cliente.nome)}
                     </div>
-                    <div>
-                      <p className="font-semibold text-slate-800 group-hover:text-[#1E5AA8] transition-colors">{cliente.nome}</p>
-                      <p className="text-xs text-slate-400">{formatarCPF(cliente.cpf ?? '')}</p>
+                    <div className="min-w-0">
+                      <p className="font-bold text-foreground text-sm group-hover:text-[#1A73E8] transition-colors truncate">{cliente.nome}</p>
+                      <p className="text-[11px] text-muted-foreground/60 font-bold mt-0.5">{formatarCPF(cliente.cpf ?? '')}</p>
                     </div>
                   </div>
                 </Link>
-                <div className="flex justify-center mb-2">
+                <div className="flex justify-center py-2 border-t border-border/30">
                   <ScoreGauge score={cliente.score_interno} size="sm" />
                 </div>
-                <p className="text-xs text-slate-400 text-center mb-3">{formatarTelefone(cliente.telefone)}</p>
+                <p className="text-xs text-muted-foreground/60 text-center font-bold">{formatarTelefone(cliente.telefone)}</p>
                 {empresaAtual && (
                   <ClienteSheet
                     clienteId={cliente.id}
                     empresaId={empresaAtual.id}
                     trigger={
-                      <button className="w-full text-xs text-center py-1.5 px-3 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors">
-                        Ver ficha completa
+                      <button type="button" className="w-full text-xs text-center py-2 px-4 rounded-full border border-border text-muted-foreground hover:bg-muted font-bold transition-all shadow-sm">
+                        Ver Ficha Cadastral Completa
                       </button>
                     }
                   />
@@ -745,30 +692,32 @@ export default function EmprestimoDetalhePage() {
 
             {/* Guarantees */}
             {emprestimo.garantias && (
-              <div className="bg-card rounded-xl border border-border p-5">
-                <h3 className="font-semibold text-slate-800 mb-2 text-sm">Garantias</h3>
-                <p className="text-sm text-slate-600">{emprestimo.garantias}</p>
+              <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+                <h3 className="font-bold text-foreground text-xs uppercase tracking-wider border-b border-border/40 pb-2 mb-2">Garantias</h3>
+                <p className="text-xs text-muted-foreground font-semibold leading-relaxed">{emprestimo.garantias}</p>
               </div>
             )}
 
             {/* Docs */}
-            <div className="bg-card rounded-xl border border-border p-5">
-              <h3 className="font-semibold text-slate-800 mb-3 text-sm flex items-center gap-1.5">
-                <FileText size={14} />
-                Documentos
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 relative overflow-hidden space-y-3">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+              <h3 className="font-bold text-foreground text-xs uppercase tracking-wider border-b border-border/40 pb-2 flex items-center gap-1.5">
+                <FileText size={14} className="text-muted-foreground" />
+                Documentação Digital
               </h3>
               {Array.isArray(emprestimo.documentos) && emprestimo.documentos.length > 0 ? (
                 <div className="space-y-2">
                   {(emprestimo.documentos as Array<{ name: string; url: string }>).map((doc, i) => (
                     <a key={i} href={doc.url} target="_blank" rel="noreferrer"
-                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 text-sm text-slate-600 transition-colors">
-                      <FileText size={14} className="text-slate-400" />
-                      {doc.name}
+                      className="flex items-center gap-2 p-2 rounded-xl border border-border/40 bg-muted/10 hover:bg-muted/30 text-xs text-muted-foreground font-semibold transition-all">
+                      <FileText size={14} className="text-muted-foreground/60" />
+                      <span className="truncate flex-1">{doc.name}</span>
                     </a>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-slate-400">Nenhum documento</p>
+                <p className="text-xs text-muted-foreground/50 font-semibold py-2">Nenhum contrato digital anexado.</p>
               )}
             </div>
           </div>
@@ -788,91 +737,159 @@ export default function EmprestimoDetalhePage() {
         const restante = isParcial ? Math.max(0, subtotal - total) : 0
         return (
           <Dialog open onOpenChange={open => { if (!open) setPagarParcela(null) }}>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md rounded-2xl border-border">
               <DialogHeader>
-                <DialogTitle>Registrar Pagamento — Parcela {pagarParcela.numero_parcela}/{pagarParcela.total_parcelas}</DialogTitle>
+                <DialogTitle className="font-extrabold text-foreground tracking-tight">Baixa de Parcela {pagarParcela.numero_parcela}/{pagarParcela.total_parcelas}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-1">
                 {/* Info — composição do valor */}
-                <div className={`rounded-lg p-3 text-sm space-y-1.5 ${dias > 0 ? 'bg-red-50 border border-red-100' : 'bg-slate-50'}`}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Vencimento</span>
-                    <span className={dias > 0 ? 'text-red-600 font-semibold text-xs' : 'text-slate-700'}>
+                <div className={cn('rounded-xl p-4 text-sm space-y-1.5 relative overflow-hidden border', dias > 0 ? 'bg-[#FCE8E6] border-[#EA4335]/20' : 'bg-muted/30 border-border/60')}>
+                  <div className="absolute top-0 left-0 bottom-0 w-1" style={{ backgroundColor: dias > 0 ? '#EA4335' : '#1A73E8' }} />
+                  <div className="flex justify-between items-center font-semibold">
+                    <span className="text-muted-foreground">Vencimento original</span>
+                    <span className={dias > 0 ? 'text-[#C5221F] font-bold text-xs' : 'text-foreground'}>
                       {formatarData(pagarParcela.data_vencimento)}
-                      {dias > 0 && <span className="ml-1.5 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{dias}d em atraso</span>}
+                      {dias > 0 && ` (${dias}d de atraso)`}
                     </span>
                   </div>
-                  {(pagarParcela.valor_pago ?? 0) > 0 && (
-                    <div className="flex justify-between text-slate-500"><span>Já pago</span><span className="text-green-600">− {formatarMoeda(pagarParcela.valor_pago ?? 0)}</span></div>
-                  )}
-                  <div className="border-t border-slate-200/60 pt-1.5 mt-0.5 space-y-1">
-                    <div className="flex justify-between"><span className="text-slate-500">Valor da Parcela</span><span className="font-medium">{formatarMoeda(pagarParcela.valor)}</span></div>
+                  <div className="flex justify-between items-center font-bold text-base border-t border-border/30 pt-2 mt-1">
+                    <span className="text-foreground">Total da Parcela</span>
+                    <span className="text-foreground">{formatarMoeda(pagarParcela.valor)}</span>
                   </div>
-                  <div className="flex justify-between font-bold border-t border-slate-200 pt-1.5 mt-0.5 text-base">
-                    <span>Total a Receber</span>
-                    <span style={{ color: '#1E5AA8' }}>{formatarMoeda(subtotal)}</span>
-                  </div>
-                </div>
-
-                {/* Valor a Receber */}
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Valor a Receber</p>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">R$</span>
-                    <Input
-                      type="number"
-                      min={0.01}
-                      step={0.01}
-                      max={subtotal}
-                      value={pagValorParcial}
-                      onChange={e => { setPagValorParcial(e.target.value); setPagDesconto('') }}
-                      placeholder={subtotal.toFixed(2).replace('.', ',')}
-                      className="pl-9 text-lg font-bold"
-                      style={{ color: '#1E5AA8' }}
-                    />
-                  </div>
-                  {isParcial && restante > 0.01 && (
-                    <div className="mt-2 rounded-lg p-2.5 bg-amber-50 border border-amber-200 text-xs text-amber-700 space-y-0.5">
-                      <p className="font-semibold">Saldo pendente: {formatarMoeda(restante)}</p>
-                      <p className="text-amber-600">Será somado à próxima parcela automaticamente.</p>
+                  {pagarParcela.valor_pago && pagarParcela.valor_pago > 0 && (
+                    <div className="flex justify-between items-center text-xs font-semibold text-[#34A853]">
+                      <span>Amortizado anteriormente</span>
+                      <span>-{formatarMoeda(pagarParcela.valor_pago)}</span>
                     </div>
                   )}
-                  {descontoValor > 0 && !isParcial && (
-                    <p className="text-xs text-green-600 mt-1">Desconto aplicado: − {formatarMoeda(descontoValor)}</p>
-                  )}
                 </div>
 
-                {/* Forma */}
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Forma de Pagamento</p>
+                {/* Forma de Pagamento */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Forma de Recebimento</Label>
                   <div className="grid grid-cols-5 gap-1.5">
                     {FORMAS_PAG.map(f => (
-                      <button key={f.key} type="button" onClick={() => setPagForma(f.key)} className="flex flex-col items-center gap-1 py-2 rounded-lg border text-[11px] font-medium transition-all" style={pagForma === f.key ? { backgroundColor: '#EDF4FE', borderColor: '#1E5AA8', color: '#1E5AA8' } : { backgroundColor: '#fff', borderColor: '#e2e8f0', color: '#64748b' }}>
-                        {f.icon}{f.label}
+                      <button
+                        key={f.key}
+                        onClick={() => setPagForma(f.key)}
+                        className={cn(
+                          'flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border text-[10px] font-bold transition-all gap-1.5 focus:outline-none',
+                          pagForma === f.key
+                            ? 'border-[#1A73E8] bg-[#E8F0FE] text-[#1A73E8] shadow-sm'
+                            : 'border-border bg-card text-muted-foreground hover:bg-muted/30'
+                        )}
+                      >
+                        {f.icon}
+                        <span className="truncate max-w-[90%]">{f.label}</span>
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Troco */}
+                {/* Pagamento Parcial ou Total */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Desconto concedido</Label>
+                    <div className="flex rounded-lg border border-border focus-within:border-[#1A73E8] focus-within:ring-1 focus-within:ring-[#1A73E8] overflow-hidden">
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0.00"
+                        value={pagDesconto}
+                        onChange={e => { setPagDesconto(e.target.value); setPagValorParcial('') }}
+                        className="w-full h-10 px-3 bg-transparent text-sm focus:outline-none font-semibold"
+                        disabled={valorParcialNum > 0}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPagTipoDesc(p => p === 'R$' ? '%' : 'R$')}
+                        className="bg-muted px-2.5 border-l border-border text-xs font-bold text-muted-foreground hover:bg-muted/80 focus:outline-none"
+                      >
+                        {pagTipoDesc}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Recebimento Parcial</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 text-xs font-bold">R$</span>
+                      <Input
+                        type="number"
+                        min="1"
+                        placeholder="Valor parcial"
+                        value={pagValorParcial}
+                        onChange={e => { setPagValorParcial(e.target.value); setPagDesconto('') }}
+                        className="h-10 pl-8 pr-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg text-sm font-semibold"
+                        disabled={descontoNum > 0}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Se for dinheiro, mostra campo de valor recebido para calcular troco */}
                 {pagForma === 'dinheiro' && (
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Valor Recebido</p>
-                    <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span><Input type="number" min={0} step={0.01} value={pagValorRecebido} onChange={e => setPagValorRecebido(e.target.value)} placeholder="0,00" className="pl-9" /></div>
-                    {troco > 0 && <div className="mt-2 flex justify-between items-center bg-green-50 rounded-lg px-3 py-2"><span className="text-sm font-medium text-green-700">Troco</span><span className="text-lg font-bold text-green-700">{formatarMoeda(troco)}</span></div>}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Valor Recebido (para Troco)</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 text-xs font-bold">R$</span>
+                      <Input
+                        type="number"
+                        min="1"
+                        placeholder="0.00"
+                        value={pagValorRecebido}
+                        onChange={e => setPagValorRecebido(e.target.value)}
+                        className="h-11 pl-8 pr-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg text-sm font-bold text-foreground"
+                      />
+                    </div>
                   </div>
                 )}
+
+                {/* Quadro resumo final do lançamento */}
+                <div className="bg-[#E8F0FE]/40 border border-[#1A73E8]/10 rounded-xl p-3.5 text-xs space-y-1 font-semibold">
+                  <div className="flex justify-between items-center text-muted-foreground">
+                    <span>Subtotal devido</span>
+                    <span>{formatarMoeda(subtotal)}</span>
+                  </div>
+                  {descontoValor > 0 && (
+                    <div className="flex justify-between items-center text-[#EA4335]">
+                      <span>Desconto</span>
+                      <span>-{formatarMoeda(descontoValor)}</span>
+                    </div>
+                  )}
+                  {restante > 0 && (
+                    <div className="flex justify-between items-center text-[#FA903E]">
+                      <span>Diferença a transferir</span>
+                      <span>{formatarMoeda(restante)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-base font-black text-foreground border-t border-border/30 pt-2 mt-1">
+                    <span>Lançar no Caixa</span>
+                    <span>{formatarMoeda(total)}</span>
+                  </div>
+                  {pagForma === 'dinheiro' && (Number(pagValorRecebido) || 0) > 0 && (
+                    <div className="flex justify-between items-center text-base font-bold text-[#34A853] border-t border-dashed border-border/30 pt-1 mt-1">
+                      <span>Troco a devolver</span>
+                      <span>{formatarMoeda(troco)}</span>
+                    </div>
+                  )}
+                </div>
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setPagarParcela(null)} disabled={pagando}>Cancelar</Button>
+              <DialogFooter className="gap-2 sm:gap-0 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setPagarParcela(null)}
+                  disabled={pagando}
+                  className="rounded-full font-semibold border-border"
+                >
+                  Cancelar
+                </Button>
                 <Button
                   onClick={confirmarPagamentoParcela}
-                  disabled={pagando || (pagForma === 'dinheiro' && (Number(pagValorRecebido) || 0) < total)}
-                  className="text-white gap-2"
-                  style={{ backgroundColor: '#1E5AA8' }}
+                  disabled={pagando}
+                  className="text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-bold"
                 >
-                  {pagando ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                  {pagando ? 'Registrando...' : 'Confirmar Pagamento'}
+                  {pagando ? 'Registrando...' : 'Confirmar Recebimento'}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -880,25 +897,27 @@ export default function EmprestimoDetalhePage() {
         )
       })()}
 
+      {/* Quitar antecipadamente */}
       <ConfirmDialog
         open={quitarDialog}
         onOpenChange={setQuitarDialog}
-        titulo="Quitar Antecipado"
-        descricao={`Confirma a quitação antecipada do contrato ${emprestimo.numero_contrato}? Saldo devedor: ${formatarMoeda(emprestimo.saldo_devedor)}`}
-        labelConfirmar="Confirmar Quitação"
+        titulo="Quitar empréstimo antecipadamente?"
+        descricao={`Esta operação dará baixa imediata em todas as parcelas pendentes do contrato ${emprestimo.numero_contrato}.`}
+        labelConfirmar="Quitar contrato"
         onConfirmar={quitarAntecipado}
         carregando={processando}
       />
 
+      {/* Cancelar contrato */}
       <ConfirmDialog
         open={cancelarDialog}
         onOpenChange={setCancelarDialog}
-        titulo="Cancelar Contrato"
-        descricao={`Tem certeza que deseja cancelar o contrato ${emprestimo.numero_contrato}? Esta ação não pode ser desfeita.`}
-        labelConfirmar="Cancelar Contrato"
+        titulo="Cancelar contrato de empréstimo?"
+        descricao={`As parcelas em aberto do contrato ${emprestimo.numero_contrato} serão canceladas. Esta operação não pode ser revertida.`}
+        labelConfirmar="Cancelar contrato"
+        variante="danger"
         onConfirmar={cancelarContrato}
         carregando={processando}
-        variante="danger"
       />
     </AppShell>
   )

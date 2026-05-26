@@ -3,14 +3,21 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  TrendingUp, Calendar, AlertTriangle, CheckCircle2,
-  Download, Eye, Search, Filter, X, Clock,
+  TrendingUp, Calendar, AlertTriangle, Download, Eye, Clock, X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { usePermissao } from '@/hooks/usePermissao'
-import { formatarMoeda, formatarData } from '@/lib/utils/formatters'
+import { formatarMoeda, formatarData, formatarCPF } from '@/lib/utils/formatters'
 import { exportarCSV } from '@/lib/utils/export'
+import { AppShell } from '@/components/layout/AppShell'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatCard } from '@/components/shared/StatCard'
+import { SearchInput } from '@/components/shared/SearchInput'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import type { ParcelaEmprestimo } from '@/lib/types/database'
 
 type ParcelaReceber = ParcelaEmprestimo & {
@@ -25,13 +32,6 @@ type Filtros = {
   status: 'todos' | 'pendente' | 'atrasado' | 'vence_hoje' | 'vence_semana'
   de: string
   ate: string
-}
-
-const STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  pendente:  { label: 'Pendente',  color: '#D97706', bg: 'rgba(217,119,6,0.1)'  },
-  atrasado:  { label: 'Atrasado',  color: '#DC2626', bg: 'rgba(220,38,38,0.1)'  },
-  pago:      { label: 'Pago',      color: '#16A34A', bg: 'rgba(22,163,74,0.1)'  },
-  renegociado:{ label: 'Renegociado', color: '#7C3AED', bg: 'rgba(124,58,237,0.1)'},
 }
 
 function hoje() { return new Date().toISOString().slice(0, 10) }
@@ -155,240 +155,237 @@ export default function ContasReceberPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <AppShell empresa="factoring" titulo="Contas a Receber">
+      <div className="space-y-6">
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Contas a Receber</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Todas as parcelas pendentes e em atraso
-          </p>
-        </div>
-        {temPermissao('financeiro') && filtradas.length > 0 && (
-          <button
-            onClick={exportar}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-accent transition-colors"
-          >
-            <Download size={15} />
-            Exportar CSV
-          </button>
-        )}
-      </div>
+        {/* Header */}
+        <PageHeader 
+          titulo="Contas a Receber"
+          descricao="Acompanhe todas as parcelas pendentes e cobranças em aberto"
+          icone={TrendingUp}
+          corIcone="var(--gt-blue)"
+          acoes={
+            temPermissao('financeiro') && filtradas.length > 0 && (
+              <Button
+                onClick={exportar}
+                size="default"
+                className="h-10 gap-2 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 rounded-full px-5 shadow-m3-1 hover:shadow-m3-2 transition-all duration-200"
+              >
+                <Download size={15} />
+                Exportar CSV
+              </Button>
+            )
+          }
+        />
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          icon={<TrendingUp size={18} />}
-          label="Total a Receber"
-          value={formatarMoeda(stats.total)}
-          color="#1E5AA8"
-          sub={`${filtradas.length} parcelas`}
-        />
-        <StatCard
-          icon={<AlertTriangle size={18} />}
-          label="Em Atraso"
-          value={formatarMoeda(stats.atrasado)}
-          color="#DC2626"
-          sub={`${stats.qtd_atrasadas} parcelas`}
-        />
-        <StatCard
-          icon={<Clock size={18} />}
-          label="Vencem Hoje"
-          value={String(stats.vence_hoje)}
-          color="#D97706"
-          sub="parcelas"
-        />
-        <StatCard
-          icon={<Calendar size={18} />}
-          label="Próximos 7 dias"
-          value={String(stats.vence_semana)}
-          color="#7C3AED"
-          sub="vencem esta semana"
-        />
-      </div>
-
-      {/* Filtros */}
-      <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap gap-3 items-end">
-        {/* Busca */}
-        <div className="relative flex-1 min-w-[200px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={filtros.busca}
-            onChange={e => setFiltros(f => ({ ...f, busca: e.target.value }))}
-            placeholder="Cliente, contrato ou CPF..."
-            className="w-full pl-9 pr-3 h-9 text-sm rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+          <StatCard
+            titulo="Total a Receber"
+            valor={formatarMoeda(stats.total)}
+            icone={TrendingUp}
+            corIcone="var(--gt-blue)"
+            corFundo="var(--gt-blue-light)"
+            subtitulo={`${filtradas.length} parcelas`}
+            delay={0}
+          />
+          <StatCard
+            titulo="Em Atraso"
+            valor={formatarMoeda(stats.atrasado)}
+            icone={AlertTriangle}
+            corIcone="var(--gt-red)"
+            corFundo="var(--gt-red-light)"
+            subtitulo={`${stats.qtd_atrasadas} parcelas`}
+            delay={0.07}
+          />
+          <StatCard
+            titulo="Vencem Hoje"
+            valor={String(stats.vence_hoje)}
+            icone={Clock}
+            corIcone="var(--gt-yellow)"
+            corFundo="var(--gt-yellow-light)"
+            subtitulo="parcelas"
+            delay={0.14}
+          />
+          <StatCard
+            titulo="Próximos 7 dias"
+            valor={String(stats.vence_semana)}
+            icone={Calendar}
+            corIcone="var(--gt-purple)"
+            corFundo="var(--gt-purple-light)"
+            subtitulo="vencem esta semana"
+            delay={0.21}
           />
         </div>
 
-        {/* Status */}
-        <div className="flex gap-1 flex-wrap">
-          {([
-            ['todos',        'Todos'],
-            ['atrasado',     'Atrasados'],
-            ['pendente',     'Pendentes'],
-            ['vence_hoje',   'Vence hoje'],
-            ['vence_semana', 'Esta semana'],
-          ] as const).map(([v, l]) => (
-            <button
-              key={v}
-              onClick={() => setFiltros(f => ({ ...f, status: v }))}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
-              style={filtros.status === v
-                ? { background: '#1E5AA8', borderColor: '#1E5AA8', color: '#fff' }
-                : { background: 'transparent', borderColor: 'var(--border)', color: 'var(--muted-foreground)' }
-              }
-            >
-              {l}
-            </button>
-          ))}
+        {/* Filtros */}
+        <div className="bg-card border border-border/50 rounded-2xl p-5 shadow-m3-1 flex flex-wrap gap-4 items-center justify-between">
+          <div className="flex flex-wrap items-center gap-4 flex-1 min-w-0">
+            <SearchInput
+              value={filtros.busca}
+              onChange={val => setFiltros(f => ({ ...f, busca: val }))}
+              placeholder="Buscar por cliente, contrato ou CPF..."
+              className="max-w-md"
+            />
+
+            {/* Status chips selector */}
+            <div className="flex rounded-full border border-border/60 bg-muted/20 p-1 overflow-x-auto scrollbar-none items-center max-w-full">
+              {([
+                ['todos',        'Todas'],
+                ['atrasado',     'Atrasadas'],
+                ['pendente',     'Pendentes'],
+                ['vence_hoje',   'Vencem Hoje'],
+                ['vence_semana', 'Esta Semana'],
+              ] as const).map(([v, l]) => (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => setFiltros(f => ({ ...f, status: v }))}
+                  className={cn(
+                    "px-4 py-1.5 text-xs font-bold rounded-full transition-all duration-200 whitespace-nowrap",
+                    filtros.status === v
+                      ? "bg-[var(--gt-blue)] text-white shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Período */}
+          <div className="flex items-center gap-2.5 w-full md:w-auto shrink-0 md:ml-auto">
+            <input
+              type="date" 
+              value={filtros.de}
+              onChange={e => setFiltros(f => ({ ...f, de: e.target.value }))}
+              className="h-10 px-3 text-sm rounded-xl border border-border/60 bg-card text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] font-semibold"
+            />
+            <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">até</span>
+            <input
+              type="date" 
+              value={filtros.ate}
+              onChange={e => setFiltros(f => ({ ...f, ate: e.target.value }))}
+              className="h-10 px-3 text-sm rounded-xl border border-border/60 bg-card text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] font-semibold"
+            />
+            {(filtros.de || filtros.ate) && (
+              <button 
+                type="button" 
+                onClick={() => setFiltros(f => ({ ...f, de: '', ate: '' }))} 
+                className="text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-muted"
+                aria-label="Limpar datas"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Período */}
-        <div className="flex items-center gap-2">
-          <input
-            type="date" value={filtros.de}
-            onChange={e => setFiltros(f => ({ ...f, de: e.target.value }))}
-            className="h-9 px-3 text-sm rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-          <span className="text-muted-foreground text-sm">até</span>
-          <input
-            type="date" value={filtros.ate}
-            onChange={e => setFiltros(f => ({ ...f, ate: e.target.value }))}
-            className="h-9 px-3 text-sm rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-          {(filtros.de || filtros.ate) && (
-            <button onClick={() => setFiltros(f => ({ ...f, de: '', ate: '' }))} className="text-muted-foreground hover:text-foreground">
-              <X size={14} />
-            </button>
+        {/* Tabela */}
+        <div className="bg-card border border-border/50 rounded-2xl overflow-hidden shadow-m3-1">
+          {loading ? (
+            <div className="flex items-center justify-center py-24 text-muted-foreground text-sm font-semibold animate-pulse">
+              Carregando carteira de recebíveis...
+            </div>
+          ) : filtradas.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <div className="w-12 h-12 rounded-full bg-[var(--gt-green-light)] dark:bg-[var(--gt-green)]/10 flex items-center justify-center shadow-sm">
+                <Clock size={22} className="text-[var(--gt-green)]" />
+              </div>
+              <p className="text-muted-foreground text-sm font-bold">Nenhuma conta a receber encontrada no período</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/50 bg-muted/20">
+                    <th className="text-left px-5 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Contrato</th>
+                    <th className="text-left px-5 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Cliente</th>
+                    <th className="text-center px-5 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Parcela</th>
+                    <th className="text-center px-5 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Vencimento</th>
+                    <th className="text-right px-5 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Principal</th>
+                    <th className="text-right px-5 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Encargos</th>
+                    <th className="text-right px-5 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Total</th>
+                    <th className="text-center px-5 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Status</th>
+                    <th className="px-5 py-4" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {filtradas.map(p => {
+                    const total    = p.valor + p.multa + p.juros_mora
+                    const encargos = p.multa + p.juros_mora
+                    return (
+                      <tr key={p.id} className="hover:bg-muted/15 transition-colors">
+                        <td className="px-5 py-4.5 font-mono text-xs font-bold text-[var(--gt-blue)] dark:text-blue-400">{p.numero_contrato}</td>
+                        <td className="px-5 py-4.5">
+                          <div className="font-bold text-foreground leading-none">{p.cliente_nome}</div>
+                          {p.cliente_cpf && (
+                            <div className="text-xs text-muted-foreground mt-1.5 font-medium">{formatarCPF(p.cliente_cpf)}</div>
+                          )}
+                        </td>
+                        <td className="px-5 py-4.5 text-center text-muted-foreground font-mono font-medium">
+                          {p.numero_parcela}<span className="text-muted-foreground/50">/{p.total_parcelas}</span>
+                        </td>
+                        <td className="px-5 py-4.5 text-center">
+                          <div className={cn(
+                            "text-sm font-semibold leading-none", 
+                            p.status === 'atrasado' ? 'text-[var(--gt-red)]' : 'text-foreground'
+                          )}>
+                            {formatarData(p.data_vencimento)}
+                          </div>
+                          {p.dias_atraso > 0 && (
+                            <div className="text-xs text-[var(--gt-red)] font-bold mt-1.5">{p.dias_atraso}d em atraso</div>
+                          )}
+                        </td>
+                        <td className="px-5 py-4.5 text-right"><MoneyDisplay valor={p.valor} tamanho="sm" /></td>
+                        <td className="px-5 py-4.5 text-right">
+                          {encargos > 0
+                            ? <MoneyDisplay valor={encargos} tamanho="sm" negativo />
+                            : <span className="text-muted-foreground/30 font-medium text-xs">—</span>
+                          }
+                        </td>
+                        <td className="px-5 py-4.5 text-right"><MoneyDisplay valor={total} tamanho="sm" /></td>
+                        <td className="px-5 py-4.5 text-center">
+                          <StatusBadge status={p.status} />
+                        </td>
+                        <td className="px-5 py-4.5">
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/factoring/emprestimos/${p.emprestimo_id}`)}
+                            className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-all duration-200 flex items-center justify-center shadow-sm border border-border/40 bg-card"
+                            title="Ver contrato"
+                          >
+                            <Eye size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                {/* Footer com totais */}
+                <tfoot>
+                  <tr className="border-t border-border/60 bg-muted/20">
+                    <td colSpan={4} className="px-5 py-4 text-xs font-bold text-muted-foreground">
+                      Totalizador: {filtradas.length} parcela{filtradas.length !== 1 ? 's' : ''}
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <MoneyDisplay valor={filtradas.reduce((s, p) => s + p.valor, 0)} tamanho="sm" />
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <MoneyDisplay valor={filtradas.reduce((s, p) => s + p.multa + p.juros_mora, 0)} tamanho="sm" negativo />
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <MoneyDisplay valor={stats.total} tamanho="sm" />
+                    </td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           )}
         </div>
       </div>
-
-      {/* Tabela */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
-            Carregando...
-          </div>
-        ) : filtradas.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-2">
-            <CheckCircle2 size={32} className="text-muted-foreground opacity-40" />
-            <p className="text-muted-foreground text-sm">Nenhuma conta a receber encontrada</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contrato</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cliente</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Parcela</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Vencimento</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Valor</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Encargos</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total</th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtradas.map(p => {
-                  const total    = p.valor + p.multa + p.juros_mora
-                  const encargos = p.multa + p.juros_mora
-                  const st       = STATUS_LABEL[p.status] ?? STATUS_LABEL.pendente
-                  return (
-                    <tr key={p.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.numero_contrato}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-foreground leading-none">{p.cliente_nome}</div>
-                        {p.cliente_cpf && (
-                          <div className="text-xs text-muted-foreground mt-0.5">{p.cliente_cpf}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center text-muted-foreground">
-                        {p.numero_parcela}<span className="text-muted-foreground/50">/{p.total_parcelas}</span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className={`text-sm ${p.status === 'atrasado' ? 'text-red-500 font-medium' : 'text-foreground'}`}>
-                          {formatarData(p.data_vencimento)}
-                        </div>
-                        {p.dias_atraso > 0 && (
-                          <div className="text-xs text-red-400 mt-0.5">{p.dias_atraso}d atraso</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium text-foreground">{formatarMoeda(p.valor)}</td>
-                      <td className="px-4 py-3 text-right">
-                        {encargos > 0
-                          ? <span className="text-red-500 font-medium">{formatarMoeda(encargos)}</span>
-                          : <span className="text-muted-foreground">—</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-foreground">{formatarMoeda(total)}</td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
-                          style={{ color: st.color, backgroundColor: st.bg }}
-                        >
-                          {st.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => router.push(`/factoring/emprestimos/${p.emprestimo_id}`)}
-                          className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                          title="Ver contrato"
-                        >
-                          <Eye size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              {/* Footer com totais */}
-              <tfoot>
-                <tr className="border-t-2 border-border bg-muted/20">
-                  <td colSpan={4} className="px-4 py-3 text-xs font-semibold text-muted-foreground">
-                    {filtradas.length} parcela{filtradas.length !== 1 ? 's' : ''}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-foreground text-sm">
-                    {formatarMoeda(filtradas.reduce((s, p) => s + p.valor, 0))}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-red-500 text-sm">
-                    {formatarMoeda(filtradas.reduce((s, p) => s + p.multa + p.juros_mora, 0))}
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-foreground text-sm">
-                    {formatarMoeda(stats.total)}
-                  </td>
-                  <td colSpan={2} />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function StatCard({ icon, label, value, color, sub }: {
-  icon: React.ReactNode
-  label: string
-  value: string
-  color: string
-  sub: string
-}) {
-  return (
-    <div className="bg-card border border-border rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="p-1.5 rounded-lg" style={{ backgroundColor: `${color}18`, color }}>
-          {icon}
-        </div>
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      </div>
-      <div className="text-2xl font-bold text-foreground leading-none mb-1">{value}</div>
-      <div className="text-xs text-muted-foreground">{sub}</div>
-    </div>
+    </AppShell>
   )
 }

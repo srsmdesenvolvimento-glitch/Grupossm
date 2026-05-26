@@ -4,17 +4,20 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle, MessageCircle, Eye, CreditCard, Gavel,
-  Users, DollarSign, Clock, Flame, Filter, RefreshCw
+  Users, DollarSign, Clock, Flame, Filter, RefreshCw, CheckCircle2
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { LoadingPage } from '@/components/shared/LoadingPage'
+import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { Button } from '@/components/ui/button'
 import { formatarMoeda, formatarCPF, iniciais } from '@/lib/utils/formatters'
 import type { ParcelaEmprestimo } from '@/lib/types/database'
+import { cn } from '@/lib/utils'
 
 type ClienteInadimplente = {
   id: string
@@ -42,10 +45,10 @@ type NivelAtraso = {
 }
 
 const NIVEIS: Record<string, NivelAtraso> = {
-  leve:     { label: 'Leve',     color: '#64748b', bg: '#f8fafc', border: '#e2e8f0', badge: '#e2e8f0', min: 1,  max: 7  },
-  moderado: { label: 'Moderado', color: '#f97316', bg: '#fff7ed', border: '#fed7aa', badge: '#fed7aa', min: 8,  max: 30 },
-  critico:  { label: 'Crítico',  color: '#ef4444', bg: '#fff1f1', border: '#fecaca', badge: '#fecaca', min: 31, max: 60 },
-  grave:    { label: 'Grave',    color: '#b91c1c', bg: '#fef2f2', border: '#fca5a5', badge: '#fca5a5', min: 61, max: Infinity },
+  leve:     { label: 'Leve',     color: 'var(--gt-blue)', bg: 'var(--gt-blue-light)', border: 'var(--gt-blue-light)', badge: 'rgba(26,115,232,0.15)', min: 1,  max: 7  },
+  moderado: { label: 'Moderado', color: 'var(--gt-orange)', bg: 'var(--gt-orange-light)', border: 'var(--gt-orange-light)', badge: 'rgba(250,144,62,0.15)', min: 8,  max: 30 },
+  critico:  { label: 'Crítico',  color: 'var(--gt-red)', bg: 'var(--gt-red-light)', border: 'var(--gt-red-light)', badge: 'rgba(234,67,53,0.15)', min: 31, max: 60 },
+  grave:    { label: 'Grave',    color: '#B91C1C', bg: 'rgba(185,28,28,0.06)', border: 'rgba(185,28,28,0.15)', badge: 'rgba(185,28,28,0.12)', min: 61, max: Infinity },
 }
 
 function getNivel(dias: number): NivelAtraso {
@@ -177,75 +180,104 @@ export default function InadimplentesPage() {
   return (
     <AppShell empresa="factoring" titulo="Inadimplentes">
       <div className="space-y-6">
+        
+        <PageHeader 
+          titulo="Inadimplentes"
+          descricao="Identifique clientes com parcelas vencidas e acompanhe as ações de cobrança"
+          icone={AlertTriangle}
+          corIcone="var(--gt-red)"
+        />
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard titulo="Inadimplentes" valor={clientes.length}          icone={Users}          corIcone="#1E5AA8" />
-          <StatCard titulo="Total devido"   valor={formatarMoeda(totalDevido)} icone={DollarSign}    corIcone="#ef4444" />
-          <StatCard titulo="Média de atraso" valor={`${mediaAtraso}d`}      icone={Clock}          corIcone="#f97316" />
-          <StatCard titulo="Graves (+60d)"  valor={graves}                  icone={Flame}          corIcone="#b91c1c" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+          <StatCard titulo="Clientes Inadimplentes" valor={clientes.length} icone={Users} corIcone="var(--gt-blue)" corFundo="var(--gt-blue-light)" delay={0} />
+          <StatCard titulo="Total Devido" valor={formatarMoeda(totalDevido)} icone={DollarSign} corIcone="var(--gt-red)" corFundo="var(--gt-red-light)" delay={0.07} />
+          <StatCard titulo="Média de Atraso" valor={`${mediaAtraso}d`} icone={Clock} corIcone="var(--gt-orange)" corFundo="var(--gt-orange-light)" delay={0.14} />
+          <StatCard titulo="Graves (+60d)" valor={graves} icone={Flame} corIcone="#B91C1C" corFundo="rgba(185,28,28,0.06)" delay={0.21} />
         </div>
 
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 max-w-sm">
+        <div className="flex flex-col xl:flex-row gap-4 items-start xl:items-center justify-between">
+          <div className="flex items-center gap-3 w-full xl:max-w-md shrink-0">
             <SearchInput
               value={busca}
               onChange={setBusca}
-              placeholder="Nome, CPF ou telefone..."
+              placeholder="Buscar por cliente, CPF ou telefone..."
+              className="w-full"
             />
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <Filter size={14} className="text-slate-400 shrink-0" />
-            {(['todos', 'leve', 'moderado', 'critico', 'grave'] as Filtro[]).map(f => {
-              const nivel = f === 'todos' ? null : NIVEIS[f]
-              const active = filtro === f
-              return (
-                <button
-                  key={f}
-                  onClick={() => setFiltro(f)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all"
-                  style={active ? {
-                    backgroundColor: nivel?.color ?? '#1E5AA8',
-                    borderColor: nivel?.color ?? '#1E5AA8',
-                    color: '#fff',
-                  } : {
-                    backgroundColor: '#fff',
-                    borderColor: '#e2e8f0',
-                    color: '#64748b',
-                  }}
-                >
-                  {f === 'todos' ? 'Todos' : nivel!.label}
-                  <span className="font-bold">{contadorFiltros[f]}</span>
-                </button>
-              )
-            })}
+            <div className="p-2 bg-muted/40 border border-border/40 rounded-xl shrink-0 flex items-center justify-center">
+              <Filter size={14} className="text-muted-foreground" />
+            </div>
+            
+            {/* Google Filter chips */}
+            <div className="flex rounded-full border border-border/60 bg-muted/20 p-1 items-center max-w-full">
+              {(['todos', 'leve', 'moderado', 'critico', 'grave'] as Filtro[]).map(f => {
+                const nivel = f === 'todos' ? null : NIVEIS[f]
+                const active = filtro === f
+                return (
+                  <button
+                    key={f}
+                    onClick={() => setFiltro(f)}
+                    className={cn(
+                      "px-3.5 py-1 text-xs font-bold rounded-full transition-all duration-200 flex items-center gap-1.5",
+                      active 
+                        ? "text-white shadow-sm" 
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    style={active ? {
+                      backgroundColor: nivel?.color ?? 'var(--gt-blue)',
+                    } : undefined}
+                  >
+                    {f === 'todos' ? 'Todos' : nivel!.label}
+                    <span className={cn(
+                      "h-4 px-1 rounded-full text-[10px] font-extrabold flex items-center justify-center",
+                      active ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                    )}>
+                      {contadorFiltros[f]}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
             <button
               onClick={carregarDados}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-              title="Atualizar"
+              className="p-2.5 rounded-full text-muted-foreground/60 hover:text-foreground border border-border/40 shadow-sm bg-card hover:bg-muted transition-colors ml-1"
+              title="Atualizar dados"
             >
               <RefreshCw size={14} />
             </button>
           </div>
         </div>
 
-        <p className="text-sm text-slate-500">
-          {filtrados.length} cliente(s) · {bloqueados > 0 && `${bloqueados} em processo jurídico`}
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+          <span>{filtrados.length} cliente(s) listado(s)</span>
+          {bloqueados > 0 && (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--gt-red)]" />
+              <span className="text-[var(--gt-red)]">{bloqueados} em processo jurídico</span>
+            </>
+          )}
         </p>
 
-        {/* Cards */}
+        {/* Cards Grid */}
         {filtrados.length === 0 ? (
-          <div className="bg-card rounded-xl border border-border p-16 text-center">
-            <AlertTriangle size={40} className="mx-auto mb-3 text-slate-200" />
-            <p className="text-slate-500 font-medium">Nenhum resultado encontrado</p>
-            <p className="text-sm text-slate-400 mt-1">
-              {clientes.length === 0 ? 'Todos os clientes estão com pagamentos em dia' : 'Tente ajustar o filtro ou a busca'}
-            </p>
+          <div className="bg-card rounded-2xl border border-border/50 p-16 text-center shadow-m3-1 flex flex-col items-center justify-center max-w-xl mx-auto gap-4">
+            <div className="w-14 h-14 rounded-full bg-[var(--gt-green-light)] flex items-center justify-center shadow-sm">
+              <CheckCircle2 size={24} className="text-[var(--gt-green)]" />
+            </div>
+            <div>
+              <p className="text-base font-bold text-foreground tracking-tight">Tudo sob controle!</p>
+              <p className="text-sm text-muted-foreground/80 mt-1.5 leading-relaxed">
+                {clientes.length === 0 ? 'Todos os clientes estão com pagamentos em dia' : 'Tente ajustar o filtro ou a busca para encontrar registros'}
+              </p>
+            </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {filtrados.map(c => {
                 const nivel = getNivel(c.maxDiasAtraso)
                 const nivelKey = getNivelKey(c.maxDiasAtraso)
@@ -258,99 +290,103 @@ export default function InadimplentesPage() {
                 return (
                   <div
                     key={c.id}
-                    className="bg-white rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+                    className="bg-card rounded-2xl border transition-all duration-200 hover:shadow-m3-2 hover:-translate-y-0.5 flex flex-col justify-between overflow-hidden shadow-m3-1"
                     style={{ borderColor: nivel.border }}
                   >
                     {/* Header */}
-                    <div className="px-4 py-3 flex items-center gap-3" style={{ backgroundColor: nivel.bg }}>
-                      <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-                        style={{ backgroundColor: bloqueadoAgora ? '#64748b' : '#1E5AA8' }}
-                      >
-                        {iniciais(c.nome)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-slate-800 truncate text-sm">{c.nome}</p>
-                          {bloqueadoAgora && (
-                            <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 uppercase tracking-wide">
-                              Jurídico
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-400">{c.cpf ? formatarCPF(c.cpf) : 'CPF não informado'}</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        <span
-                          className="text-xs font-bold px-2 py-0.5 rounded-full"
-                          style={{ backgroundColor: nivel.badge, color: nivel.color }}
+                    <div className="px-5 py-4.5 flex items-center justify-between border-b border-border/40" style={{ backgroundColor: nivel.bg }}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-black shrink-0 shadow-sm"
+                          style={{ backgroundColor: bloqueadoAgora ? '#64748b' : 'var(--gt-blue)' }}
                         >
-                          {c.maxDiasAtraso}d
+                          {iniciais(c.nome)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-foreground truncate text-sm leading-none">{c.nome}</p>
+                            {bloqueadoAgora && (
+                              <span className="shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded bg-[var(--gt-red-light)] text-[var(--gt-red)] uppercase tracking-wide border border-[var(--gt-red-light)]">
+                                Jurídico
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground/60 font-medium mt-1">{c.cpf ? formatarCPF(c.cpf) : 'CPF não informado'}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0 ml-3">
+                        <span
+                          className="text-xs font-black px-2.5 py-0.5 rounded-full border"
+                          style={{ backgroundColor: nivel.badge, color: nivel.color, borderColor: nivel.border }}
+                        >
+                          {c.maxDiasAtraso} dias
                         </span>
-                        <span className="text-[10px] font-semibold" style={{ color: nivel.color }}>
-                          {nivelKey === 'leve' ? 'Leve' : nivelKey === 'moderado' ? 'Moderado' : nivelKey === 'critico' ? 'Crítico' : 'Grave'}
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider" style={{ color: nivel.color }}>
+                          Nível {nivelKey === 'leve' ? 'Leve' : nivelKey === 'moderado' ? 'Moderado' : nivelKey === 'critico' ? 'Crítico' : 'Grave'}
                         </span>
                       </div>
                     </div>
 
                     {/* Body */}
-                    <div className="px-4 py-3 space-y-3">
+                    <div className="px-5 py-5 space-y-4 flex-1 flex flex-col justify-between">
                       {/* Valor + parcelas */}
-                      <div className="flex justify-between items-center">
+                      <div className="flex justify-between items-end border-b border-border/30 pb-3">
                         <div>
-                          <p className="text-xs text-slate-400">{c.qtdParcelas} parcela(s) em atraso</p>
-                          <p className="text-base font-bold" style={{ color: nivel.color }}>
+                          <p className="text-xs font-semibold text-muted-foreground">{c.qtdParcelas} parcela(s) em atraso</p>
+                          <p className="text-xl font-black mt-1 leading-none" style={{ color: nivel.color }}>
                             {formatarMoeda(c.totalDevido)}
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs text-slate-400">Score</p>
-                          <p className="text-sm font-bold text-slate-700">{c.score_interno}/100</p>
+                          <p className="text-xs font-semibold text-muted-foreground">Score Interno</p>
+                          <p className="text-sm font-black text-foreground mt-1 leading-none">{c.score_interno}/100</p>
                         </div>
                       </div>
 
                       {/* Score bar */}
-                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${c.score_interno}%`,
-                            backgroundColor: c.score_interno >= 70 ? '#22c55e' : c.score_interno >= 40 ? '#f97316' : '#ef4444',
-                          }}
-                        />
+                      <div className="space-y-1">
+                        <div className="w-full bg-muted dark:bg-card border border-border/40 rounded-full h-2 overflow-hidden shadow-inner">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${c.score_interno}%`,
+                              backgroundColor: c.score_interno >= 70 ? 'var(--gt-green)' : c.score_interno >= 40 ? 'var(--gt-orange)' : 'var(--gt-red)',
+                            }}
+                          />
+                        </div>
                       </div>
 
                       {/* Actions */}
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 pt-1.5">
                         <Button
                           size="sm"
                           variant="outline"
-                          className="flex-1 gap-1 text-[#25D366] border-[#25D366]/30 hover:bg-[#25D366]/5 text-xs"
+                          className="flex-1 h-9.5 gap-1.5 text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/8 text-xs font-bold rounded-full transition-all duration-200"
                           onClick={() => window.open(`https://wa.me/55${telefoneNum}?text=${msgCobranca}`, '_blank')}
                           disabled={!telefoneNum}
                         >
-                          <MessageCircle size={12} />
+                          <MessageCircle size={13} />
                           Cobrar
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="gap-1 text-xs"
+                          className="h-9.5 gap-1.5 text-xs font-bold rounded-full border-border/60 hover:bg-muted flex items-center justify-center px-3"
                           onClick={() => router.push(`/factoring/clientes/${c.id}`)}
+                          title="Ver detalhes do cliente"
                         >
-                          <Eye size={12} />
+                          <Eye size={13} />
                           Ver
                         </Button>
                         <Button
                           size="sm"
-                          className="gap-1 text-white text-xs"
-                          style={{ backgroundColor: '#1E5AA8' }}
+                          className="flex-1 h-9.5 gap-1.5 text-white text-xs font-bold rounded-full bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 transition-all duration-200 shadow-sm"
                           onClick={() => {
                             const p = c.parcelas[0]
                             if (p) router.push(`/factoring/emprestimos/${p.emprestimo_id}?parcela=${p.id}`)
                           }}
                         >
-                          <CreditCard size={12} />
+                          <CreditCard size={13} />
                           Pagar
                         </Button>
                       </div>
@@ -360,11 +396,11 @@ export default function InadimplentesPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="w-full gap-1.5 text-xs text-slate-500 border-slate-200 hover:border-red-200 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          className="w-full h-9 gap-2 text-xs font-bold text-muted-foreground/80 hover:border-[var(--gt-red-light)] hover:text-[var(--gt-red)] hover:bg-[var(--gt-red-light)]/20 rounded-full transition-colors mt-1 flex items-center justify-center border-border/60"
                           onClick={() => marcarBloqueado(c.id)}
                           disabled={bloqueando === c.id}
                         >
-                          <Gavel size={12} />
+                          <Gavel size={13} />
                           {bloqueando === c.id ? 'Atualizando...' : 'Encaminhar ao jurídico'}
                         </Button>
                       )}

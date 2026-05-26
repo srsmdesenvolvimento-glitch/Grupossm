@@ -12,13 +12,13 @@ import { useEmpresa } from '@/contexts/EmpresaContext'
 import { formatarCPF, formatarTelefone, formatarMoeda, formatarData, iniciais } from '@/lib/utils/formatters'
 import type { ClienteFactoring, Emprestimo } from '@/lib/types/database'
 
-const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  analise:      { label: 'Em Análise', color: '#64748b' },
-  aprovado:     { label: 'Aprovado',   color: '#D4A528' },
-  ativo:        { label: 'Ativo',      color: '#22c55e' },
-  quitado:      { label: 'Quitado',   color: '#1E5AA8' },
-  inadimplente: { label: 'Inadim.',   color: '#ef4444' },
-  cancelado:    { label: 'Cancelado', color: '#94a3b8' },
+const STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
+  analise:      { label: 'Em Análise', color: '#5F6368', bg: '#F1F3F4' },
+  aprovado:     { label: 'Aprovado',   color: '#FBBC04', bg: '#FEF7E0' },
+  ativo:        { label: 'Ativo',      color: '#34A853', bg: '#E6F4EA' },
+  quitado:      { label: 'Quitado',    color: '#1A73E8', bg: '#E8F0FE' },
+  inadimplente: { label: 'Inadim.',    color: '#EA4335', bg: '#FCE8E6' },
+  cancelado:    { label: 'Cancelado',  color: '#9AA0A6', bg: '#F1F3F4' },
 }
 
 interface ClienteSheetProps {
@@ -41,6 +41,7 @@ export function ClienteSheet({ clienteId, empresaId, trigger }: ClienteSheetProp
         .from('clientes_factoring')
         .select('*')
         .eq('id', clienteId)
+        .eq('empresa_id', empresaId)
         .single()
       return data as ClienteFactoring | null
     },
@@ -74,129 +75,144 @@ export function ClienteSheet({ clienteId, empresaId, trigger }: ClienteSheetProp
       </div>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="sm:max-w-lg flex flex-col p-0 gap-0">
-          <SheetHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
-            <SheetTitle className="text-base flex items-center gap-2">
-              <User size={16} className="text-muted-foreground" />
+        <SheetContent side="right" className="sm:max-w-lg flex flex-col p-0 gap-0 border-l border-border">
+          <SheetHeader className="px-6 pt-6 pb-5 border-b border-border shrink-0">
+            <SheetTitle className="text-base font-semibold flex items-center gap-2.5 text-foreground">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--gt-blue-light)' }}>
+                <User size={16} style={{ color: 'var(--gt-blue)' }} />
+              </div>
               Ficha do Cliente
             </SheetTitle>
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto">
             {loadingCliente ? (
-              <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
-                Carregando...
+              <div className="flex flex-col items-center justify-center h-40 gap-3">
+                <div className="w-8 h-8 rounded-full border-2 border-transparent animate-spin" style={{ borderTopColor: 'var(--gt-blue)', borderRightColor: 'var(--gt-blue)' }} />
+                <span className="text-sm text-muted-foreground">Carregando...</span>
               </div>
             ) : cliente ? (
               <div className="space-y-0">
                 {/* Avatar + nome */}
-                <div className="px-6 py-5 flex items-center gap-4 border-b border-border">
+                <div className="px-6 py-6 flex items-center gap-4 border-b border-border" style={{ background: 'linear-gradient(180deg, var(--gt-blue-light) 0%, var(--card) 100%)' }}>
                   <div
-                    className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg shrink-0"
-                    style={{ backgroundColor: '#1E5AA8' }}
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-m3-2"
+                    style={{ backgroundColor: '#1A73E8' }}
                   >
                     {iniciais(cliente.nome)}
                   </div>
-                  <div>
-                    <p className="font-semibold text-foreground text-base">{cliente.nome}</p>
-                    <p className="text-sm text-muted-foreground">{formatarCPF(cliente.cpf ?? '')}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground text-lg leading-tight truncate">{cliente.nome}</p>
+                    <p className="text-sm text-muted-foreground mt-0.5">{formatarCPF(cliente.cpf ?? '')}</p>
                     <span
-                      className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium"
+                      className="inline-flex items-center gap-1.5 mt-2 text-xs px-2.5 py-1 rounded-full font-semibold border"
                       style={{
-                        color: cliente.status === 'ativo' ? '#22c55e' : cliente.status === 'bloqueado' ? '#ef4444' : '#64748b',
-                        backgroundColor: cliente.status === 'ativo' ? '#f0fdf4' : cliente.status === 'bloqueado' ? '#fef2f2' : '#f8fafc',
+                        color: cliente.status === 'ativo' ? '#34A853' : cliente.status === 'bloqueado' ? '#EA4335' : '#5F6368',
+                        backgroundColor: cliente.status === 'ativo' ? '#E6F4EA' : cliente.status === 'bloqueado' ? '#FCE8E6' : '#F1F3F4',
+                        borderColor: cliente.status === 'ativo' ? '#34A85320' : cliente.status === 'bloqueado' ? '#EA433520' : '#5F636820',
                       }}
                     >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: cliente.status === 'ativo' ? '#34A853' : cliente.status === 'bloqueado' ? '#EA4335' : '#5F6368' }}
+                      />
                       {cliente.status === 'ativo' ? 'Ativo' : cliente.status === 'bloqueado' ? 'Bloqueado' : 'Inativo'}
                     </span>
                   </div>
                 </div>
 
                 {/* Score */}
-                <div className="px-6 py-4 flex justify-center border-b border-border">
+                <div className="px-6 py-5 flex justify-center border-b border-border bg-card">
                   <ScoreGauge score={cliente.score_interno} size="md" />
                 </div>
 
                 {/* Dados pessoais */}
-                <div className="px-6 py-4 border-b border-border space-y-2.5">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Contato</p>
+                <div className="px-6 py-5 border-b border-border space-y-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--gt-blue)' }}>Contato</p>
                   {[
                     { l: 'Telefone', v: formatarTelefone(cliente.telefone) },
                     { l: 'E-mail', v: cliente.email },
                     { l: 'Data de nascimento', v: cliente.data_nascimento ? formatarData(cliente.data_nascimento) : null },
                     { l: 'Renda mensal', v: cliente.renda_mensal ? formatarMoeda(cliente.renda_mensal) : null },
                   ].filter(row => !!row.v).map(row => (
-                    <div key={row.l} className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-muted-foreground shrink-0">{row.l}</span>
-                      <span className="font-medium text-foreground text-right">{row.v}</span>
+                    <div key={row.l} className="flex items-center justify-between gap-4 text-sm py-1.5">
+                      <span className="text-muted-foreground">{row.l}</span>
+                      <span className="font-medium text-foreground text-right tabular-nums">{row.v}</span>
                     </div>
                   ))}
                 </div>
 
                 {/* Endereço */}
                 {(cliente.endereco || cliente.cidade) && (
-                  <div className="px-6 py-4 border-b border-border">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Endereço</p>
-                    <p className="text-sm text-foreground">
+                  <div className="px-6 py-5 border-b border-border">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--gt-blue)' }}>Endereço</p>
+                    <p className="text-sm text-foreground leading-relaxed">
                       {[cliente.endereco, cliente.numero, cliente.complemento].filter(Boolean).join(', ')}
                     </p>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-muted-foreground mt-1">
                       {[cliente.bairro, cliente.cidade, cliente.estado].filter(Boolean).join(' · ')}
                     </p>
                   </div>
                 )}
 
                 {/* Dados financeiros */}
-                <div className="px-6 py-4 border-b border-border space-y-2.5">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Financeiro</p>
+                <div className="px-6 py-5 border-b border-border space-y-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--gt-blue)' }}>Financeiro</p>
                   {[
                     { l: 'Limite de crédito', v: formatarMoeda(cliente.limite_credito) },
                     { l: 'Crédito utilizado', v: formatarMoeda(cliente.credito_utilizado) },
                     { l: 'Crédito disponível', v: formatarMoeda(cliente.credito_disponivel) },
                     { l: 'Total emprestado', v: formatarMoeda(cliente.valor_total_emprestado ?? 0) },
                   ].map(row => (
-                    <div key={row.l} className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-muted-foreground shrink-0">{row.l}</span>
-                      <span className="font-medium text-foreground">{row.v}</span>
+                    <div key={row.l} className="flex items-center justify-between gap-4 text-sm py-1.5">
+                      <span className="text-muted-foreground">{row.l}</span>
+                      <span className="font-semibold text-foreground tabular-nums">{row.v}</span>
                     </div>
                   ))}
                 </div>
 
                 {/* Observações */}
                 {cliente.observacoes && (
-                  <div className="px-6 py-4 border-b border-border">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Observações</p>
+                  <div className="px-6 py-5 border-b border-border">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--gt-blue)' }}>Observações</p>
                     <p className="text-sm text-muted-foreground leading-relaxed">{cliente.observacoes}</p>
                   </div>
                 )}
 
                 {/* Empréstimos */}
-                <div className="px-6 py-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Banknote size={14} className="text-muted-foreground" />
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <div className="px-6 py-5">
+                  <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--gt-blue-light)' }}>
+                      <Banknote size={13} style={{ color: 'var(--gt-blue)' }} />
+                    </div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--gt-blue)' }}>
                       Contratos ({emprestimos.length})
                     </p>
                   </div>
                   {emprestimos.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nenhum contrato encontrado.</p>
+                    <p className="text-sm text-muted-foreground text-center py-4">Nenhum contrato encontrado.</p>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       {emprestimos.map(e => {
                         const s = STATUS_LABEL[e.status] ?? STATUS_LABEL.analise
                         return (
                           <button
                             key={e.id}
                             onClick={() => { setOpen(false); router.push(`/factoring/emprestimos/${e.id}`) }}
-                            className="w-full flex items-center justify-between gap-3 p-3 rounded-lg border border-border hover:bg-accent transition-colors text-left"
+                            className="w-full flex items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card hover:shadow-m3-2 transition-all duration-200 text-left group"
                           >
                             <div>
-                              <p className="text-sm font-mono font-semibold" style={{ color: '#1E5AA8' }}>{e.numero_contrato}</p>
-                              <p className="text-xs text-muted-foreground">{formatarMoeda(e.valor_principal)}</p>
+                              <p className="text-sm font-mono font-bold" style={{ color: 'var(--gt-blue)' }}>{e.numero_contrato}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">{formatarMoeda(e.valor_principal)}</p>
                             </div>
                             <div className="text-right">
-                              <p className="text-xs font-semibold" style={{ color: s.color }}>{s.label}</p>
-                              <p className="text-xs text-muted-foreground">Saldo: {formatarMoeda(e.saldo_devedor)}</p>
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                                style={{ color: s.color, backgroundColor: s.bg }}
+                              >
+                                {s.label}
+                              </span>
+                              <p className="text-xs text-muted-foreground mt-1">Saldo: {formatarMoeda(e.saldo_devedor)}</p>
                             </div>
                           </button>
                         )
@@ -212,9 +228,13 @@ export function ClienteSheet({ clienteId, empresaId, trigger }: ClienteSheetProp
             )}
           </div>
 
-          <div className="px-6 py-4 border-t border-border shrink-0">
-            <Button onClick={irParaCliente} className="w-full gap-2">
-              <ExternalLink size={14} />
+          <div className="px-6 py-5 border-t border-border shrink-0 bg-card">
+            <Button
+              onClick={irParaCliente}
+              className="w-full gap-2 h-11 text-sm font-semibold rounded-xl"
+              style={{ backgroundColor: 'var(--gt-blue)', color: '#fff' }}
+            >
+              <ExternalLink size={15} />
               Abrir página completa
             </Button>
           </div>

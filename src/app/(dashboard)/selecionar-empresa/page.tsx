@@ -91,7 +91,7 @@ function EmpresaCard({
       <div className="flex items-center justify-center px-8 py-8">
         <div className="relative w-full flex items-center justify-center" style={{ minHeight: 160 }}>
           <Image
-            src={empresa.logo_url ?? meta.logo}
+            src={meta.logo}
             alt={empresa.nome}
             width={200}
             height={160}

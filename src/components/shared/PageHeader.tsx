@@ -19,25 +19,35 @@ export function PageHeader({
   className,
 }: PageHeaderProps) {
   return (
-    <div className={cn('flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6', className)}>
-      <div className="flex items-start gap-3 min-w-0">
+    <div
+      className={cn(
+        'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 pb-6',
+        'border-b border-border/40',
+        className,
+      )}
+    >
+      <div className="flex items-center gap-4 min-w-0">
         {Icone && (
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
-            style={{ backgroundColor: `${corIcone}15` }}
+            className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-m3-1"
+            style={{ backgroundColor: corIcone, color: '#FFFFFF' }}
           >
-            <Icone size={18} style={{ color: corIcone }} />
+            <Icone size={20} color="#FFFFFF" />
           </div>
         )}
         <div className="min-w-0">
-          <h1 className="text-xl font-bold text-foreground leading-tight truncate">{titulo}</h1>
+          <h1 className="text-2xl font-bold text-foreground leading-tight tracking-tight truncate">
+            {titulo}
+          </h1>
           {descricao && (
-            <p className="text-sm text-muted-foreground mt-0.5 leading-snug">{descricao}</p>
+            <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
+              {descricao}
+            </p>
           )}
         </div>
       </div>
       {acoes && (
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">{acoes}</div>
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">{acoes}</div>
       )}
     </div>
   )

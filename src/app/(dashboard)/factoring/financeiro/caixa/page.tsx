@@ -6,10 +6,13 @@ import { ArrowUpCircle, ArrowDownCircle, Wallet, TrendingUp, TrendingDown, Filte
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
+import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { formatarMoeda, formatarData } from '@/lib/utils/formatters'
+import { cn } from '@/lib/utils'
 
 type Mov = {
   id: string
@@ -87,16 +90,23 @@ export default function CaixaPage() {
     {
       key: 'data',
       header: 'Data',
-      render: m => <span className="text-sm text-slate-500 tabular-nums">{formatarData(m.data_movimentacao)}</span>,
+      render: m => <span className="text-sm font-medium font-mono text-muted-foreground/80 tabular-nums">{formatarData(m.data_movimentacao)}</span>,
     },
     {
       key: 'tipo',
       header: 'Tipo',
       render: m => (
-        <span className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: m.tipo === 'entrada' ? '#22c55e' : '#ef4444' }}>
+        <span 
+          className={cn(
+            "flex items-center gap-1.5 text-xs font-bold leading-none px-2 py-0.5 rounded-full border w-fit",
+            m.tipo === 'entrada' 
+              ? "bg-[var(--gt-green-light)] text-[var(--gt-green)] border-[var(--gt-green-light)]" 
+              : "bg-[var(--gt-red-light)] text-[var(--gt-red)] border-[var(--gt-red-light)]"
+          )}
+        >
           {m.tipo === 'entrada'
-            ? <ArrowUpCircle size={13} />
-            : <ArrowDownCircle size={13} />
+            ? <ArrowUpCircle size={12} />
+            : <ArrowDownCircle size={12} />
           }
           {m.tipo === 'entrada' ? 'Entrada' : 'Saída'}
         </span>
@@ -106,7 +116,7 @@ export default function CaixaPage() {
       key: 'categoria',
       header: 'Categoria',
       render: m => (
-        <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+        <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border/40 font-medium">
           {CATEGORIAS[m.categoria] ?? m.categoria}
         </span>
       ),
@@ -114,18 +124,19 @@ export default function CaixaPage() {
     {
       key: 'descricao',
       header: 'Descrição',
-      render: m => <span className="text-sm text-slate-700">{m.descricao}</span>,
+      render: m => <span className="text-sm font-semibold text-foreground leading-normal">{m.descricao}</span>,
     },
     {
       key: 'valor',
       header: 'Valor',
       render: m => (
-        <span
-          className="tabular-nums font-semibold text-sm"
-          style={{ color: m.tipo === 'entrada' ? '#22c55e' : '#ef4444' }}
-        >
-          {m.tipo === 'entrada' ? '+' : '−'} {formatarMoeda(m.valor)}
-        </span>
+        <MoneyDisplay 
+          valor={m.valor} 
+          tamanho="sm" 
+          positivo={m.tipo === 'entrada'} 
+          negativo={m.tipo === 'saida'} 
+          className="font-bold font-mono"
+        />
       ),
     },
   ]
@@ -135,69 +146,89 @@ export default function CaixaPage() {
   return (
     <AppShell empresa="factoring" titulo="Caixa">
       <div className="space-y-6">
+        
+        <PageHeader 
+          titulo="Fluxo de Caixa" 
+          descricao="Monitore todas as movimentações e entradas financeiras da empresa" 
+          icone={Wallet}
+          corIcone="var(--gt-blue)"
+        />
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
           <StatCard
             titulo="Saldo Atual"
             valor={formatarMoeda(saldoAtual)}
             icone={Wallet}
-            corIcone="#1E5AA8"
-            corFundo="#EDF4FE"
+            corIcone="var(--gt-blue)"
+            corFundo="var(--gt-blue-light)"
+            delay={0}
           />
           <StatCard
             titulo="Saldo Inicial"
             valor={formatarMoeda(saldoInicial)}
-            subtitulo="Configurado nas configurações"
+            subtitulo="Base para o saldo do caixa"
             icone={Wallet}
-            corIcone="#64748b"
+            corIcone="var(--gt-gray)"
+            corFundo="var(--gt-gray-light)"
+            delay={0.07}
           />
           <StatCard
             titulo="Entradas no Período"
             valor={formatarMoeda(totalEntradas)}
             icone={TrendingUp}
-            corIcone="#22c55e"
-            corFundo="#F0FDF4"
+            corIcone="var(--gt-green)"
+            corFundo="var(--gt-green-light)"
+            delay={0.14}
           />
           <StatCard
             titulo="Saídas no Período"
             valor={formatarMoeda(totalSaidas)}
             icone={TrendingDown}
-            corIcone="#ef4444"
-            corFundo="#FEF2F2"
+            corIcone="var(--gt-red)"
+            corFundo="var(--gt-red-light)"
+            delay={0.21}
           />
         </div>
 
         {/* Filtros */}
-        <div className="bg-card rounded-xl border border-border">
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
-            <Filter size={15} className="text-slate-400" />
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 font-medium">De</span>
-              <input
-                type="date"
-                value={filtroInicio}
-                onChange={e => setFiltroInicio(e.target.value)}
-                className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700"
-              />
-              <span className="text-xs text-slate-500 font-medium">até</span>
-              <input
-                type="date"
-                value={filtroFim}
-                onChange={e => setFiltroFim(e.target.value)}
-                className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700"
-              />
+        <div className="bg-card rounded-2xl border border-border/50 shadow-m3-1 overflow-hidden">
+          <div className="px-6 py-5 border-b border-border/50 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3.5">
+              <div className="p-2 bg-muted/40 border border-border/40 rounded-xl shrink-0 flex items-center justify-center">
+                <Filter size={15} className="text-muted-foreground" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">De</span>
+                <input
+                  type="date"
+                  value={filtroInicio}
+                  onChange={e => setFiltroInicio(e.target.value)}
+                  className="h-10 text-sm border border-border/60 rounded-xl px-3 text-foreground bg-card focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] focus-visible:border-[var(--gt-blue)] transition-all font-semibold"
+                />
+                <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">até</span>
+                <input
+                  type="date"
+                  value={filtroFim}
+                  onChange={e => setFiltroFim(e.target.value)}
+                  className="h-10 text-sm border border-border/60 rounded-xl px-3 text-foreground bg-card focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] focus-visible:border-[var(--gt-blue)] transition-all font-semibold"
+                />
+              </div>
             </div>
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden ml-auto">
+            
+            {/* Google segmented selection */}
+            <div className="flex rounded-full border border-border/60 bg-muted/20 p-1 w-full sm:w-auto sm:ml-auto">
               {(['todos', 'entrada', 'saida'] as const).map(t => (
                 <button
+                  type="button"
                   key={t}
                   onClick={() => setFiltroTipo(t)}
-                  className="px-3 py-1.5 text-xs font-medium transition-colors"
-                  style={filtroTipo === t
-                    ? { backgroundColor: '#1E5AA8', color: '#fff' }
-                    : { color: '#64748b' }
-                  }
+                  className={cn(
+                    "px-4 py-1.5 text-xs font-bold rounded-full transition-all duration-200 flex-1 sm:flex-none",
+                    filtroTipo === t
+                      ? "bg-[var(--gt-blue)] text-white shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
                 >
                   {t === 'todos' ? 'Todos' : t === 'entrada' ? 'Entradas' : 'Saídas'}
                 </button>
@@ -220,13 +251,19 @@ export default function CaixaPage() {
 
           {/* Saldo do período */}
           {filtradas.length > 0 && (
-            <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                {filtradas.length} movimentação(ões) · período: {formatarData(filtroInicio)} → {formatarData(filtroFim)}
+            <div className="px-6 py-4.5 border-t border-border/50 bg-muted/5 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground font-medium">
+                Exibindo {filtradas.length} movimentação(ões) no período de {formatarData(filtroInicio)} a {formatarData(filtroFim)}
               </span>
-              <span className="text-sm font-bold" style={{ color: saldoAtual >= 0 ? '#1E5AA8' : '#ef4444' }}>
-                Saldo: {formatarMoeda(saldoAtual)}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Saldo do Período:</span>
+                <MoneyDisplay 
+                  valor={saldoAtual} 
+                  positivo={saldoAtual >= 0} 
+                  negativo={saldoAtual < 0} 
+                  tamanho="md"
+                />
+              </div>
             </div>
           )}
         </div>

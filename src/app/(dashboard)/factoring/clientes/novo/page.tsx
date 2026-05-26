@@ -351,28 +351,29 @@ export default function NovoClienteFactoringPage() {
     return (
       <AppShell empresa="factoring" titulo="Novo Cliente">
         <div className="max-w-2xl mx-auto space-y-6">
-          <div className="bg-card rounded-xl border border-border p-10 flex flex-col items-center text-center gap-6">
-            <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ backgroundColor: '#dcfce7' }}>
-              <CheckCircle2 size={40} style={{ color: '#22c55e' }} />
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-2 p-10 flex flex-col items-center text-center gap-6 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-[#34A853]" />
+            <div className="w-24 h-24 rounded-full flex items-center justify-center relative bg-[#E6F4EA] animate-pulse">
+              <div className="absolute inset-2 rounded-full bg-[#34A853]/10" />
+              <CheckCircle2 size={48} className="text-[#34A853] z-10" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-2xl font-bold text-slate-800">Cliente cadastrado!</h2>
-              <p className="text-slate-500">
-                <span className="font-semibold text-slate-700">{nome}</span> foi cadastrado com sucesso no sistema.
+              <h2 className="text-3xl font-extrabold text-foreground tracking-tight">Cliente Cadastrado!</h2>
+              <p className="text-muted-foreground text-base max-w-md mx-auto">
+                <span className="font-semibold text-foreground">{nome}</span> foi adicionado com sucesso ao sistema e já está apto para operações.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm pt-2">
+            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm pt-4">
               <Button
                 variant="outline"
-                className="flex-1 gap-2"
+                className="flex-1 gap-2 h-11 rounded-full border-border hover:bg-muted/50"
                 onClick={() => router.push(`/factoring/clientes/${clienteCriadoId}`)}
               >
                 <User size={16} />
                 Ver Perfil
               </Button>
               <Button
-                className="flex-1 gap-2 text-white"
-                style={{ backgroundColor: '#1E5AA8' }}
+                className="flex-1 gap-2 text-white h-11 rounded-full bg-[#1A73E8] hover:bg-[#1557B0] shadow-sm transition-all"
                 onClick={() => router.push(`/factoring/emprestimos/novo?cliente_id=${clienteCriadoId}`)}
               >
                 <Banknote size={16} />
@@ -389,41 +390,45 @@ export default function NovoClienteFactoringPage() {
     <AppShell empresa="factoring" titulo="Novo Cliente">
       <div className="max-w-2xl mx-auto space-y-6">
         {redirectParam && (
-          <div className="flex items-center gap-2 rounded-xl px-4 py-3 text-sm" style={{ backgroundColor: '#EDF4FE', color: '#1E5AA8' }}>
-            <CheckCircle2 size={16} />
-            Após cadastrar, você será redirecionado automaticamente de volta ao empréstimo.
+          <div className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm bg-[#E8F0FE] text-[#1A73E8] border border-[#1A73E8]/20 font-medium">
+            <CheckCircle2 size={18} className="shrink-0" />
+            <span>Após cadastrar, você será redirecionado automaticamente de volta ao fluxo de contratação.</span>
           </div>
         )}
+
         {/* Step indicator */}
-        <div className="bg-card rounded-xl border border-border p-4">
-          <div className="flex items-center gap-1 overflow-x-auto pb-1">
+        <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-5 overflow-hidden">
+          <div className="flex items-center gap-1 overflow-x-auto pb-2 scrollbar-none justify-between">
             {STEPS.map((s, i) => {
               const num = i + 1
               const done = step > num
               const active = step === num
               const Icon = s.icon
               return (
-                <div key={s.label} className="flex items-center shrink-0">
-                  <div className="flex flex-col items-center gap-1 min-w-[60px]">
+                <div key={s.label} className="flex items-center shrink-0 flex-1">
+                  <div className="flex flex-col items-center gap-1.5 min-w-[70px] flex-1">
                     <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center transition-all"
+                      className="w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 relative border-2"
                       style={done
-                        ? { backgroundColor: '#22c55e', color: '#fff' }
+                        ? { backgroundColor: '#34A853', borderColor: '#34A853', color: '#fff' }
                         : active
-                          ? { backgroundColor: '#1E5AA8', color: '#fff' }
-                          : { backgroundColor: '#f1f5f9', color: '#94a3b8' }}
+                          ? { backgroundColor: '#E8F0FE', borderColor: '#1A73E8', color: '#1A73E8' }
+                          : { backgroundColor: 'transparent', borderColor: 'var(--border)', color: 'var(--muted-foreground)' }}
                     >
                       {done ? <CheckCircle2 size={16} /> : <Icon size={16} />}
+                      {active && (
+                        <span className="absolute -inset-1 rounded-full border border-[#1A73E8] animate-ping opacity-25 pointer-events-none" />
+                      )}
                     </div>
                     <span
-                      className="text-xs font-medium text-center leading-tight"
-                      style={{ color: active ? '#1E5AA8' : done ? '#22c55e' : '#94a3b8' }}
+                      className="text-[11px] font-semibold text-center leading-tight transition-colors duration-300 max-w-[80px]"
+                      style={{ color: active ? '#1A73E8' : done ? '#34A853' : 'var(--muted-foreground)' }}
                     >
                       {s.label}
                     </span>
                   </div>
                   {i < STEPS.length - 1 && (
-                    <div className="h-0.5 w-4 mx-1 rounded shrink-0" style={{ backgroundColor: step > num ? '#22c55e' : '#e2e8f0' }} />
+                    <div className="h-0.5 w-full mx-1 rounded shrink-1 hidden sm:block transition-colors duration-500" style={{ backgroundColor: step > num ? '#34A853' : 'var(--border)' }} />
                   )}
                 </div>
               )
@@ -433,23 +438,28 @@ export default function NovoClienteFactoringPage() {
 
         {/* Step 1: Dados Pessoais */}
         {step === 1 && (
-          <div className="bg-card rounded-xl border border-border p-6 space-y-5">
-            <h2 className="font-semibold text-slate-800">Dados Pessoais</h2>
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <h2 className="font-bold text-lg text-foreground">Identificação do Cliente</h2>
+              <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full font-medium">Etapa 1 de 7</span>
+            </div>
 
             {/* Toggle tipo pessoa */}
-            <div className="flex gap-2 p-1 bg-slate-100 rounded-lg w-fit">
+            <div className="flex gap-1.5 p-1 bg-muted/60 rounded-full w-fit">
               <button
+                type="button"
                 onClick={() => { setTipoPessoa('fisica'); setCnpj(''); setCnpjConsultado(null) }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${tipoPessoa === 'fisica' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-semibold transition-all ${tipoPessoa === 'fisica' ? 'bg-card shadow-sm text-[#1A73E8]' : 'text-muted-foreground hover:text-foreground'}`}
               >
-                <User size={15} />
+                <User size={14} />
                 Pessoa Física
               </button>
               <button
+                type="button"
                 onClick={() => { setTipoPessoa('juridica'); setCpf(''); }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${tipoPessoa === 'juridica' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-semibold transition-all ${tipoPessoa === 'juridica' ? 'bg-card shadow-sm text-[#1A73E8]' : 'text-muted-foreground hover:text-foreground'}`}
               >
-                <Building2 size={15} />
+                <Building2 size={14} />
                 Pessoa Jurídica
               </button>
             </div>
@@ -461,30 +471,30 @@ export default function NovoClienteFactoringPage() {
               const cpfOk = cpfCompleto && validarCPF(cpfLimpo)
               return (
                 <div className="space-y-1.5">
-                  <Label>CPF</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">CPF</Label>
                   <div className="relative">
                     <Input
                       value={cpf}
                       onChange={e => setCpf(mascaraCPF(e.target.value))}
                       placeholder="000.000.000-00"
                       maxLength={14}
-                      className={`pr-10 ${cpfCompleto ? (cpfOk ? 'border-green-400 focus-visible:ring-green-300' : 'border-red-400 focus-visible:ring-red-300') : ''}`}
+                      className={`h-11 px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all ${cpfCompleto ? (cpfOk ? 'border-[#34A853] focus-visible:ring-[#34A853]' : 'border-[#EA4335] focus-visible:ring-[#EA4335]') : ''}`}
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
                       {cpfCompleto && (cpfOk
-                        ? <CheckCircle size={16} className="text-green-500" />
-                        : <XCircle size={16} className="text-red-500" />
+                        ? <CheckCircle size={18} className="text-[#34A853]" />
+                        : <XCircle size={18} className="text-[#EA4335]" />
                       )}
                     </div>
                   </div>
                   {cpfCompleto && !cpfOk && (
-                    <p className="text-xs text-red-500 flex items-center gap-1">
-                      <AlertCircle size={12} /> CPF inválido — verifique os dígitos
+                    <p className="text-xs text-[#EA4335] flex items-center gap-1 font-medium">
+                      <AlertCircle size={13} /> CPF inválido — verifique os dígitos informados
                     </p>
                   )}
                   {cpfCompleto && cpfOk && (
-                    <p className="text-xs text-green-600 flex items-center gap-1">
-                      <CheckCircle size={12} /> CPF válido
+                    <p className="text-xs text-[#34A853] flex items-center gap-1 font-medium">
+                      <CheckCircle size={13} /> CPF validado com sucesso
                     </p>
                   )}
                 </div>
@@ -499,7 +509,7 @@ export default function NovoClienteFactoringPage() {
               return (
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label>CNPJ</Label>
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">CNPJ</Label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
                         <Input
@@ -507,31 +517,32 @@ export default function NovoClienteFactoringPage() {
                           onChange={e => { setCnpj(mascaraCNPJ(e.target.value)); setCnpjConsultado(null) }}
                           placeholder="00.000.000/0000-00"
                           maxLength={18}
-                          className={`pr-10 ${cnpjCompleto ? (cnpjOk ? 'border-green-400' : 'border-red-400') : ''}`}
+                          className={`h-11 px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all ${cnpjCompleto ? (cnpjOk ? 'border-[#34A853]' : 'border-[#EA4335]') : ''}`}
                         />
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
                           {cnpjCompleto && (cnpjOk
-                            ? <CheckCircle size={16} className="text-green-500" />
-                            : <XCircle size={16} className="text-red-500" />
+                            ? <CheckCircle size={18} className="text-[#34A853]" />
+                            : <XCircle size={18} className="text-[#EA4335]" />
                           )}
                         </div>
                       </div>
                       <Button
+                        type="button"
                         variant="outline"
                         onClick={buscarCNPJ}
                         disabled={!cnpjOk || buscandoCnpj}
-                        className="shrink-0 gap-1.5"
+                        className="shrink-0 gap-1.5 h-11 rounded-lg border-border hover:bg-muted/50"
                       >
                         {buscandoCnpj
-                          ? <Loader2 size={14} className="animate-spin" />
-                          : <Search size={14} />
+                          ? <Loader2 size={16} className="animate-spin text-[#1A73E8]" />
+                          : <Search size={16} className="text-muted-foreground" />
                         }
                         Consultar Receita
                       </Button>
                     </div>
                     {cnpjCompleto && !cnpjOk && (
-                      <p className="text-xs text-red-500 flex items-center gap-1">
-                        <AlertCircle size={12} /> CNPJ inválido — verifique os dígitos
+                      <p className="text-xs text-[#EA4335] flex items-center gap-1 font-medium">
+                        <AlertCircle size={13} /> CNPJ inválido — verifique a numeração
                       </p>
                     )}
                   </div>
@@ -540,22 +551,23 @@ export default function NovoClienteFactoringPage() {
                   {cnpjConsultado && (() => {
                     const d = cnpjConsultado as Record<string, string | null>
                     return (
-                      <div className="rounded-xl border border-green-200 bg-green-50 p-4 space-y-2">
+                      <div className="rounded-xl border border-[#34A853]/20 bg-[#E6F4EA] p-4 space-y-2 text-sm transition-all duration-300 shadow-sm relative overflow-hidden">
+                        <div className="absolute top-0 left-0 bottom-0 w-1 bg-[#34A853]" />
                         <div className="flex items-center gap-2">
-                          <CheckCircle size={16} className="text-green-600 shrink-0" />
-                          <p className="font-semibold text-green-800 text-sm">{d.razao_social ?? ''}</p>
+                          <CheckCircle size={16} className="text-[#34A853] shrink-0" />
+                          <p className="font-bold text-[#15803d]">{d.razao_social ?? ''}</p>
                         </div>
                         {d.nome_fantasia && (
-                          <p className="text-xs text-green-700">Nome fantasia: {d.nome_fantasia}</p>
+                          <p className="text-xs text-[#15803d]/80 font-medium pl-6">Nome fantasia: {d.nome_fantasia}</p>
                         )}
-                        <p className="text-xs text-green-600">
-                          Situação: <strong>{d.descricao_situacao_cadastral ?? ''}</strong>
+                        <p className="text-xs text-[#15803d] pl-6 font-medium">
+                          Situação Cadastral: <strong className="uppercase">{d.descricao_situacao_cadastral ?? ''}</strong>
                           {d.data_situacao_cadastral && ` desde ${d.data_situacao_cadastral.split('T')[0]}`}
                         </p>
                         {d.cnae_fiscal_descricao && (
-                          <p className="text-xs text-green-600">Atividade: {d.cnae_fiscal_descricao}</p>
+                          <p className="text-xs text-muted-foreground pl-6 font-medium line-clamp-1">Atividade: {d.cnae_fiscal_descricao}</p>
                         )}
-                        <p className="text-xs text-slate-500 mt-1">Endereço, telefone e sócios preenchidos automaticamente.</p>
+                        <p className="text-[10px] text-muted-foreground/60 pl-6 mt-1 font-medium italic">Dados cadastrais, endereço e sócios foram preenchidos automaticamente.</p>
                       </div>
                     )
                   })()}
@@ -565,22 +577,32 @@ export default function NovoClienteFactoringPage() {
 
             {/* Nome */}
             <div className="space-y-1.5">
-              <Label>{tipoPessoa === 'fisica' ? 'Nome completo *' : 'Razão social *'}</Label>
-              <Input value={nome} onChange={e => setNome(e.target.value)} placeholder={tipoPessoa === 'fisica' ? 'Nome completo' : 'Razão social'} />
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{tipoPessoa === 'fisica' ? 'Nome completo *' : 'Razão social *'}</Label>
+              <Input
+                value={nome}
+                onChange={e => setNome(e.target.value)}
+                placeholder={tipoPessoa === 'fisica' ? 'Nome completo' : 'Razão social'}
+                className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+              />
             </div>
 
             {/* Campos exclusivos de pessoa física */}
             {tipoPessoa === 'fisica' && (
               <>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label>Data de nascimento</Label>
-                    <Input type="date" value={dataNascimento} onChange={e => setDataNascimento(e.target.value)} />
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Data de nascimento</Label>
+                    <Input
+                      type="date"
+                      value={dataNascimento}
+                      onChange={e => setDataNascimento(e.target.value)}
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                    />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Estado civil</Label>
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado civil</Label>
                     <Select value={estadoCivil} onValueChange={v => setEstadoCivil(v ?? '')}>
-                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                      <SelectTrigger className="h-11 px-4 focus:ring-1 focus:ring-[#1A73E8] focus:border-[#1A73E8] rounded-lg transition-all"><SelectValue placeholder="Selecione" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="solteiro">Solteiro(a)</SelectItem>
                         <SelectItem value="casado">Casado(a)</SelectItem>
@@ -591,29 +613,51 @@ export default function NovoClienteFactoringPage() {
                     </Select>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label>RG</Label>
-                    <Input value={rg} onChange={e => setRg(e.target.value)} placeholder="RG" />
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">RG</Label>
+                    <Input
+                      value={rg}
+                      onChange={e => setRg(e.target.value)}
+                      placeholder="RG"
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                    />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Órgão emissor</Label>
-                    <Input value={orgaoEmissor} onChange={e => setOrgaoEmissor(e.target.value)} placeholder="SSP/SP" />
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Órgão emissor</Label>
+                    <Input
+                      value={orgaoEmissor}
+                      onChange={e => setOrgaoEmissor(e.target.value)}
+                      placeholder="SSP/SP"
+                      className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                    />
                   </div>
                 </div>
               </>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Profissão / Segmento</Label>
-                <Input value={profissao} onChange={e => setProfissao(e.target.value)} placeholder={tipoPessoa === 'fisica' ? 'Profissão' : 'Segmento de atuação'} />
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Profissão / Segmento</Label>
+                <Input
+                  value={profissao}
+                  onChange={e => setProfissao(e.target.value)}
+                  placeholder={tipoPessoa === 'fisica' ? 'Profissão' : 'Segmento de atuação'}
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>Renda / Faturamento mensal (R$)</Label>
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Renda / Faturamento mensal (R$)</Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
-                  <Input type="number" min={0} value={rendaMensal} onChange={e => setRendaMensal(e.target.value)} className="pl-9" placeholder="0,00" />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 text-sm font-semibold">R$</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={rendaMensal}
+                    onChange={e => setRendaMensal(e.target.value)}
+                    className="h-11 pl-9 pr-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                    placeholder="0,00"
+                  />
                 </div>
               </div>
             </div>
@@ -622,29 +666,53 @@ export default function NovoClienteFactoringPage() {
 
         {/* Step 2: Contato */}
         {step === 2 && (
-          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-            <h2 className="font-semibold text-slate-800">Dados de Contato</h2>
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <h2 className="font-bold text-lg text-foreground">Informações de Contato</h2>
+              <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full font-medium">Etapa 2 de 7</span>
+            </div>
+
             <div className="space-y-1.5">
-              <Label>Telefone principal *</Label>
-              <Input value={telefone} onChange={e => setTelefone(e.target.value)} placeholder="(00) 90000-0000" />
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Telefone principal *</Label>
+              <Input
+                value={telefone}
+                onChange={e => setTelefone(formatarTelefone(e.target.value))}
+                placeholder="(00) 90000-0000"
+                className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+              />
             </div>
             <div className="space-y-1.5">
-              <Label>Telefone 2</Label>
-              <Input value={telefone2} onChange={e => setTelefone2(e.target.value)} placeholder="(00) 90000-0000" />
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Telefone secundário</Label>
+              <Input
+                value={telefone2}
+                onChange={e => setTelefone2(formatarTelefone(e.target.value))}
+                placeholder="(00) 90000-0000"
+                className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+              />
             </div>
             <div className="space-y-1.5">
-              <Label>E-mail</Label>
-              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" />
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">E-mail</Label>
+              <Input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="email@exemplo.com"
+                className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+              />
             </div>
           </div>
         )}
 
         {/* Step 3: Endereço */}
         {step === 3 && (
-          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-            <h2 className="font-semibold text-slate-800">Endereço</h2>
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <h2 className="font-bold text-lg text-foreground">Endereço Residencial / Comercial</h2>
+              <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full font-medium">Etapa 3 de 7</span>
+            </div>
+
             <div className="space-y-1.5">
-              <Label>CEP</Label>
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">CEP</Label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Input
@@ -656,13 +724,13 @@ export default function NovoClienteFactoringPage() {
                     onKeyDown={e => e.key === 'Enter' && buscarCep()}
                     placeholder="00000-000"
                     maxLength={9}
-                    className={`pr-10 ${buscandoCep ? 'border-blue-300' : endereco ? 'border-green-400' : ''}`}
+                    className={`h-11 px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all ${buscandoCep ? 'border-[#1A73E8]/50' : endereco ? 'border-[#34A853]' : ''}`}
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     {buscandoCep
-                      ? <Loader2 size={16} className="animate-spin text-blue-500" />
+                      ? <Loader2 size={16} className="animate-spin text-[#1A73E8]" />
                       : endereco
-                        ? <CheckCircle size={16} className="text-green-500" />
+                        ? <CheckCircle size={16} className="text-[#34A853]" />
                         : null
                     }
                   </div>
@@ -672,46 +740,77 @@ export default function NovoClienteFactoringPage() {
                   variant="outline"
                   onClick={() => buscarCep()}
                   disabled={buscandoCep || cep.replace(/\D/g,'').length < 8}
-                  className="shrink-0 gap-1.5 text-sm"
+                  className="shrink-0 gap-1.5 h-11 rounded-lg border-border hover:bg-muted/50 font-semibold"
                 >
-                  {buscandoCep ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-                  Buscar
+                  {buscandoCep ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                  Buscar CEP
                 </Button>
               </div>
               {buscandoCep && (
-                <p className="text-xs text-blue-500 flex items-center gap-1">
-                  <Loader2 size={11} className="animate-spin" /> Buscando endereço via BrasilAPI...
+                <p className="text-xs text-[#1A73E8] flex items-center gap-1 font-medium">
+                  <Loader2 size={11} className="animate-spin" /> Buscando endereço nos bancos postais...
                 </p>
               )}
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2 space-y-1.5">
-                <Label>Logradouro</Label>
-                <Input value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, Av..." />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2 space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Logradouro</Label>
+                <Input
+                  value={endereco}
+                  onChange={e => setEndereco(e.target.value)}
+                  placeholder="Rua, Av..."
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>Número</Label>
-                <Input value={numero} onChange={e => setNumero(e.target.value)} placeholder="Nº" />
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Número</Label>
+                <Input
+                  value={numero}
+                  onChange={e => setNumero(e.target.value)}
+                  placeholder="Nº"
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Complemento</Label>
-                <Input value={complemento} onChange={e => setComplemento(e.target.value)} placeholder="Apto, Bloco..." />
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Complemento</Label>
+                <Input
+                  value={complemento}
+                  onChange={e => setComplemento(e.target.value)}
+                  placeholder="Apto, Bloco..."
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>Bairro</Label>
-                <Input value={bairro} onChange={e => setBairro(e.target.value)} placeholder="Bairro" />
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bairro</Label>
+                <Input
+                  value={bairro}
+                  onChange={e => setBairro(e.target.value)}
+                  placeholder="Bairro"
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2 space-y-1.5">
-                <Label>Cidade</Label>
-                <Input value={cidade} onChange={e => setCidade(e.target.value)} placeholder="Cidade" />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2 space-y-1.5">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cidade</Label>
+                <Input
+                  value={cidade}
+                  onChange={e => setCidade(e.target.value)}
+                  placeholder="Cidade"
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>Estado</Label>
-                <Input value={estado} onChange={e => setEstado(e.target.value)} placeholder="UF" maxLength={2} />
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Estado</Label>
+                <Input
+                  value={estado}
+                  onChange={e => setEstado(e.target.value)}
+                  placeholder="UF"
+                  maxLength={2}
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
             </div>
           </div>
@@ -719,26 +818,45 @@ export default function NovoClienteFactoringPage() {
 
         {/* Step 4: Bancário */}
         {step === 4 && (
-          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-            <h2 className="font-semibold text-slate-800">Dados Bancários</h2>
-            <div className="space-y-1.5">
-              <Label>Banco</Label>
-              <Input value={banco} onChange={e => setBanco(e.target.value)} placeholder="Nome ou código do banco" />
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <h2 className="font-bold text-lg text-foreground">Informações Bancárias</h2>
+              <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full font-medium">Etapa 4 de 7</span>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Banco</Label>
+              <Input
+                value={banco}
+                onChange={e => setBanco(e.target.value)}
+                placeholder="Nome ou código do banco"
+                className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Agência</Label>
-                <Input value={agencia} onChange={e => setAgencia(e.target.value)} placeholder="0000" />
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Agência</Label>
+                <Input
+                  value={agencia}
+                  onChange={e => setAgencia(e.target.value)}
+                  placeholder="0000"
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
               <div className="space-y-1.5">
-                <Label>Conta</Label>
-                <Input value={conta} onChange={e => setConta(e.target.value)} placeholder="00000-0" />
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Conta</Label>
+                <Input
+                  value={conta}
+                  onChange={e => setConta(e.target.value)}
+                  placeholder="00000-0"
+                  className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+                />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Tipo de conta</Label>
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tipo de conta</Label>
               <Select value={tipoConta} onValueChange={v => setTipoConta(v ?? '')}>
-                <SelectTrigger>
+                <SelectTrigger className="h-11 px-4 focus:ring-1 focus:ring-[#1A73E8] focus:border-[#1A73E8] rounded-lg transition-all">
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
@@ -749,50 +867,82 @@ export default function NovoClienteFactoringPage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Chave PIX</Label>
-              <Input value={pix} onChange={e => setPix(e.target.value)} placeholder="CPF, e-mail, telefone ou chave aleatória" />
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Chave PIX</Label>
+              <Input
+                value={pix}
+                onChange={e => setPix(e.target.value)}
+                placeholder="CPF, e-mail, telefone ou chave aleatória"
+                className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
+              />
             </div>
           </div>
         )}
 
         {/* Step 5: Referências */}
         {step === 5 && (
-          <div className="bg-card rounded-xl border border-border p-6 space-y-5">
-            <h2 className="font-semibold text-slate-800">Referências Pessoais</h2>
-            <p className="text-sm text-slate-400">Informe até 3 referências pessoais do cliente.</p>
-            {referencias.map((ref, idx) => (
-              <div key={idx} className="rounded-xl border border-slate-100 p-4 space-y-3">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Referência {idx + 1}</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>Nome</Label>
-                    <Input value={ref.nome} onChange={e => setRef(idx, 'nome', e.target.value)} placeholder="Nome completo" />
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <h2 className="font-bold text-lg text-foreground">Referências Contatos / Pessoais</h2>
+              <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full font-medium">Etapa 5 de 7</span>
+            </div>
+            <p className="text-xs text-muted-foreground font-medium">Informe até 3 contatos de referência para segurança em análise de risco.</p>
+
+            <div className="space-y-5">
+              {referencias.map((ref, idx) => (
+                <div key={idx} className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-3 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 bottom-0 w-1 bg-[#1A73E8]" />
+                  <p className="text-xs font-bold text-[#1A73E8] uppercase tracking-wider">Referência {idx + 1}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground">Nome</Label>
+                      <Input
+                        value={ref.nome}
+                        onChange={e => setRef(idx, 'nome', e.target.value)}
+                        placeholder="Nome completo"
+                        className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground">Parentesco / Relação</Label>
+                      <Input
+                        value={ref.parentesco}
+                        onChange={e => setRef(idx, 'parentesco', e.target.value)}
+                        placeholder="Ex: Cônjuge, filho, amigo..."
+                        className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
+                      />
+                    </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Parentesco</Label>
-                    <Input value={ref.parentesco} onChange={e => setRef(idx, 'parentesco', e.target.value)} placeholder="Cônjuge, filho, amigo..." />
+                    <Label className="text-xs font-semibold text-muted-foreground">Telefone</Label>
+                    <Input
+                      value={ref.telefone}
+                      onChange={e => setRef(idx, 'telefone', formatarTelefone(e.target.value))}
+                      placeholder="(00) 90000-0000"
+                      className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
+                    />
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Telefone</Label>
-                  <Input value={ref.telefone} onChange={e => setRef(idx, 'telefone', e.target.value)} placeholder="(00) 90000-0000" />
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
         {/* Step 6: Documentos */}
         {step === 6 && (
-          <div className="bg-card rounded-xl border border-border p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800">Documentos</h2>
-              <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-full">
-                {arquivosPendentes.size} de {CATEGORIAS_DOCUMENTO.length} enviados · opcional
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <h2 className="font-bold text-lg text-foreground">Documentos Comprobatórios</h2>
+              <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full font-medium">Etapa 6 de 7</span>
+            </div>
+
+            <div className="flex items-center justify-between text-xs font-semibold">
+              <span className="text-muted-foreground">Arquivos Comprobatórios (Opcional)</span>
+              <span className="text-[#1A73E8] bg-[#E8F0FE] px-2.5 py-1 rounded-full">
+                {arquivosPendentes.size} de {CATEGORIAS_DOCUMENTO.length} enviados
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {CATEGORIAS_DOCUMENTO.map(cat => {
                 const arquivo = arquivosPendentes.get(cat.id)
                 const preview = previews.get(cat.id)
@@ -800,39 +950,39 @@ export default function NovoClienteFactoringPage() {
                 const inputId = `doc-upload-${cat.id}`
 
                 return (
-                  <div key={cat.id} className="relative">
+                  <div key={cat.id} className="relative group">
                     {arquivo ? (
                       /* Card preenchido */
-                      <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-3 flex flex-col items-center gap-2 min-h-[120px] relative">
+                      <div className="rounded-xl border border-[#1A73E8]/30 bg-[#E8F0FE]/40 p-4 flex flex-col items-center gap-2 min-h-[140px] relative transition-all duration-300 shadow-sm">
                         <button
                           type="button"
                           onClick={() => removerArquivo(cat.id)}
-                          className="absolute top-2 right-2 w-5 h-5 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center transition-colors"
+                          className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#EA4335]/10 hover:bg-[#EA4335]/20 flex items-center justify-center transition-colors"
                         >
-                          <X size={11} className="text-red-500" />
+                          <X size={11} className="text-[#EA4335]" />
                         </button>
 
                         {preview ? (
-                          <img src={preview} alt={cat.label} className="w-16 h-16 object-cover rounded-lg" />
+                          <img src={preview} alt={cat.label} className="w-16 h-16 object-cover rounded-lg shadow-sm border border-white" />
                         ) : (
-                          <div className="w-16 h-16 rounded-lg bg-blue-100 flex items-center justify-center">
-                            <Icone size={28} className="text-blue-400" />
+                          <div className="w-16 h-16 rounded-lg bg-[#E8F0FE] flex items-center justify-center border border-[#1A73E8]/20">
+                            <Icone size={26} className="text-[#1A73E8]" />
                           </div>
                         )}
-                        <p className="text-xs font-medium text-blue-700 text-center leading-tight">{cat.label}</p>
-                        <p className="text-[10px] text-slate-400 truncate w-full text-center">{formatarTamanho(arquivo.size)}</p>
+                        <p className="text-[11px] font-bold text-[#1557B0] text-center leading-tight truncate w-full mt-1">{cat.label}</p>
+                        <p className="text-[9px] text-muted-foreground/80 font-medium truncate w-full text-center">{formatarTamanho(arquivo.size)}</p>
                       </div>
                     ) : (
                       /* Card vazio — área de drop/click */
                       <label
                         htmlFor={inputId}
-                        className="cursor-pointer rounded-xl border-2 border-dashed border-slate-200 hover:border-blue-300 hover:bg-blue-50/40 p-3 flex flex-col items-center gap-2 min-h-[120px] transition-colors"
+                        className="cursor-pointer rounded-xl border-2 border-dashed border-border hover:border-[#1A73E8]/50 hover:bg-[#E8F0FE]/20 p-4 flex flex-col items-center gap-2 min-h-[140px] transition-all duration-300 group"
                       >
-                        <div className="w-16 h-16 rounded-lg bg-slate-100 flex items-center justify-center mt-1">
-                          <Icone size={28} className="text-slate-300" />
+                        <div className="w-16 h-16 rounded-lg bg-muted/60 flex items-center justify-center mt-1 border border-transparent group-hover:border-[#1A73E8]/20 group-hover:bg-card transition-all">
+                          <Icone size={26} className="text-muted-foreground/40 group-hover:text-[#1A73E8]/60 transition-colors" />
                         </div>
-                        <p className="text-xs text-slate-500 text-center leading-tight">{cat.label}</p>
-                        <p className="text-[10px] text-blue-400 font-medium">Clique para enviar</p>
+                        <p className="text-[11px] font-bold text-muted-foreground text-center leading-tight mt-1">{cat.label}</p>
+                        <p className="text-[9px] text-[#1A73E8] font-bold">Enviar arquivo</p>
                       </label>
                     )}
                     <input
@@ -851,21 +1001,24 @@ export default function NovoClienteFactoringPage() {
               })}
             </div>
 
-            <p className="text-xs text-slate-400 text-center">
-              Todos os campos são opcionais. Documentos também podem ser adicionados depois, no perfil do cliente.
+            <p className="text-xs text-muted-foreground/60 text-center font-medium">
+              A ausência de documentos não impede o cadastro, podendo ser anexados posteriormente no perfil do cliente.
             </p>
           </div>
         )}
 
         {/* Step 7: Revisão */}
         {step === 7 && (
-          <div className="bg-card rounded-xl border border-border p-6 space-y-5">
-            <h2 className="font-semibold text-slate-800">Revisão do Cadastro</h2>
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <h2 className="font-bold text-lg text-foreground">Revisão e Confirmação</h2>
+              <span className="text-xs text-[#34A853] bg-[#E6F4EA] px-2.5 py-1 rounded-full font-bold">Pronto para salvar</span>
+            </div>
 
             {[
-              { titulo: 'Dados Pessoais', items: [
+              { titulo: 'Dados Pessoais / Identificação', items: [
                 ['Tipo', tipoPessoa === 'fisica' ? 'Pessoa Física' : 'Pessoa Jurídica'],
-                ['Nome', nome],
+                ['Nome / Razão', nome],
                 tipoPessoa === 'fisica'
                   ? ['CPF', cpf ? formatarCPF(cpf) : '—']
                   : ['CNPJ', cnpj || '—'],
@@ -876,29 +1029,29 @@ export default function NovoClienteFactoringPage() {
                 ['Profissão / Segmento', profissao || '—'],
                 ['Renda / Faturamento', rendaMensal ? `R$ ${Number(rendaMensal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '—'],
               ]},
-              { titulo: 'Contato', items: [
-                ['Telefone', formatarTelefone(telefone)],
-                ['Telefone 2', telefone2 ? formatarTelefone(telefone2) : '—'],
+              { titulo: 'Contato e Comunicação', items: [
+                ['Telefone principal', formatarTelefone(telefone)],
+                ['Telefone secundário', telefone2 ? formatarTelefone(telefone2) : '—'],
                 ['E-mail', email || '—'],
               ]},
-              { titulo: 'Endereço', items: [
+              { titulo: 'Localização e Endereço', items: [
                 ['Logradouro', [endereco, numero].filter(Boolean).join(', ') || '—'],
                 ['Bairro/Cidade', [bairro, cidade, estado].filter(Boolean).join(', ') || '—'],
                 ['CEP', cep || '—'],
               ]},
-              { titulo: 'Bancário', items: [
+              { titulo: 'Identificação Bancária', items: [
                 ['Banco', banco || '—'],
                 ['Agência/Conta', [agencia, conta].filter(Boolean).join(' / ') || '—'],
-                ['PIX', pix || '—'],
+                ['Chave PIX', pix || '—'],
               ]},
             ].map(section => (
-              <div key={section.titulo}>
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">{section.titulo}</p>
-                <div className="rounded-xl border border-slate-100 divide-y divide-slate-50">
+              <div key={section.titulo} className="space-y-2">
+                <p className="text-xs font-bold text-muted-foreground/80 uppercase tracking-wider">{section.titulo}</p>
+                <div className="rounded-xl border border-border bg-muted/10 divide-y divide-border/40 overflow-hidden shadow-sm">
                   {section.items.map(([label, value]) => (
-                    <div key={label} className="flex justify-between px-4 py-2.5">
-                      <span className="text-sm text-slate-500">{label}</span>
-                      <span className="text-sm font-medium text-slate-800">{value}</span>
+                    <div key={label} className="flex justify-between items-center px-4 py-3 text-sm">
+                      <span className="text-muted-foreground font-medium">{label}</span>
+                      <span className="font-semibold text-foreground text-right max-w-[60%] truncate">{value}</span>
                     </div>
                   ))}
                 </div>
@@ -906,14 +1059,16 @@ export default function NovoClienteFactoringPage() {
             ))}
 
             {referencias.some(r => r.nome) && (
-              <div>
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Referências</p>
-                <div className="rounded-xl border border-slate-100 divide-y divide-slate-50">
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-muted-foreground/80 uppercase tracking-wider">Contatos de Referência</p>
+                <div className="rounded-xl border border-border bg-muted/10 divide-y divide-border/40 overflow-hidden shadow-sm">
                   {referencias.filter(r => r.nome).map((r, i) => (
-                    <div key={i} className="px-4 py-2.5">
-                      <span className="text-sm font-medium text-slate-800">{r.nome}</span>
-                      {r.parentesco && <span className="text-sm text-slate-400 ml-2">({r.parentesco})</span>}
-                      {r.telefone && <span className="text-sm text-slate-400 ml-2">· {formatarTelefone(r.telefone)}</span>}
+                    <div key={i} className="px-4 py-3 text-sm flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-foreground">{r.nome}</span>
+                        {r.parentesco && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">({r.parentesco})</span>}
+                      </div>
+                      {r.telefone && <span className="font-semibold text-[#1A73E8]">{formatarTelefone(r.telefone)}</span>}
                     </div>
                   ))}
                 </div>
@@ -923,27 +1078,34 @@ export default function NovoClienteFactoringPage() {
         )}
 
         {/* Navigation */}
-        <div className="flex items-center justify-between">
-          <Button variant="outline" onClick={voltar} disabled={step === 1} className="gap-2">
-            <ChevronLeft size={16} />
+        <div className="flex items-center justify-between pt-2">
+          <Button
+            variant="outline"
+            onClick={voltar}
+            disabled={step === 1}
+            className="gap-2 h-11 rounded-full px-6 font-semibold border-border hover:bg-muted/50"
+          >
+            <ChevronLeft size={18} />
             Voltar
           </Button>
 
           {step < 7 ? (
-            <Button className="gap-2 text-white" style={{ backgroundColor: '#1E5AA8' }} onClick={avancar}>
+            <Button
+              className="gap-2 text-white h-11 rounded-full px-6 bg-[#1A73E8] hover:bg-[#1557B0] font-semibold transition-all shadow-sm"
+              onClick={avancar}
+            >
               Próxima etapa
-              <ChevronRight size={16} />
+              <ChevronRight size={18} />
             </Button>
           ) : (
             <Button
-              className="gap-2 text-white px-8"
-              style={{ backgroundColor: '#22c55e' }}
+              className="gap-2 text-white px-8 h-11 rounded-full bg-[#34A853] hover:bg-[#2d9449] font-semibold shadow-sm transition-all"
               onClick={cadastrar}
               disabled={salvando}
             >
               {salvando
-                ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                : <CheckCircle2 size={16} />
+                ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                : <CheckCircle2 size={18} />
               }
               {salvando ? 'Cadastrando...' : 'Cadastrar Cliente'}
             </Button>

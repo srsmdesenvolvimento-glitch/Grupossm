@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import {
   Banknote, TrendingUp, Clock, AlertTriangle, CheckCircle,
   Percent, MessageCircle, RefreshCw, CalendarDays, Scale, AlertCircle,
+  UserCheck, ShieldCheck, DollarSign, ArrowUpRight
 } from 'lucide-react'
 
 // ──────────────────────────────────────────────
@@ -107,13 +108,34 @@ interface DashboardData {
 // Helpers
 // ──────────────────────────────────────────────
 
-function primeiroDiaMes(): string {
-  const d = new Date()
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0]
-}
-
 function hoje(): string {
   return new Date().toISOString().split('T')[0]
+}
+
+// Generates a beautiful Google-style initials avatar
+function renderAvatar(nome: string) {
+  const iniciais = nome
+    .split(' ')
+    .filter(Boolean)
+    .map(n => n[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
+
+  const bgCores = ['#E8F0FE', '#E6F4EA', '#FCE8E6', '#FEF7E0', '#F3E8FD', '#FEF0E1']
+  const textCores = ['#1A73E8', '#34A853', '#EA4335', '#FBBC04', '#A142F4', '#FA903E']
+  
+  const charSum = nome.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
+  const idx = charSum % bgCores.length
+
+  return (
+    <div
+      className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold uppercase tracking-wider shrink-0 transition-transform duration-200 group-hover:scale-105"
+      style={{ backgroundColor: bgCores[idx], color: textCores[idx] }}
+    >
+      {iniciais}
+    </div>
+  )
 }
 
 // ──────────────────────────────────────────────
@@ -129,11 +151,19 @@ export default function FactoringDashboard() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [agendaTab, setAgendaTab] = useState<'hoje' | 'proximos7'>('hoje')
   const [filtroMode, setFiltroMode] = useState<'mes' | 'dia'>('mes')
+  const [saudacao, setSaudacao] = useState('Olá')
+  const [dataFormatada, setDataFormatada] = useState('')
+
+  useEffect(() => {
+    const h = new Date().getHours()
+    setSaudacao(h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite')
+    setDataFormatada(new Date().toLocaleDateString('pt-BR', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    }))
+  }, [])
   const [mesFiltroAno, setMesFiltroAno] = useState(() => new Date().getFullYear())
   const [mesFiltroMes, setMesFiltroMes] = useState(() => new Date().getMonth() + 1)
   const [diaFiltro, setDiaFiltro] = useState(() => new Date().toISOString().split('T')[0])
-
-  const mesFiltro = `${mesFiltroAno}-${String(mesFiltroMes).padStart(2, '0')}`
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual?.id) return
@@ -329,11 +359,11 @@ export default function FactoringDashboard() {
   if (loading) return <LoadingPage />
   if (!data) return (
     <AppShell empresa="factoring" titulo="Dashboard">
-      <div className="flex flex-col items-center justify-center py-24 gap-4">
+      <div className="flex flex-col items-center justify-center py-32 gap-5">
         <p className="text-muted-foreground text-lg">Erro ao carregar o dashboard.</p>
         <button
           onClick={carregarDados}
-          className="text-sm px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors"
+          className="text-sm px-5 py-2.5 rounded-full border border-border hover:bg-accent transition-colors font-medium"
         >
           Tentar novamente
         </button>
@@ -348,49 +378,122 @@ export default function FactoringDashboard() {
   // ──────────────────────────────────────────────
 
   const colsVencendoHoje: Column<ParcelaVencendoHoje>[] = [
-    { key: 'clienteNome', header: 'Cliente' },
-    { key: 'numeroContrato', header: 'Contrato' },
+    {
+      key: 'clienteNome',
+      header: 'Cliente / Tomador',
+      render: (row) => (
+        <div className="flex items-center gap-3">
+          {renderAvatar(row.clienteNome)}
+          <div className="flex flex-col min-w-0">
+            <span className="font-semibold text-sm text-foreground truncate max-w-[160px] sm:max-w-[220px]">
+              {row.clienteNome}
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground">
+              Contrato: {row.numeroContrato}
+            </span>
+          </div>
+        </div>
+      ),
+    },
     {
       key: 'data_vencimento',
-      header: 'Vence',
-      render: (row) => <span className="text-xs text-muted-foreground">{formatarData(row.data_vencimento)}</span>,
+      header: 'Data Vence',
+      render: (row) => (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+          <CalendarDays className="w-3.5 h-3.5 text-[#1A73E8]/70" />
+          <span>{formatarData(row.data_vencimento)}</span>
+        </div>
+      ),
     },
     {
       key: 'valor',
-      header: 'Valor',
-      render: (row) => <MoneyDisplay valor={row.valor} />,
+      header: 'A Receber',
+      render: (row) => (
+        <div className="font-bold text-sm">
+          <MoneyDisplay valor={row.valor} />
+        </div>
+      ),
     },
     {
       key: 'id',
-      header: '',
+      header: 'Ações',
+      className: 'w-[100px] text-right',
       render: (row) => (
         <button
           onClick={e => { e.stopPropagation(); router.push(`/factoring/emprestimos/${row.emprestimo_id}?parcela=${row.id}`) }}
-          className="text-xs px-3 py-1 rounded-md bg-[#1E5AA8] text-white hover:bg-[#174a8e] transition-colors"
+          className="text-[11px] px-4 py-1.5 rounded-full font-bold text-white transition-all shadow-sm duration-150 hover:shadow hover:scale-105 active:scale-95 flex items-center gap-1 justify-center shrink-0 w-full"
+          style={{ backgroundColor: '#1A73E8' }}
         >
-          Receber
+          <span>Baixar</span>
+          <ArrowUpRight className="w-3 h-3" />
         </button>
       ),
     },
   ]
 
   const colsInadimplentes: Column<ParcelaInadimplente>[] = [
-    { key: 'clienteNome', header: 'Cliente' },
     {
-      key: 'diasAtraso',
-      header: 'Dias atraso',
+      key: 'clienteNome',
+      header: 'Cliente / Contato',
       render: (row) => (
-        <span className="font-semibold text-red-600">{row.diasAtraso}d</span>
+        <div className="flex items-center gap-3">
+          {renderAvatar(row.clienteNome)}
+          <div className="flex flex-col min-w-0">
+            <span className="font-semibold text-sm text-foreground truncate max-w-[160px] sm:max-w-[220px]">
+              {row.clienteNome}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-mono">
+              Tel: {row.clienteTelefone || 'Sem telefone'}
+            </span>
+          </div>
+        </div>
       ),
     },
     {
+      key: 'diasAtraso',
+      header: 'Atraso / Gravidade',
+      render: (row) => {
+        let color = '#FBBC04'
+        let bg = '#FEF7E0'
+        let label = 'Leve'
+        if (row.diasAtraso > 90) {
+          color = '#EA4335'
+          bg = '#FCE8E6'
+          label = 'Crítico'
+        } else if (row.diasAtraso > 30) {
+          color = '#FA903E'
+          bg = '#FEF0E1'
+          label = 'Médio'
+        }
+
+        return (
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-sm tracking-tight" style={{ color }}>
+              {row.diasAtraso}d
+            </span>
+            <span
+              className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0"
+              style={{ backgroundColor: bg, color }}
+            >
+              {label}
+            </span>
+          </div>
+        )
+      },
+    },
+    {
       key: 'valor',
-      header: 'Valor',
-      render: (row) => <MoneyDisplay valor={row.valor} />,
+      header: 'Total Atrasado',
+      render: (row) => (
+        <div className="font-bold text-sm text-foreground">
+          <MoneyDisplay valor={row.valor} />
+        </div>
+      ),
     },
     {
       key: 'id',
-      header: '',
+      header: 'Cobrança',
+      className: 'w-[110px] text-right',
       render: (row) => (
         <button
           onClick={() => {
@@ -400,242 +503,332 @@ export default function FactoringDashboard() {
             )
             window.open(`https://wa.me/55${tel}?text=${msg}`, '_blank')
           }}
-          className="flex items-center gap-1 text-xs px-3 py-1 rounded-md bg-green-500 text-white hover:bg-green-600 transition-colors"
+          disabled={!row.clienteTelefone}
+          className="flex items-center justify-center gap-1.5 text-[11px] px-3.5 py-1.5 rounded-full font-bold text-white transition-all shadow-sm hover:shadow hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0 w-full"
+          style={{ backgroundColor: '#34A853' }}
         >
-          <MessageCircle className="w-3 h-3" />
-          Cobrar
+          <MessageCircle className="w-3.5 h-3.5" />
+          <span>Cobrar</span>
         </button>
       ),
     },
   ]
 
   const colsPagamentos: Column<Pagamento>[] = [
-    { key: 'descricao', header: 'Cliente / Descrição' },
+    {
+      key: 'descricao',
+      header: 'Movimentação / Histórico',
+      render: (row) => {
+        const isRecebimento = row.descricao.toLowerCase().includes('receb') || row.descricao.toLowerCase().includes('parcela')
+        return (
+          <div className="flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+              style={{
+                backgroundColor: isRecebimento ? '#E6F4EA' : '#E8F0FE',
+                color: isRecebimento ? '#34A853' : '#1A73E8'
+              }}
+            >
+              {isRecebimento ? <ArrowUpRight className="w-4 h-4" /> : <DollarSign className="w-4 h-4" />}
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="font-semibold text-sm text-foreground truncate max-w-[180px] sm:max-w-[240px]">
+                {row.descricao}
+              </span>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                ID: {row.id.slice(0, 8)}...
+              </span>
+            </div>
+          </div>
+        )
+      }
+    },
     {
       key: 'valor',
-      header: 'Valor',
-      render: (row) => <MoneyDisplay valor={row.valor} />,
+      header: 'Valor Lançado',
+      render: (row) => (
+        <div className="font-bold text-sm">
+          <MoneyDisplay valor={row.valor} />
+        </div>
+      ),
     },
     {
       key: 'data',
-      header: 'Data',
-      render: (row) => <span className="text-muted-foreground text-xs">{formatarData(row.data)}</span>,
+      header: 'Data Registro',
+      render: (row) => (
+        <span className="text-muted-foreground text-xs font-medium">
+          {formatarData(row.data)}
+        </span>
+      ),
     },
   ]
 
-  const saudacao = (() => {
-    const h = new Date().getHours()
-    return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'
-  })()
+  // Saudação and dataFormatada are managed via client-side state to prevent SSR hydration errors.
 
-  const dataFormatada = new Date().toLocaleDateString('pt-BR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  })
+  // Calculating visual bar metrics for "Visão Geral"
+  const totalCarteira = d.totalClientes + d.totalContratosAtivos + d.totalParcelasPagas
+  const pctClientes = totalCarteira > 0 ? (d.totalClientes / totalCarteira) * 100 : 0
+  const pctContratos = totalCarteira > 0 ? (d.totalContratosAtivos / totalCarteira) * 100 : 0
+  const pctPagas = totalCarteira > 0 ? (d.totalParcelasPagas / totalCarteira) * 100 : 0
 
   return (
     <AppShell empresa="factoring" titulo="Dashboard">
-      <div className="space-y-6">
+      <div className="space-y-8 animate-fade-in-up">
 
-        {/* ── Saudação + filtros ── */}
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-foreground">{saudacao}!</h1>
-            <p className="text-sm text-muted-foreground mt-0.5 capitalize">{dataFormatada}</p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
-              {(['mes', 'dia'] as const).map(m => (
-                <button
-                  key={m}
-                  onClick={() => setFiltroMode(m)}
-                  className="px-3 py-1.5 transition-colors"
-                  style={filtroMode === m ? { backgroundColor: '#1E5AA8', color: '#fff' } : {}}
-                >
-                  {m === 'mes' ? 'Mês' : 'Dia'}
-                </button>
-              ))}
+        {/* ── CUSTOM GLOSSY WELCOME BANNER ── */}
+        <div className="relative overflow-hidden rounded-3xl border border-white/10 shadow-m3-3 bg-gradient-to-r from-[#0d3b66] via-[#1A73E8] to-[#1557B0] p-6 sm:p-8 text-white">
+          {/* Animated decorative glowing circles */}
+          <div className="absolute -top-24 -right-24 w-64 h-64 bg-[#34A853]/15 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -left-12 w-80 h-80 bg-[#FA903E]/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-xs font-semibold text-white/90">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#34A853]" />
+                <span>Módulo Factoring Ativo</span>
+              </div>
+              <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+                {saudacao}, administrador!
+              </h1>
+              <p className="text-sm text-white/70 max-w-xl font-medium mt-1">
+                Hoje é <span className="text-white font-semibold capitalize">{dataFormatada}</span>. 
+                Aqui está um resumo operacional rápido para apoiar suas decisões.
+              </p>
+              {/* Dynamic tag pills removed */}
             </div>
 
-            {filtroMode === 'mes' ? (
-              <div className="flex items-center gap-1">
-                <select
-                  value={mesFiltroMes}
-                  onChange={e => setMesFiltroMes(Number(e.target.value))}
-                  className="text-sm border border-border rounded-lg px-2 py-1.5 bg-background text-foreground focus:outline-none"
-                >
-                  {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((nome, i) => (
-                    <option key={i + 1} value={i + 1}>{nome}</option>
-                  ))}
-                </select>
-                <select
-                  value={mesFiltroAno}
-                  onChange={e => setMesFiltroAno(Number(e.target.value))}
-                  className="text-sm border border-border rounded-lg px-2 py-1.5 bg-background text-foreground focus:outline-none"
-                >
-                  {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
+            {/* Quick Filters inside banner */}
+            <div className="bg-white/10 backdrop-blur-md border border-white/10 p-4 rounded-2xl flex flex-col sm:flex-row items-center gap-3 shrink-0 self-start lg:self-center shadow-inner">
+              <div className="flex rounded-full border border-white/20 bg-black/15 overflow-hidden text-[10px] font-bold p-0.5 w-full sm:w-auto">
+                {(['mes', 'dia'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setFiltroMode(m)}
+                    className="px-4 py-1.5 rounded-full transition-all duration-150 flex-1 sm:flex-initial"
+                    style={filtroMode === m
+                      ? { backgroundColor: '#FFFFFF', color: '#1A73E8' }
+                      : { color: 'rgba(255,255,255,0.8)' }
+                    }
+                  >
+                    {m === 'mes' ? 'MÊS' : 'DIA'}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <input
-                type="date"
-                value={diaFiltro}
-                onChange={e => setDiaFiltro(e.target.value)}
-                className="text-sm border border-border rounded-lg px-2.5 py-1.5 bg-background text-foreground focus:outline-none"
-              />
-            )}
 
-            <button
-              onClick={carregarDados}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg hover:bg-accent transition-colors"
-            >
-              <RefreshCw size={14} />
-              Atualizar
-            </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                {filtroMode === 'mes' ? (
+                  <div className="flex gap-1.5 w-full sm:w-auto">
+                    <select
+                      value={mesFiltroMes}
+                      onChange={e => setMesFiltroMes(Number(e.target.value))}
+                      className="text-xs font-semibold border border-white/20 rounded-full px-3 py-1.5 bg-black/25 text-white focus:outline-none focus:ring-2 focus:ring-white/40 cursor-pointer min-w-[105px]"
+                    >
+                      {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((nome, i) => (
+                        <option key={i + 1} value={i + 1} className="bg-[#1A1D21] text-white">{nome}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={mesFiltroAno}
+                      onChange={e => setMesFiltroAno(Number(e.target.value))}
+                      className="text-xs font-semibold border border-white/20 rounded-full px-3 py-1.5 bg-black/25 text-white focus:outline-none focus:ring-2 focus:ring-white/40 cursor-pointer"
+                    >
+                      {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y} className="bg-[#1A1D21] text-white">{y}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  <input
+                    type="date"
+                    value={diaFiltro}
+                    onChange={e => setDiaFiltro(e.target.value)}
+                    className="text-xs font-semibold border border-white/20 rounded-full px-3.5 py-1.5 bg-black/25 text-white focus:outline-none focus:ring-2 focus:ring-white/40 cursor-pointer w-full"
+                  />
+                )}
+
+                <button
+                  onClick={carregarDados}
+                  className="flex items-center justify-center p-2 rounded-full border border-white/20 bg-white hover:bg-[#E8F0FE] text-[#1A73E8] transition-all hover:scale-105 active:scale-95 shadow shrink-0"
+                  title="Atualizar dados"
+                >
+                  <RefreshCw size={14} className="animate-spin-hover" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* ── StatCards ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* ── StatCards Grid with Shadow Glows ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           <StatCard
-            titulo="Caixa"
+            titulo="Saldo do Caixa"
             valor={formatarMoeda(d.saldoCaixa)}
-            subtitulo="Saldo inicial + entradas − saídas"
+            subtitulo="Fundo operacional da mesa"
             icone={Banknote}
-            corIcone="#1E5AA8"
-            corFundo="#EDF4FE"
+            corIcone="#1A73E8"
+            corFundo="#E8F0FE"
             onClick={() => router.push('/factoring/financeiro/caixa')}
-            atalho="Ver movimentações →"
+            atalho="Visualizar Extrato de Caixa"
+            delay={0}
           />
           <StatCard
-            titulo="Recebido no Mês"
+            titulo="Amortizado no Mês"
             valor={formatarMoeda(d.recebidoMes)}
-            subtitulo="Total de parcelas pagas no mês atual"
+            subtitulo="Total de parcelas quitadas no período"
             icone={CheckCircle}
-            corIcone="#22c55e"
-            corFundo="#F0FDF4"
+            corIcone="#34A853"
+            corFundo="#E6F4EA"
             onClick={() => router.push('/factoring/parcelas')}
-            atalho="Ver parcelas →"
+            atalho="Relatório de Amortizações"
+            delay={0.06}
           />
           <StatCard
-            titulo="Vence Hoje"
+            titulo="A Receber Hoje"
             valor={formatarMoeda(d.aReceberHoje)}
-            subtitulo="Parcelas com vencimento em hoje"
+            subtitulo="Carteira com vencimento imediato"
             icone={Clock}
-            corIcone="#D4A528"
-            corFundo="#FEFCE8"
+            corIcone="#FBBC04"
+            corFundo="#FEF7E0"
             onClick={() => router.push('/factoring/parcelas')}
-            atalho="Ver parcelas →"
+            atalho="Verificar Vencimentos"
+            delay={0.12}
           />
           <StatCard
-            titulo="Total Inadimplente"
+            titulo="Carteira em Atraso"
             valor={formatarMoeda(d.emAtraso)}
-            subtitulo="Parcelas em atraso — valor total"
+            subtitulo="Total do passivo em inadimplência"
             icone={AlertTriangle}
-            corIcone="#ef4444"
-            corFundo="#FEF2F2"
+            corIcone="#EA4335"
+            corFundo="#FCE8E6"
             onClick={() => router.push('/factoring/parcelas/inadimplentes')}
-            atalho="Ver inadimplentes →"
+            atalho="Ver Carteira de Cobrança"
+            delay={0.18}
           />
           <StatCard
-            titulo="Novos Contratos no Mês"
+            titulo="Novos Contratos"
             valor={formatarMoeda(d.novosEmprestimosMesValor)}
-            subtitulo={`${d.novosEmprestimosMesCount} contrato${d.novosEmprestimosMesCount !== 1 ? 's' : ''} liberados no mês`}
+            subtitulo={`${d.novosEmprestimosMesCount} contrato${d.novosEmprestimosMesCount !== 1 ? 's' : ''} emitidos no período`}
             icone={TrendingUp}
-            corIcone="#1E5AA8"
-            corFundo="#EDF4FE"
+            corIcone="#1A73E8"
+            corFundo="#E8F0FE"
             onClick={() => router.push('/factoring/emprestimos')}
-            atalho="Ver contratos →"
+            atalho="Ver Relação de Contratos"
+            delay={0.24}
           />
           <StatCard
-            titulo="Inadimplência"
+            titulo="Taxa Inadimplência"
             valor={`${d.taxaInadimplencia.toFixed(1)}%`}
-            subtitulo="% de parcelas em atraso sobre carteira ativa"
+            subtitulo="Atraso relativo sobre carteira total ativa"
             icone={Percent}
-            corIcone="#f97316"
-            corFundo="#FFF7ED"
+            corIcone="#FA903E"
+            corFundo="#FEF0E1"
             onClick={() => router.push('/factoring/clientes')}
-            atalho="Ver clientes →"
+            atalho="Análise de Risco"
+            delay={0.3}
           />
         </div>
 
-        {/* ── Ações rápidas ── */}
-        <SectionCard titulo="Ações rápidas">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* ── PREMIUM QUICK ACTIONS PANEL ── */}
+        <SectionCard titulo="Atalhos Operacionais Rápidos">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {[
-              { label: 'Novo Contrato',    sub: 'Liberar empréstimo',     icon: Banknote,      color: '#1E5AA8', href: '/factoring/emprestimos/novo',          primary: true  },
-              { label: 'Ver Empréstimos',  sub: 'Abrir contrato e pagar', icon: CheckCircle,   color: '#22c55e', href: '/factoring/emprestimos',               primary: true  },
-              { label: 'Simulador',        sub: 'Calcular empréstimo',    icon: Scale,         color: '#7C3AED', href: '/factoring/emprestimos/simulador',     primary: false },
-              { label: 'Novo Cliente',     sub: 'Cadastrar tomador',      icon: MessageCircle, color: '#D4A528', href: '/factoring/clientes/novo',             primary: false },
-              { label: 'Contas a Receber', sub: 'Ver pendentes e atraso', icon: TrendingUp,    color: '#f97316', href: '/factoring/financeiro/contas-receber', primary: false },
-              { label: 'Inadimplentes',    sub: 'Ver em atraso',          icon: AlertCircle,   color: '#ef4444', href: '/factoring/parcelas/inadimplentes',    primary: false },
+              { label: 'Novo Contrato',    sub: 'Emitir Empréstimo',    icon: Banknote,      color: '#1A73E8', href: '/factoring/emprestimos/novo',          primary: true  },
+              { label: 'Ver Contratos',    sub: 'Histórico & Baixas',   icon: CheckCircle,   color: '#34A853', href: '/factoring/emprestimos',               primary: true  },
+              { label: 'Simulador',        sub: 'Cálculo Sistema Price', icon: Scale,         color: '#A142F4', href: '/factoring/emprestimos/simulador',     primary: false },
+              { label: 'Novo Cliente',     sub: 'Cadastrar Tomador',    icon: UserCheck,     color: '#FBBC04', href: '/factoring/clientes/novo',             primary: false },
+              { label: 'Contas a Receber', sub: 'Pendências Financeiras', icon: TrendingUp,    color: '#FA903E', href: '/factoring/financeiro/contas-receber', primary: false },
+              { label: 'Inadimplentes',    sub: 'Mesa de Cobrança',      icon: AlertCircle,   color: '#EA4335', href: '/factoring/parcelas/inadimplentes',    primary: false },
             ].map(({ label, sub, icon: Icon, color, href, primary }) => (
               <button
                 key={href}
                 onClick={() => router.push(href)}
-                className={`group flex flex-col items-start gap-3 p-4 rounded-xl transition-all text-left ${
+                className={`group flex flex-col items-start justify-between gap-4 p-4.5 rounded-2xl transition-all duration-300 text-left hover-lift ${
                   primary
-                    ? 'text-white shadow-sm hover:opacity-90'
-                    : 'bg-muted/30 border border-border/60 hover:bg-muted/50 hover:border-border'
+                    ? 'text-white hover:shadow-lg'
+                    : 'bg-card border border-border/50 hover:border-border hover:shadow-md'
                 }`}
-                style={primary ? { backgroundColor: color } : {}}
+                style={primary ? {
+                  background: `linear-gradient(135deg, ${color} 0%, ${color}CC 100%)`,
+                  boxShadow: `0 4px 14px -3px ${color}45`
+                } : {}}
               >
-                <div className="p-2 rounded-lg" style={{ backgroundColor: primary ? 'rgba(255,255,255,0.2)' : `${color}18` }}>
-                  <Icon size={18} style={{ color: primary ? '#fff' : color }} />
+                <div
+                  className="p-3 rounded-xl transition-all duration-300 group-hover:scale-110 group-hover:rotate-3 shadow-sm shrink-0"
+                  style={{
+                    backgroundColor: primary ? 'rgba(255,255,255,0.22)' : `${color}12`,
+                    border: primary ? '1px solid rgba(255,255,255,0.15)' : 'none'
+                  }}
+                >
+                  <Icon size={20} style={{ color: primary ? '#fff' : color }} />
                 </div>
-                <div>
-                  <p className={`text-sm font-semibold leading-tight ${primary ? 'text-white' : 'text-foreground'}`}>{label}</p>
-                  <p className={`text-xs mt-0.5 ${primary ? 'text-white/70' : 'text-muted-foreground'}`}>{sub}</p>
+                
+                <div className="space-y-0.5">
+                  <p className={`text-sm font-bold tracking-tight leading-tight ${primary ? 'text-white' : 'text-foreground'}`}>
+                    {label}
+                  </p>
+                  <p className={`text-[10px] ${primary ? 'text-white/80 font-medium' : 'text-muted-foreground'}`}>
+                    {sub}
+                  </p>
                 </div>
               </button>
             ))}
           </div>
         </SectionCard>
 
-        {/* ── Lists row 1 ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ── Lists Row 1: Agenda vs Inadimplência ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
+          {/* Agenda de Parcelas Card */}
           <SectionCard
-            titulo="Agenda de parcelas"
+            titulo="Agenda de Recebimento"
             acoes={
-              <div className="flex gap-1">
+              <div className="flex gap-1.5 bg-muted/40 p-0.5 border border-border/40 rounded-full">
                 <button
                   onClick={() => setAgendaTab('hoje')}
-                  className={`text-xs px-2.5 py-1 rounded-md transition-colors font-medium ${
-                    agendaTab === 'hoje' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'text-muted-foreground hover:bg-accent'
-                  }`}
+                  className="text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-full transition-all duration-200 font-bold shrink-0"
+                  style={
+                    agendaTab === 'hoje'
+                      ? { backgroundColor: '#FBBC04', color: '#202124', boxShadow: 'var(--shadow-m3-1)' }
+                      : { color: 'var(--muted-foreground)' }
+                  }
                 >
                   Hoje ({d.parcelasVencendoHoje.length})
                 </button>
                 <button
                   onClick={() => setAgendaTab('proximos7')}
-                  className={`text-xs px-2.5 py-1 rounded-md transition-colors font-medium ${
-                    agendaTab === 'proximos7' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-muted-foreground hover:bg-accent'
-                  }`}
+                  className="text-[10px] tracking-wider uppercase px-4 py-1.5 rounded-full transition-all duration-200 font-bold shrink-0"
+                  style={
+                    agendaTab === 'proximos7'
+                      ? { backgroundColor: '#1A73E8', color: '#fff', boxShadow: 'var(--shadow-m3-1)' }
+                      : { color: 'var(--muted-foreground)' }
+                  }
                 >
-                  7 dias ({d.parcelasProximos7.length})
+                  7 Dias ({d.parcelasProximos7.length})
                 </button>
               </div>
             }
           >
             {(() => {
               const lista = agendaTab === 'hoje' ? d.parcelasVencendoHoje : d.parcelasProximos7
-              const empty = agendaTab === 'hoje' ? 'Nenhuma parcela vence hoje.' : 'Nenhuma parcela nos próximos 7 dias.'
+              const empty = agendaTab === 'hoje' ? 'Nenhum vencimento pendente para o dia de hoje.' : 'Nenhuma parcela pendente agendada para os próximos 7 dias.'
               return lista.length === 0
-                ? <p className="text-muted-foreground text-sm py-8 text-center">{empty}</p>
+                ? <p className="text-muted-foreground text-sm py-16 text-center">{empty}</p>
                 : <DataTable data={lista} columns={colsVencendoHoje} keyExtractor={p => p.id} />
             })()}
           </SectionCard>
 
+          {/* Top 10 Inadimplentes Card */}
           <SectionCard
-            titulo="Top 10 inadimplentes"
+            titulo="Passivos Críticos / Cobrança"
             acoes={
-              <span className="text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">
-                {d.inadimplentes.length}
+              <span
+                className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full animate-pulse-ring"
+                style={{ backgroundColor: '#FCE8E6', color: '#EA4335', border: '1px solid #EA43351A' }}
+              >
+                {d.inadimplentes.length} Atrasados
               </span>
             }
           >
             {d.inadimplentes.length === 0 ? (
-              <p className="text-muted-foreground text-sm py-8 text-center">Nenhuma parcela em atraso.</p>
+              <p className="text-muted-foreground text-sm py-16 text-center">Inadimplência zerada! Não há parcelas atrasadas em aberto.</p>
             ) : (
               <DataTable
                 data={d.inadimplentes}
@@ -646,12 +839,13 @@ export default function FactoringDashboard() {
           </SectionCard>
         </div>
 
-        {/* ── Lists row 2 ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ── Lists Row 2: Ultimos Pagamentos vs Visão Geral ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-          <SectionCard titulo="Últimos pagamentos">
+          {/* Últimos Pagamentos Card */}
+          <SectionCard titulo="Extrato Operacional Recente">
             {d.ultimosPagamentos.length === 0 ? (
-              <p className="text-muted-foreground text-sm py-8 text-center">Nenhum pagamento registrado.</p>
+              <p className="text-muted-foreground text-sm py-16 text-center">Nenhum lançamento de caixa recente no período filtrado.</p>
             ) : (
               <DataTable
                 data={d.ultimosPagamentos}
@@ -661,30 +855,80 @@ export default function FactoringDashboard() {
             )}
           </SectionCard>
 
-          <SectionCard titulo="Visão Geral">
-            <div className="space-y-1">
-              {[
-                { label: 'Clientes cadastrados',    valor: d.totalClientes,              suffix: 'clientes',  color: '#1E5AA8', href: '/factoring/clientes' },
-                { label: 'Contratos ativos',         valor: d.totalContratosAtivos,       suffix: 'contratos', color: '#22c55e', href: '/factoring/emprestimos' },
-                { label: 'Parcelas pagas (total)',   valor: d.totalParcelasPagas,         suffix: 'parcelas',  color: '#D4A528', href: '/factoring/parcelas' },
-                { label: 'Em atraso hoje',           valor: d.inadimplentes.length,       suffix: 'parcelas',  color: '#ef4444', href: '/factoring/parcelas/inadimplentes' },
-                { label: 'Vencendo hoje',            valor: d.parcelasVencendoHoje.length, suffix: 'parcelas', color: '#f97316', href: '/factoring/parcelas' },
-                { label: 'Nos próximos 7 dias',     valor: d.parcelasProximos7.length,   suffix: 'parcelas',  color: '#7C3AED', href: '/factoring/parcelas' },
-              ].map(item => (
-                <button
-                  key={item.label}
-                  onClick={() => router.push(item.href)}
-                  className="flex items-center justify-between w-full rounded-lg px-3 py-2.5 hover:bg-accent/50 transition-colors text-left group"
-                >
-                  <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">{item.label}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground/60">{item.suffix}</span>
-                    <span className="text-lg font-bold tabular-nums" style={{ color: item.color }}>
+          {/* Visão Geral com Barras Proporcionais Premium */}
+          <SectionCard titulo="Distribuição Proporcional Operacional">
+            <div className="space-y-6">
+              
+              {/* Graphical Stacked Indicator Bar */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Distribuição Geral de Carteira</span>
+                <div className="h-4.5 rounded-full overflow-hidden flex bg-muted shadow-inner">
+                  <div 
+                    style={{ width: `${pctClientes}%` }} 
+                    className="bg-[#1A73E8] h-full transition-all duration-500 hover:opacity-90" 
+                    title={`Clientes: ${d.totalClientes}`}
+                  />
+                  <div 
+                    style={{ width: `${pctContratos}%` }} 
+                    className="bg-[#34A853] h-full transition-all duration-500 hover:opacity-90"
+                    title={`Contratos Ativos: ${d.totalContratosAtivos}`}
+                  />
+                  <div 
+                    style={{ width: `${pctPagas}%` }} 
+                    className="bg-[#FBBC04] h-full transition-all duration-500 hover:opacity-90"
+                    title={`Parcelas Pagas: ${d.totalParcelasPagas}`}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground/80 font-bold px-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#1A73E8]" />
+                    <span>Clientes ({pctClientes.toFixed(0)}%)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#34A853]" />
+                    <span>Contratos Ativos ({pctContratos.toFixed(0)}%)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#FBBC04]" />
+                    <span>Pagas ({pctPagas.toFixed(0)}%)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Enhanced Interactive List Rows */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+                {[
+                  { label: 'Tomadores Cadastrados', valor: d.totalClientes, suffix: 'clientes', color: '#1A73E8', href: '/factoring/clientes' },
+                  { label: 'Contratos Ativos Emitidos', valor: d.totalContratosAtivos, suffix: 'ativos', color: '#34A853', href: '/factoring/emprestimos' },
+                  { label: 'Baixas de Parcelas (Total)', valor: d.totalParcelasPagas, suffix: 'parcelas', color: '#FBBC04', href: '/factoring/parcelas' },
+                  { label: 'Inadimplentes em Carteira', valor: d.inadimplentes.length, suffix: 'parcelas', color: '#EA4335', href: '/factoring/parcelas/inadimplentes' },
+                  { label: 'Contas Vencendo Hoje', valor: d.parcelasVencendoHoje.length, suffix: 'parcelas', color: '#FA903E', href: '/factoring/parcelas' },
+                  { label: 'Previsões para 7 Dias', valor: d.parcelasProximos7.length, suffix: 'parcelas', color: '#A142F4', href: '/factoring/parcelas' },
+                ].map(item => (
+                  <button
+                    key={item.label}
+                    onClick={() => router.push(item.href)}
+                    className="flex items-center justify-between rounded-2xl border border-border/30 bg-card/60 p-3.5 hover:bg-accent/80 hover:border-border hover:shadow-sm transition-all duration-200 text-left group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-3 h-3 rounded-full shrink-0 group-hover:scale-110 transition-transform"
+                        style={{ backgroundColor: item.color, boxShadow: `0 0 8px ${item.color}40` }}
+                      />
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider group-hover:text-foreground transition-colors truncate max-w-[140px] sm:max-w-[160px]">
+                          {item.label}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground/60">{item.suffix}</span>
+                      </div>
+                    </div>
+                    <span className="text-xl font-extrabold tabular-nums tracking-tight" style={{ color: item.color }}>
                       {item.valor}
                     </span>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))}
+              </div>
+
             </div>
           </SectionCard>
         </div>

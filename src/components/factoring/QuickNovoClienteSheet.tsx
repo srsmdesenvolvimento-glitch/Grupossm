@@ -133,31 +133,33 @@ export function QuickNovoClienteSheet({ open, onClose, onClienteCriado }: QuickN
 
   return (
     <Sheet open={open} onOpenChange={v => { if (!v) handleClose() }}>
-      <SheetContent className="w-full sm:max-w-md flex flex-col">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            <UserPlus size={18} style={{ color: '#1E5AA8' }} />
+      <SheetContent className="w-full sm:max-w-md flex flex-col p-0 gap-0 border-l border-border">
+        <SheetHeader className="px-6 pt-6 pb-5 border-b border-border">
+          <SheetTitle className="flex items-center gap-2.5 text-base font-semibold">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--gt-blue-light)' }}>
+              <UserPlus size={16} style={{ color: 'var(--gt-blue)' }} />
+            </div>
             Cadastro Rápido de Cliente
           </SheetTitle>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
             Preencha os dados essenciais. Informações complementares podem ser adicionadas no perfil do cliente depois.
           </p>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto space-y-5 py-4">
+        <div className="flex-1 overflow-y-auto px-6 space-y-5 py-6">
           {/* Tipo de pessoa */}
-          <div className="space-y-1.5">
-            <Label>Tipo de Pessoa</Label>
-            <div className="flex gap-2">
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo de Pessoa</Label>
+            <div className="flex gap-2 p-1 rounded-xl border border-border bg-muted/30">
               {(['fisica', 'juridica'] as const).map(tipo => (
                 <button
                   key={tipo}
                   type="button"
                   onClick={() => { setTipoPessoa(tipo); setDocumento('') }}
-                  className="flex-1 py-2 rounded-lg border text-sm font-medium transition-colors"
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
                   style={tipoPessoa === tipo
-                    ? { backgroundColor: '#1E5AA8', color: '#fff', borderColor: '#1E5AA8' }
-                    : { backgroundColor: 'transparent', color: '#64748b', borderColor: '#e2e8f0' }}
+                    ? { backgroundColor: 'var(--gt-blue)', color: '#fff', boxShadow: 'var(--shadow-m3-1)' }
+                    : { backgroundColor: 'transparent', color: 'var(--muted-foreground)' }}
                 >
                   {tipo === 'fisica' ? 'Pessoa Física' : 'Pessoa Jurídica'}
                 </button>
@@ -166,57 +168,61 @@ export function QuickNovoClienteSheet({ open, onClose, onClienteCriado }: QuickN
           </div>
 
           {/* Nome */}
-          <div className="space-y-1.5">
-            <Label>{tipoPessoa === 'fisica' ? 'Nome Completo' : 'Razão Social'} *</Label>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">{tipoPessoa === 'fisica' ? 'Nome Completo' : 'Razão Social'} <span style={{ color: 'var(--gt-red)' }}>*</span></Label>
             <Input
               value={nome}
               onChange={e => setNome(e.target.value)}
               placeholder={tipoPessoa === 'fisica' ? 'João da Silva' : 'Empresa Ltda'}
               autoFocus
+              className="h-11 rounded-xl"
             />
           </div>
 
           {/* CPF / CNPJ */}
-          <div className="space-y-1.5">
-            <Label>{tipoPessoa === 'fisica' ? 'CPF' : 'CNPJ'}</Label>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">{tipoPessoa === 'fisica' ? 'CPF' : 'CNPJ'}</Label>
             <Input
               value={documento}
               onChange={e => handleDocumento(e.target.value)}
               placeholder={tipoPessoa === 'fisica' ? '000.000.000-00' : '00.000.000/0000-00'}
               inputMode="numeric"
+              className="h-11 rounded-xl tabular-nums"
             />
           </div>
 
           {/* Telefone */}
-          <div className="space-y-1.5">
-            <Label>Telefone *</Label>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Telefone <span style={{ color: 'var(--gt-red)' }}>*</span></Label>
             <Input
               value={telefone}
               onChange={e => setTelefone(mascaraTelefone(e.target.value))}
               placeholder="(11) 90000-0000"
               inputMode="tel"
+              className="h-11 rounded-xl tabular-nums"
             />
           </div>
 
           {/* Email */}
-          <div className="space-y-1.5">
-            <Label>E-mail</Label>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">E-mail</Label>
             <Input
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="exemplo@email.com"
+              className="h-11 rounded-xl"
             />
           </div>
         </div>
 
-        <div className="border-t pt-4 flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={handleClose} disabled={salvando}>
+        <div className="px-6 py-5 border-t border-border flex gap-3 bg-card">
+          <Button variant="outline" className="flex-1 h-11 rounded-xl font-medium" onClick={handleClose} disabled={salvando}>
             Cancelar
           </Button>
           <Button
-            className="flex-1 gap-2 text-white"
-            style={{ backgroundColor: '#1E5AA8' }}
+            className="flex-1 gap-2 h-11 rounded-xl font-semibold text-white"
+            style={{ backgroundColor: 'var(--gt-blue)' }}
             onClick={cadastrar}
             disabled={salvando}
           >

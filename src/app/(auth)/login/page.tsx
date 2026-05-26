@@ -59,7 +59,7 @@ const phaseIcon: Record<Phase, React.ReactNode> = {
 // ── Features ───────────────────────────────────────────────────────────────
 const FEATURES = [
   { logo: '/logos/emporio.png',   label: 'Empório dos Móveis' },
-  { logo: '/logos/factoring.png', label: 'SRS M Factoring'    },
+  { logo: '/logos/factoring_emblem.png', label: 'SRS M Factoring'    },
 ]
 
 // ── Animation helpers ──────────────────────────────────────────────────────

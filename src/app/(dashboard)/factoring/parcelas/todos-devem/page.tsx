@@ -12,6 +12,7 @@ import { SearchInput } from '@/components/shared/SearchInput'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { Button } from '@/components/ui/button'
 import { formatarMoeda, formatarData, formatarCPF, iniciais } from '@/lib/utils/formatters'
+import { logError } from '@/lib/utils/errors'
 
 type ClienteDevendo = {
   id: string
@@ -82,6 +83,8 @@ export default function TodosDevemPage() {
         .sort((a, b) => b.emAberto - a.emAberto)
 
       setClientes(result)
+    } catch (error) {
+      logError('carregarDados', error)
     } finally {
       setLoading(false)
     }
@@ -102,18 +105,18 @@ export default function TodosDevemPage() {
   const columns: Column<ClienteDevendo>[] = [
     {
       key: 'cliente',
-      header: 'Cliente',
+      header: 'Cliente Beneficiário',
       render: c => (
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-            style={{ backgroundColor: '#1E5AA8' }}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm select-none"
+            style={{ backgroundColor: '#1A73E8' }}
           >
             {iniciais(c.nome)}
           </div>
-          <div>
-            <p className="font-medium text-sm text-slate-800">{c.nome}</p>
-            <p className="text-xs text-slate-400">{c.cpf ? formatarCPF(c.cpf) : ''}</p>
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-sm text-foreground truncate">{c.nome}</p>
+            <p className="text-[10px] text-muted-foreground/60 font-semibold">{c.cpf ? formatarCPF(c.cpf) : ''}</p>
           </div>
         </div>
       ),
@@ -121,25 +124,25 @@ export default function TodosDevemPage() {
     {
       key: 'emAberto',
       header: 'Em Aberto',
-      render: c => <span className="tabular-nums font-semibold text-sm">{formatarMoeda(c.emAberto)}</span>,
+      render: c => <span className="tabular-nums font-bold text-sm text-foreground">{formatarMoeda(c.emAberto)}</span>,
     },
     {
       key: 'emAtraso',
       header: 'Em Atraso',
       render: c => c.emAtraso > 0
-        ? <span className="tabular-nums font-semibold text-sm text-red-600">{formatarMoeda(c.emAtraso)}</span>
-        : <span className="text-slate-300 text-sm">—</span>,
+        ? <span className="tabular-nums font-bold text-sm text-[#EA4335]">{formatarMoeda(c.emAtraso)}</span>
+        : <span className="text-muted-foreground/40 text-sm font-semibold">—</span>,
     },
     {
       key: 'contratos',
-      header: 'Contratos ativos',
-      render: c => <span className="text-sm text-slate-600 tabular-nums">{c.contratosAtivos}</span>,
+      header: 'Títulos ativos',
+      render: c => <span className="text-sm font-semibold text-muted-foreground tabular-nums">{c.contratosAtivos}</span>,
     },
     {
       key: 'ultimaOp',
       header: 'Última operação',
       render: c => (
-        <span className="text-sm text-slate-400">
+        <span className="text-sm font-semibold text-muted-foreground/60">
           {c.ultimaOperacao ? formatarData(c.ultimaOperacao) : '—'}
         </span>
       ),
@@ -149,8 +152,8 @@ export default function TodosDevemPage() {
       header: 'Score',
       render: c => (
         <span
-          className="text-sm font-semibold tabular-nums"
-          style={{ color: c.score_interno >= 70 ? '#22c55e' : c.score_interno >= 50 ? '#eab308' : '#ef4444' }}
+          className="text-sm font-bold tabular-nums"
+          style={{ color: c.score_interno >= 70 ? '#34A853' : c.score_interno >= 50 ? '#FBBC04' : '#EA4335' }}
         >
           {c.score_interno}
         </span>
@@ -162,8 +165,7 @@ export default function TodosDevemPage() {
       render: c => (
         <Button
           size="sm"
-          className="text-white text-xs h-7"
-          style={{ backgroundColor: '#1E5AA8' }}
+          className="text-white text-xs h-7 rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-bold shadow-sm"
           onClick={e => { e.stopPropagation(); router.push(`/factoring/clientes/${c.id}`) }}
         >
           Registrar Pagamento
@@ -178,18 +180,18 @@ export default function TodosDevemPage() {
     <AppShell empresa="factoring" titulo="Todos Devem">
       <div className="space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard titulo="Clientes devedores" valor={clientes.length} icone={Users} corIcone="#1E5AA8" />
-          <StatCard titulo="Total em aberto" valor={formatarMoeda(totalEmAberto)} icone={DollarSign} corIcone="#D4A528" />
-          <StatCard titulo="Em atraso" valor={formatarMoeda(totalEmAtraso)} icone={AlertTriangle} corIcone="#ef4444" />
-          <StatCard titulo="Com atraso" valor={comAtraso} icone={TrendingDown} corIcone="#f97316" />
+          <StatCard titulo="Clientes devedores" valor={clientes.length} icone={Users} corIcone="#1A73E8" corFundo="#E8F0FE" />
+          <StatCard titulo="Total em aberto" valor={formatarMoeda(totalEmAberto)} icone={DollarSign} corIcone="#FBBC04" corFundo="#FEF7E0" />
+          <StatCard titulo="Em atraso" valor={formatarMoeda(totalEmAtraso)} icone={AlertTriangle} corIcone="#EA4335" corFundo="#FCE8E6" />
+          <StatCard titulo="Com atraso" valor={comAtraso} icone={TrendingDown} corIcone="#FA903E" corFundo="#FEF0E1" />
         </div>
 
-        <div className="bg-card rounded-xl border border-border">
-          <div className="px-5 py-4 border-b border-slate-100">
+        <div className="bg-card rounded-2xl border border-border shadow-m3-1 overflow-hidden">
+          <div className="px-5 py-4 border-b border-border/60 bg-muted/10">
             <SearchInput
               value={busca}
               onChange={setBusca}
-              placeholder="Buscar por nome ou CPF..."
+              placeholder="Pesquisar por nome ou CPF..."
               className="max-w-sm"
             />
           </div>
@@ -197,7 +199,7 @@ export default function TodosDevemPage() {
             columns={columns}
             data={filtrados}
             keyExtractor={c => c.id}
-            emptyMessage="Nenhum cliente devendo"
+            emptyMessage="Nenhum devedor registrado no período"
             onRowClick={c => router.push(`/factoring/clientes/${c.id}`)}
             perPage={25}
           />

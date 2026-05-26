@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Banknote, Plus, TrendingUp, CheckCircle2, Clock } from 'lucide-react'
+import { Banknote, Plus, TrendingUp, CheckCircle2, Clock, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -21,7 +21,6 @@ import { formatarMoeda, formatarData, formatarCPF, iniciais } from '@/lib/utils/
 import type { Emprestimo, ClienteFactoring } from '@/lib/types/database'
 import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
-import { Download } from 'lucide-react'
 
 type EmprestimoComCliente = Emprestimo & {
   cliente?: Pick<ClienteFactoring, 'id' | 'nome' | 'cpf'>
@@ -108,79 +107,78 @@ export default function EmprestimosPage() {
     return true
   })
 
-  const STATUS_COLORS: Record<string, string> = {
-    analise: '#64748b', aprovado: '#D4A528', ativo: '#22c55e',
-    quitado: '#1E5AA8', inadimplente: '#ef4444', cancelado: '#94a3b8',
-  }
-
   const columns: Column<EmprestimoComCliente>[] = [
     {
       key: 'contrato',
       header: 'Contrato',
       render: e => (
-        <span className="font-mono text-sm font-semibold" style={{ color: '#1E5AA8' }}>
+        <span className="font-mono text-xs font-bold text-[var(--gt-blue)] dark:text-blue-400">
           {e.numero_contrato}
         </span>
       ),
     },
     {
       key: 'cliente',
-      header: 'Cliente',
-      render: e => (
-        <div className="flex items-center gap-2">
-          <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-            style={{ backgroundColor: '#1E5AA8' }}
-          >
-            {iniciais(e.cliente?.nome ?? '?')}
+      header: 'Cliente / Tomador',
+      render: e => {
+        const nome = e.cliente?.nome ?? '—'
+        const init = iniciais(nome)
+        const bgCores = ['#E8F0FE', '#E6F4EA', '#FCE8E6', '#FEF7E0', '#F3E8FD', '#FEF0E1']
+        const textCores = ['#1A73E8', '#34A853', '#EA4335', '#FBBC04', '#A142F4', '#FA903E']
+        const charSum = nome.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
+        const idx = charSum % bgCores.length
+
+        return (
+          <div className="flex items-center gap-3 group/row">
+            <div
+              className="w-8.5 h-8.5 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-sm transition-transform duration-200 group-hover/row:scale-105"
+              style={{ backgroundColor: bgCores[idx], color: textCores[idx] }}
+            >
+              {init}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground truncate max-w-[140px] sm:max-w-[200px]">{nome}</p>
+              <p className="text-[10px] text-muted-foreground/80 font-mono font-medium">{e.cliente?.cpf ? formatarCPF(e.cliente.cpf) : ''}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-medium text-foreground">{e.cliente?.nome ?? '—'}</p>
-            <p className="text-xs text-muted-foreground/60">{e.cliente?.cpf ? formatarCPF(e.cliente.cpf) : ''}</p>
-          </div>
-        </div>
-      ),
+        )
+      },
     },
     {
       key: 'valor',
-      header: 'Valor',
-      render: e => <span className="font-semibold text-sm">{formatarMoeda(e.valor_principal)}</span>,
+      header: 'Valor Principal',
+      render: e => <span className="font-bold text-sm tracking-tight text-foreground">{formatarMoeda(e.valor_principal)}</span>,
     },
     {
       key: 'parcelas',
-      header: 'Parcelas',
+      header: 'Parcelas Amortizadas',
       render: e => (
-        <span className="text-sm text-muted-foreground tabular-nums">
-          {e.parcelas_pagas}/{e.prazo_meses}
+        <span className="text-xs text-muted-foreground font-mono font-semibold">
+          {e.parcelas_pagas} de {e.prazo_meses}
         </span>
       ),
     },
     {
       key: 'taxa',
-      header: 'Taxa',
-      render: e => <span className="text-sm text-muted-foreground">{e.taxa_juros}% a.m.</span>,
+      header: 'Taxa Pactuada',
+      render: e => <span className="text-xs text-muted-foreground font-semibold">{e.taxa_juros}% a.m.</span>,
     },
     {
       key: 'status',
       header: 'Status',
       render: e => (
-        <span
-          className="px-2 py-0.5 rounded-full text-xs font-semibold"
-          style={{ color: STATUS_COLORS[e.status] ?? '#64748b', backgroundColor: `${STATUS_COLORS[e.status]}18` }}
-        >
-          {e.status.charAt(0).toUpperCase() + e.status.slice(1)}
-        </span>
+        <StatusBadge status={e.status} />
       ),
     },
     {
       key: 'data',
-      header: 'Liberação',
-      render: e => <span className="text-sm text-muted-foreground">{e.data_liberacao ? formatarData(e.data_liberacao) : '—'}</span>,
+      header: 'Data de Liberação',
+      render: e => <span className="text-xs text-muted-foreground font-medium">{e.data_liberacao ? formatarData(e.data_liberacao) : '—'}</span>,
     },
     {
       key: 'saldo',
-      header: 'Saldo',
-      render: e => <MoneyDisplay valor={e.saldo_devedor} />,
+      header: 'Saldo Devedor',
+      render: e => <MoneyDisplay valor={e.saldo_devedor} tamanho="sm" negativo={e.saldo_devedor > 0} />,
     },
   ]
 
@@ -188,74 +186,100 @@ export default function EmprestimosPage() {
 
   return (
     <AppShell empresa="factoring" titulo="Empréstimos">
-      <div className="space-y-6">
+      <div className="space-y-6 animate-fade-in-up">
 
         <PageHeader
-          titulo="Empréstimos"
-          descricao="Gerencie a carteira de contratos de factoring"
+          titulo="Contratos de Empréstimo"
+          descricao="Monitore a liquidez, saldo devedor e fluxos de amortização de parcelas da factoring"
           icone={Banknote}
+          corIcone="var(--gt-blue)"
           acoes={
             <Button
-              size="sm"
-              className="h-8 gap-1.5 text-white"
-              style={{ backgroundColor: '#1E5AA8' }}
+              size="default"
+              className="h-10 gap-2 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 rounded-full px-5 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               onClick={() => router.push('/factoring/emprestimos/novo')}
+              style={{ boxShadow: '0 4px 12px -3px var(--gt-blue)' }}
             >
-              <Plus size={14} />
-              Novo Empréstimo
+              <Plus size={16} />
+              <span>Novo Empréstimo</span>
             </Button>
           }
         />
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
           <StatCard
-            titulo="Contratos ativos" valor={ativos.length} icone={Banknote} corIcone="#1E5AA8" corFundo="#EDF4FE"
+            titulo="Contratos Ativos" 
+            valor={ativos.length} 
+            icone={Banknote} 
+            corIcone="var(--gt-blue)" 
+            corFundo="var(--gt-blue-light)"
             ativo={filtroCard === 'ativos'}
             onClick={() => setFiltroCard(filtroCard === 'ativos' ? 'todos' : 'ativos')}
-            atalho={filtroCard === 'ativos' ? 'Filtrando ↑' : 'Clique para filtrar →'}
+            atalho={filtroCard === 'ativos' ? 'Filtro por Ativos ativo' : 'Exibir contratos ativos'}
+            delay={0}
           />
-          <StatCard titulo="Capital na rua" valor={formatarMoeda(capitalNaRua)} icone={TrendingUp} corIcone="#D4A528" corFundo="#FEFCE8" />
+          <StatCard 
+            titulo="Capital Alocado (Mesa)" 
+            valor={formatarMoeda(capitalNaRua)} 
+            icone={TrendingUp} 
+            corIcone="var(--gt-yellow)" 
+            corFundo="var(--gt-yellow-light)" 
+            delay={0.07} 
+          />
           <StatCard
-            titulo="Liberado este mês" valor={formatarMoeda(liberadoMes)} icone={Clock} corIcone="#22c55e" corFundo="#F0FDF4"
+            titulo="Liberado no Mês" 
+            valor={formatarMoeda(liberadoMes)} 
+            icone={Clock} 
+            corIcone="var(--gt-green)" 
+            corFundo="var(--gt-green-light)"
             ativo={filtroCard === 'liberadoMes'}
             onClick={() => setFiltroCard(filtroCard === 'liberadoMes' ? 'todos' : 'liberadoMes')}
-            atalho={filtroCard === 'liberadoMes' ? 'Filtrando ↑' : 'Clique para filtrar →'}
+            atalho={filtroCard === 'liberadoMes' ? 'Filtro por Liberados ativo' : 'Exibir repasses do mês'}
+            delay={0.14}
           />
           <StatCard
-            titulo="Quitados este mês" valor={quitadosMes} icone={CheckCircle2} corIcone="#7C3AED" corFundo="#F5F3FF"
+            titulo="Quitados no Mês" 
+            valor={quitadosMes} 
+            icone={CheckCircle2} 
+            corIcone="var(--gt-purple)" 
+            corFundo="var(--gt-purple-light)"
             ativo={filtroCard === 'quitadosMes'}
             onClick={() => setFiltroCard(filtroCard === 'quitadosMes' ? 'todos' : 'quitadosMes')}
-            atalho={filtroCard === 'quitadosMes' ? 'Filtrando ↑' : 'Clique para filtrar →'}
+            atalho={filtroCard === 'quitadosMes' ? 'Filtro por Quitados ativo' : 'Exibir contratos liquidados'}
+            delay={0.21}
           />
         </div>
 
-        <div className="bg-card rounded-2xl border border-border/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-          <div className="px-5 py-4 border-b border-border/60 flex flex-wrap items-center gap-3">
-            <SearchInput
-              value={busca}
-              onChange={setBusca}
-              placeholder="Buscar por contrato ou cliente..."
-              className="flex-1 min-w-48"
-            />
-            <Select value={filtroStatus} onValueChange={v => setFiltroStatus(v ?? 'todos')}>
-              <SelectTrigger className="h-8 text-sm w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="analise">Em análise</SelectItem>
-                <SelectItem value="aprovado">Aprovado</SelectItem>
-                <SelectItem value="ativo">Ativo</SelectItem>
-                <SelectItem value="quitado">Quitado</SelectItem>
-                <SelectItem value="inadimplente">Inadimplente</SelectItem>
-                <SelectItem value="cancelado">Cancelado</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="bg-card rounded-3xl border border-border/50 shadow-m3-1 overflow-hidden transition-all duration-300 hover:shadow-m3-2">
+          <div className="px-5 py-4 border-b border-border/40 flex flex-wrap items-center justify-between gap-4 bg-muted/20">
+            <div className="flex flex-wrap items-center gap-4 flex-1 min-w-0">
+              <SearchInput
+                value={busca}
+                onChange={setBusca}
+                placeholder="Buscar por contrato ou cliente..."
+                className="max-w-md"
+              />
+              <Select value={filtroStatus} onValueChange={v => setFiltroStatus(v ?? 'todos')}>
+                <SelectTrigger className="h-9.5 text-xs font-semibold rounded-full px-5 border-border bg-background focus:ring-[var(--gt-blue)] focus:border-[var(--gt-blue)] w-44 hover:bg-accent transition-colors">
+                  <SelectValue placeholder="Filtrar por Status" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl border border-border bg-card">
+                  <SelectItem value="todos" className="text-xs font-semibold">Todos Status</SelectItem>
+                  <SelectItem value="analise" className="text-xs font-semibold">Em análise</SelectItem>
+                  <SelectItem value="aprovado" className="text-xs font-semibold text-[#34A853]">Aprovados</SelectItem>
+                  <SelectItem value="ativo" className="text-xs font-semibold text-[#1A73E8]">Ativos</SelectItem>
+                  <SelectItem value="quitado" className="text-xs font-semibold text-muted-foreground">Quitados</SelectItem>
+                  <SelectItem value="inadimplente" className="text-xs font-semibold text-[#EA4335]">Inadimplentes</SelectItem>
+                  <SelectItem value="cancelado" className="text-xs font-semibold text-muted-foreground/60">Cancelados</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
             {temPermissao('financeiro') && filtrados.length > 0 && (
               <Button
-                size="sm"
+                size="default"
                 variant="outline"
-                className="h-8 gap-1.5"
+                className="h-9.5 gap-1.5 rounded-full border-border/80 hover:bg-[var(--gt-blue-light)] hover:text-[var(--gt-blue)] hover:border-[var(--gt-blue)]/30 text-xs font-bold transition-all duration-150 shrink-0"
                 onClick={() => exportarCSV('emprestimos', filtrados.map(e => ({
                   numero_contrato: e.numero_contrato,
                   cliente: e.cliente?.nome ?? '',
@@ -274,8 +298,8 @@ export default function EmprestimosPage() {
                   { key: 'saldo_devedor', label: 'Saldo Devedor' },
                 ])}
               >
-                <Download size={14} />
-                CSV
+                <Download size={13} />
+                <span>Exportar CSV</span>
               </Button>
             )}
           </div>
@@ -284,7 +308,7 @@ export default function EmprestimosPage() {
             columns={columns}
             data={filtrados}
             keyExtractor={e => e.id}
-            emptyMessage="Nenhum empréstimo encontrado"
+            emptyMessage="Nenhum contrato de empréstimo atende a estes critérios de filtragem."
             onRowClick={e => router.push(`/factoring/emprestimos/${e.id}`)}
             perPage={20}
           />

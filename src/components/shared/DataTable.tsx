@@ -7,7 +7,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Skeleton } from '@/components/ui/skeleton'
 
 export interface Column<T> {
   key: string
@@ -43,12 +42,12 @@ export function DataTable<T>({
 
   if (loading) {
     return (
-      <div className="space-y-2">
-        <Skeleton className="h-10 w-full rounded-t-xl" />
+      <div className="space-y-2 p-4">
+        <div className="skeleton-premium h-10 w-full rounded-xl" />
         {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton
+          <div
             key={i}
-            className="h-12 w-full rounded"
+            className="skeleton-premium h-12 w-full rounded-lg"
             style={{ opacity: Math.max(0.15, 1 - i * 0.14) }}
           />
         ))}
@@ -57,16 +56,16 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-xl border border-border/60 overflow-hidden overflow-x-auto shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+    <div className="space-y-4">
+      <div className="overflow-hidden overflow-x-auto rounded-2xl bg-card" style={{ boxShadow: 'var(--shadow-m3-1)' }}>
         <Table className="min-w-full">
           <TableHeader>
-            <TableRow className="bg-muted/40 hover:bg-muted/40 border-b border-border/60">
+            <TableRow className="bg-muted/30 hover:bg-muted/30 border-b border-border/50">
               {columns.map(col => (
                 <TableHead
                   key={col.key}
                   className={cn(
-                    'text-muted-foreground font-semibold text-[11px] uppercase tracking-wider h-10 py-0',
+                    'text-muted-foreground font-medium text-[11px] uppercase tracking-wider h-11 py-0',
                     col.className,
                   )}
                 >
@@ -80,9 +79,11 @@ export function DataTable<T>({
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="text-center text-muted-foreground py-16 text-sm"
+                  className="text-center py-20"
                 >
-                  {emptyMessage}
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-muted-foreground/60 text-sm">{emptyMessage}</span>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
@@ -90,18 +91,30 @@ export function DataTable<T>({
                 <TableRow
                   key={keyExtractor(row)}
                   className={cn(
-                    'border-b border-border/30 last:border-0 transition-colors duration-100',
+                    'border-b border-border/20 last:border-0 transition-colors duration-150 animate-row-in',
                     rowClassName
                       ? rowClassName(row)
-                      : idx % 2 === 0
-                        ? 'bg-card'
-                        : 'bg-muted/[0.03]',
-                    onRowClick && 'cursor-pointer hover:bg-accent/50',
+                      : 'bg-card',
+                    onRowClick && 'cursor-pointer',
                   )}
+                  style={{
+                    animationDelay: `${Math.min(idx * 25, 200)}ms`,
+                    ...(onRowClick ? {} : {}),
+                  }}
                   onClick={() => onRowClick?.(row)}
+                  onMouseEnter={e => {
+                    if (onRowClick) {
+                      e.currentTarget.style.backgroundColor = 'var(--gt-blue-light)'
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (onRowClick) {
+                      e.currentTarget.style.backgroundColor = ''
+                    }
+                  }}
                 >
                   {columns.map(col => (
-                    <TableCell key={col.key} className={cn('py-3', col.className)}>
+                    <TableCell key={col.key} className={cn('py-3.5', col.className)}>
                       {col.render
                         ? col.render(row)
                         : (row as Record<string, unknown>)[col.key] as React.ReactNode}
@@ -115,31 +128,31 @@ export function DataTable<T>({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between px-1">
+        <div className="flex items-center justify-between px-2">
           <p className="text-xs text-muted-foreground">
-            <span className="font-medium text-foreground tabular-nums">
+            <span className="font-semibold text-foreground tabular-nums">
               {(page - 1) * perPage + 1}–{Math.min(page * perPage, data.length)}
             </span>{' '}
             de{' '}
-            <span className="font-medium text-foreground tabular-nums">{data.length}</span>
+            <span className="font-semibold text-foreground tabular-nums">{data.length}</span>
           </p>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              className="h-8 w-8 p-0 rounded-lg"
+              className="h-8 w-8 p-0 rounded-full border-border/60 hover:bg-[var(--gt-blue-light)] hover:text-[var(--gt-blue)] hover:border-[var(--gt-blue)]/30 transition-all duration-150"
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}
             >
               <ChevronLeft size={14} />
             </Button>
-            <span className="text-xs text-muted-foreground tabular-nums px-2 min-w-[52px] text-center">
+            <span className="text-xs font-medium text-muted-foreground tabular-nums px-3 min-w-[52px] text-center">
               {page} / {totalPages}
             </span>
             <Button
               variant="outline"
               size="sm"
-              className="h-8 w-8 p-0 rounded-lg"
+              className="h-8 w-8 p-0 rounded-full border-border/60 hover:bg-[var(--gt-blue-light)] hover:text-[var(--gt-blue)] hover:border-[var(--gt-blue)]/30 transition-all duration-150"
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
             >
