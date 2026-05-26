@@ -842,7 +842,7 @@ export default function EmprestimoDetalhePage() {
               <DialogHeader>
                 <DialogTitle className="font-extrabold text-foreground tracking-tight">Baixa de Parcela {pagarParcela.numero_parcela}/{pagarParcela.total_parcelas}</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4 py-1">
+              <div className="space-y-4 py-1 max-h-[65vh] overflow-y-auto pr-1">
                 {/* Info — composição do valor */}
                 <div className={cn('rounded-xl p-4 text-sm space-y-1.5 relative overflow-hidden border', dias > 0 ? 'bg-[#FCE8E6] border-[#EA4335]/20' : 'bg-muted/30 border-border/60')}>
                   <div className="absolute top-0 left-0 bottom-0 w-1" style={{ backgroundColor: dias > 0 ? '#EA4335' : '#1A73E8' }} />
