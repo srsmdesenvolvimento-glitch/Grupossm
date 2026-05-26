@@ -71,7 +71,6 @@ export default function EmprestimoDetalhePage() {
   const [pagValorParcial, setPagValorParcial] = useState('')
   const [pagValorRecebido, setPagValorRecebido] = useState('')
   const [pagando, setPagando] = useState(false)
-  const [taxaMoraDiaria, setTaxaMoraDiaria] = useState(0.033)
 
   async function handleGerarRecibo(p: ParcelaEmprestimo) {
     if (!cliente || !emprestimo) return
@@ -83,8 +82,6 @@ export default function EmprestimoDetalhePage() {
         data_pagamento: p.data_pagamento ?? new Date().toISOString().split('T')[0],
         valor: p.valor,
         valor_pago: p.valor_pago ?? 0,
-        juros_mora: p.juros_mora ?? 0,
-        multa: p.multa ?? 0,
         tipo_pagamento: p.tipo_pagamento ?? 'pix',
       },
       cliente: { nome: cliente.nome, cpf: cliente.cpf ?? null, telefone: cliente.telefone },
@@ -123,8 +120,6 @@ export default function EmprestimoDetalhePage() {
           data_pagamento: p.data_pagamento,
           valor: p.valor,
           valor_pago: p.valor_pago,
-          juros_mora: p.juros_mora ?? 0,
-          multa: p.multa ?? 0,
           tipo_pagamento: p.tipo_pagamento,
           status: p.status,
         })),
@@ -185,21 +180,9 @@ export default function EmprestimoDetalhePage() {
     if (p) abrirPagamento(p)
   }, [parcelas, searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!empresaAtual) return
-    supabase.from('config_factoring').select('juros_mora_diario').eq('empresa_id', empresaAtual.id).maybeSingle()
-      .then(({ data }) => { if (data?.juros_mora_diario) setTaxaMoraDiaria(Number(data.juros_mora_diario)) })
-  }, [empresaAtual]) // eslint-disable-line react-hooks/exhaustive-deps
-
   function calcDias(venc: string): number {
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
     return Math.max(0, Math.floor((hoje.getTime() - new Date(venc + 'T00:00:00').getTime()) / 86400000))
-  }
-
-  function calcMoraLive(valor: number, venc: string): number {
-    const dias = calcDias(venc)
-    if (dias <= 0) return 0
-    return Math.round(valor * (Math.pow(1 + taxaMoraDiaria / 100, dias) - 1) * 100) / 100
   }
 
   function abrirPagamento(p: ParcelaEmprestimo) {
@@ -214,8 +197,7 @@ export default function EmprestimoDetalhePage() {
   async function confirmarPagamentoParcela() {
     if (!pagarParcela || !emprestimo || !empresaAtual) return
     const hoje = new Date().toISOString().split('T')[0]
-    const moraLive = pagarParcela.status === 'atrasado' ? calcMoraLive(pagarParcela.valor, pagarParcela.data_vencimento) : (pagarParcela.juros_mora ?? 0)
-    const subtotal = pagarParcela.valor + (pagarParcela.multa ?? 0) + moraLive - (pagarParcela.valor_pago ?? 0)
+    const subtotal = pagarParcela.valor - (pagarParcela.valor_pago ?? 0)
     const descontoNum = Number(pagDesconto) || 0
     const descontoValor = pagTipoDesc === '%' ? subtotal * descontoNum / 100 : descontoNum
     const valorDigitado = Number(pagValorParcial) || 0
@@ -228,7 +210,7 @@ export default function EmprestimoDetalhePage() {
     try {
       if (valorFinal < subtotal - 0.009) {
         const restante = Math.round((subtotal - valorFinal) * 100) / 100
-        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: moraLive, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id)
+        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id)
         // Transfer remainder to the next pending parcel
         const { data: proximas } = await supabase
           .from('parcelas_emprestimo')
@@ -266,7 +248,7 @@ export default function EmprestimoDetalhePage() {
           toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} criado como nova parcela.`)
         }
       } else {
-        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: moraLive, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id)
+        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id)
         const { data: restantes } = await supabase.from('parcelas_emprestimo').select('id').eq('emprestimo_id', emprestimo.id).in('status', ['pendente', 'atrasado'])
         if (!restantes?.length) {
           await supabase.from('emprestimos').update({ status: 'quitado', saldo_devedor: 0, data_quitacao: hoje }).eq('id', emprestimo.id)
@@ -795,9 +777,8 @@ export default function EmprestimoDetalhePage() {
 
       {/* ── Payment Dialog ─────────────────────────────────────── */}
       {pagarParcela && (() => {
-        const moraLive = pagarParcela.status === 'atrasado' ? calcMoraLive(pagarParcela.valor, pagarParcela.data_vencimento) : (pagarParcela.juros_mora ?? 0)
         const dias = calcDias(pagarParcela.data_vencimento)
-        const subtotal = pagarParcela.valor + (pagarParcela.multa ?? 0) + moraLive - (pagarParcela.valor_pago ?? 0)
+        const subtotal = pagarParcela.valor - (pagarParcela.valor_pago ?? 0)
         const descontoNum = Number(pagDesconto) || 0
         const descontoValor = pagTipoDesc === '%' ? subtotal * descontoNum / 100 : descontoNum
         const valorParcialNum = Number(pagValorParcial) || 0
@@ -826,15 +807,6 @@ export default function EmprestimoDetalhePage() {
                   )}
                   <div className="border-t border-slate-200/60 pt-1.5 mt-0.5 space-y-1">
                     <div className="flex justify-between"><span className="text-slate-500">Valor da Parcela</span><span className="font-medium">{formatarMoeda(pagarParcela.valor)}</span></div>
-                    {(pagarParcela.multa ?? 0) > 0 && (
-                      <div className="flex justify-between"><span className="text-orange-600">Multa</span><span className="text-orange-600 font-medium">+ {formatarMoeda(pagarParcela.multa ?? 0)}</span></div>
-                    )}
-                    {moraLive > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-red-500">Juros Diários{dias > 0 ? ` (${dias}d × ${taxaMoraDiaria}%/d)` : ''}</span>
-                        <span className="text-red-500 font-medium">+ {formatarMoeda(moraLive)}</span>
-                      </div>
-                    )}
                   </div>
                   <div className="flex justify-between font-bold border-t border-slate-200 pt-1.5 mt-0.5 text-base">
                     <span>Total a Receber</span>

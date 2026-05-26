@@ -81,14 +81,14 @@ export default function FactoringClientesPage() {
           .order('nome'),
         supabase
           .from('parcelas_emprestimo')
-          .select('cliente_id, valor, valor_pago, juros_mora, multa, status')
+          .select('cliente_id, valor, valor_pago, status')
           .eq('empresa_id', empresaAtual.id)
           .in('status', ['pendente', 'atrasado']),
       ])
 
       const parcelasPorCliente: Record<string, { aberto: number; atraso: number }> = {}
       for (const p of parcelasData ?? []) {
-        const devido = (p.valor ?? 0) + (p.juros_mora ?? 0) + (p.multa ?? 0) - (p.valor_pago ?? 0)
+        const devido = (p.valor ?? 0) - (p.valor_pago ?? 0)
         if (!parcelasPorCliente[p.cliente_id]) parcelasPorCliente[p.cliente_id] = { aberto: 0, atraso: 0 }
         parcelasPorCliente[p.cliente_id].aberto += devido
         if (p.status === 'atrasado') parcelasPorCliente[p.cliente_id].atraso += devido

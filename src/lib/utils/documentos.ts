@@ -474,8 +474,6 @@ export interface ReciboParcela {
     data_pagamento: string
     valor: number
     valor_pago: number
-    juros_mora: number
-    multa: number
     tipo_pagamento: string
   }
   cliente: { nome: string; cpf: string | null; telefone?: string | null }
@@ -488,88 +486,155 @@ export async function gerarReciboParcela(p: ReciboParcela): Promise<void> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const W = 210, M = 15, CW = W - M * 2
   const logo = await loadLogo('/logos/factoring.png')
+  const GREEN: [number, number, number] = [22, 163, 74]
 
+  const reciboId = `${p.contrato.numero_contrato}-P${String(p.parcela.numero_parcela).padStart(2, '0')}`
+  const formaLabel: Record<string, string> = {
+    dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque',
+  }
+  const forma = formaLabel[p.parcela.tipo_pagamento] ?? p.parcela.tipo_pagamento
+
+  // ── Header ──────────────────────────────────────────────────────────────────
   doc.setFillColor(...BLUE)
-  doc.rect(0, 0, W, 37, 'F')
-  if (logo) { try { doc.addImage(logo, 'PNG', M, 4, 27, 27) } catch { /* ignore */ } }
-  const tx = logo ? M + 31 : M
+  doc.rect(0, 0, W, 40, 'F')
+  if (logo) { try { doc.addImage(logo, 'PNG', M, 5, 28, 28) } catch { /* ignore */ } }
+  const tx = logo ? M + 32 : M
   doc.setTextColor(...WHITE)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
-  doc.text(p.empresaNome ?? 'SRS M Factoring', tx, 15)
-  doc.setFontSize(8.5)
+  doc.setFontSize(15)
+  doc.text(p.empresaNome ?? 'SRS M Factoring', tx, 16)
+  doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
-  doc.text('RECIBO DE PAGAMENTO', tx, 22)
-  if (p.empresaCnpj) { doc.setFontSize(7.5); doc.text(`CNPJ: ${p.empresaCnpj}`, tx, 28) }
-  const reciboId = `${p.contrato.numero_contrato}-P${String(p.parcela.numero_parcela).padStart(2, '0')}`
+  doc.text('RECIBO DE PAGAMENTO', tx, 23)
+  if (p.empresaCnpj) { doc.setFontSize(7); doc.text(`CNPJ: ${p.empresaCnpj}`, tx, 29) }
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.text(`Recibo ${reciboId}`, W - M, 15, { align: 'right' })
+  doc.setFontSize(10)
+  doc.text(`Recibo ${reciboId}`, W - M, 16, { align: 'right' })
   doc.setFontSize(7.5)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(180, 210, 255)
   doc.text(`Emitido: ${fmtData(p.parcela.data_pagamento)}`, W - M, 23, { align: 'right' })
 
-  let y = 45
+  let y = 48
 
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(...DARK)
+  // ── PAGO badge ───────────────────────────────────────────────────────────────
+  const badgeW = 52, badgeH = 13
+  doc.setFillColor(220, 252, 231)
+  doc.setDrawColor(...GREEN)
+  doc.setLineWidth(0.8)
+  doc.roundedRect(W / 2 - badgeW / 2, y, badgeW, badgeH, 2.5, 2.5, 'FD')
+  doc.setFontSize(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...GREEN)
+  doc.text('PAGO', W / 2, y + 8.5, { align: 'center' })
+  y += badgeH + 7
+
+  // ── Cliente ───────────────────────────────────────────────────────────────────
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...DARK)
   doc.text('PAGADOR', M, y)
-  doc.setDrawColor(...BLUE); doc.setLineWidth(0.5); doc.line(M, y + 2, M + CW, y + 2)
-  y += 7
+  doc.setDrawColor(...BLUE)
+  doc.setLineWidth(0.5)
+  doc.line(M, y + 2, M + CW, y + 2)
+  y += 8
 
-  doc.setFontSize(13); doc.setFont('helvetica', 'bold'); doc.setTextColor(...DARK)
+  doc.setFontSize(14)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...DARK)
   doc.text(p.cliente.nome, M, y)
   y += 5.5
-  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
-  if (p.cliente.cpf) doc.text(`CPF: ${fmtCpf(p.cliente.cpf)}`, M, y)
-  doc.text(`Contrato: ${p.contrato.numero_contrato}`, M + 75, y)
-  y += 10
 
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(...DARK)
-  doc.text('DETALHES DO PAGAMENTO', M, y)
-  doc.setDrawColor(...BLUE); doc.setLineWidth(0.5); doc.line(M, y + 2, M + CW, y + 2)
-  y += 9
-
-  const detalhes: [string, string, boolean?][] = [
-    ['Parcela', `${p.parcela.numero_parcela} / ${p.parcela.total_parcelas}`],
-    ['Vencimento', fmtData(p.parcela.data_vencimento)],
-    ['Data de Pagamento', fmtData(p.parcela.data_pagamento)],
-    ['Valor da Parcela', fmt(p.parcela.valor)],
-  ]
-  if (p.parcela.juros_mora > 0) detalhes.push(['Juros Diários (mora)', fmt(p.parcela.juros_mora)])
-  if (p.parcela.multa > 0) detalhes.push(['Multa', fmt(p.parcela.multa)])
-  const totalDevido = p.parcela.valor + p.parcela.juros_mora + p.parcela.multa
-  const diff = totalDevido - p.parcela.valor_pago
-  if (diff > 0.01) detalhes.push(['Saldo restante (parcela seguinte)', `${fmt(diff)}`])
-  else if (diff < -0.01) detalhes.push(['Desconto concedido', `− ${fmt(Math.abs(diff))}`])
-
-  for (const [label, value] of detalhes) {
-    doc.setFontSize(7.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
-    doc.text(label, M, y)
-    doc.setFontSize(9.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(...DARK)
-    doc.text(value, W - M, y, { align: 'right' })
-    doc.setDrawColor(235, 240, 248); doc.setLineWidth(0.15)
-    doc.line(M, y + 2.5, M + CW, y + 2.5)
-    y += 8
+  const infoItems: string[] = []
+  if (p.cliente.cpf) infoItems.push(`CPF: ${fmtCpf(p.cliente.cpf)}`)
+  if (p.cliente.telefone) {
+    const t = p.cliente.telefone.replace(/\D/g, '')
+    const tf = t.length === 11 ? `(${t.slice(0, 2)}) ${t.slice(2, 7)}-${t.slice(7)}`
+      : t.length === 10 ? `(${t.slice(0, 2)}) ${t.slice(2, 6)}-${t.slice(6)}`
+      : t
+    infoItems.push(`Tel: ${tf}`)
   }
-  y += 2
+  infoItems.push(`Contrato: ${p.contrato.numero_contrato}`)
+  doc.setFontSize(8.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(...GRAY)
+  doc.text(infoItems.join('   ·   '), M, y)
+  y += 11
 
-  const formaLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque' }
+  // ── Detalhes em grade 2 colunas ───────────────────────────────────────────────
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...DARK)
+  doc.text('DETALHES DO PAGAMENTO', M, y)
+  doc.setDrawColor(...BLUE)
+  doc.setLineWidth(0.5)
+  doc.line(M, y + 2, M + CW, y + 2)
+  y += 7
+
+  const half = CW / 2 - 3
+  const diff = Math.round((p.parcela.valor - p.parcela.valor_pago) * 100) / 100
+  const gridCells: [string, string, string, string][] = [
+    ['Parcela', `${p.parcela.numero_parcela} de ${p.parcela.total_parcelas}`, 'Vencimento', fmtData(p.parcela.data_vencimento)],
+    ['Data de Pagamento', fmtData(p.parcela.data_pagamento), 'Forma de Pagamento', forma],
+    diff > 0.01
+      ? ['Valor da Parcela', fmt(p.parcela.valor), 'Saldo Pendente', fmt(diff)]
+      : diff < -0.01
+      ? ['Valor da Parcela', fmt(p.parcela.valor), 'Desconto', `- ${fmt(Math.abs(diff))}`]
+      : ['Valor da Parcela', fmt(p.parcela.valor), '', ''],
+  ]
+
+  for (const [l1, v1, l2, v2] of gridCells) {
+    doc.setFillColor(248, 250, 252)
+    doc.rect(M, y, half, 14, 'F')
+    if (l2) {
+      doc.setFillColor(248, 250, 252)
+      doc.rect(M + half + 6, y, half, 14, 'F')
+    }
+    doc.setFontSize(7)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...GRAY)
+    doc.text(l1, M + 3, y + 4.5)
+    doc.setFontSize(9.5)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...DARK)
+    doc.text(v1, M + 3, y + 10.5)
+    if (l2) {
+      doc.setFontSize(7)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...GRAY)
+      doc.text(l2, M + half + 9, y + 4.5)
+      doc.setFontSize(9.5)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(...DARK)
+      doc.text(v2, M + half + 9, y + 10.5)
+    }
+    y += 17
+  }
+  y += 3
+
+  // ── Valor box ─────────────────────────────────────────────────────────────────
   doc.setFillColor(...BLUE)
-  doc.rect(M, y, CW, 22, 'F')
-  doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(180, 210, 255)
-  doc.text(`Forma de Pagamento: ${formaLabel[p.parcela.tipo_pagamento] ?? p.parcela.tipo_pagamento}`, M + 5, y + 8)
-  doc.setFontSize(13); doc.setFont('helvetica', 'bold'); doc.setTextColor(...WHITE)
-  doc.text('VALOR RECEBIDO:', M + 5, y + 17)
-  doc.text(fmt(p.parcela.valor_pago), W - M - 5, y + 17, { align: 'right' })
-  y += 28
+  doc.rect(M, y, CW, 28, 'F')
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(180, 210, 255)
+  doc.text('VALOR RECEBIDO', M + CW / 2, y + 9, { align: 'center' })
+  doc.setFontSize(24)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(...WHITE)
+  doc.text(fmt(p.parcela.valor_pago), M + CW / 2, y + 22, { align: 'center' })
+  y += 34
 
-  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(65, 80, 100)
-  const decl = `Declaro ter recebido de ${p.cliente.nome} a quantia de ${fmt(p.parcela.valor_pago)}, referente ao pagamento da parcela ${p.parcela.numero_parcela}/${p.parcela.total_parcelas} do contrato ${p.contrato.numero_contrato}, mediante ${formaLabel[p.parcela.tipo_pagamento] ?? p.parcela.tipo_pagamento}, dando plena quitação para o presente ato.`
+  // ── Declaração ───────────────────────────────────────────────────────────────
+  doc.setFontSize(8.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(65, 80, 100)
+  const decl = `Declaro ter recebido de ${p.cliente.nome} a quantia de ${fmt(p.parcela.valor_pago)}, referente ao pagamento da parcela ${p.parcela.numero_parcela}/${p.parcela.total_parcelas} do contrato ${p.contrato.numero_contrato}, mediante ${forma}, dando plena quitação para o presente ato.`
   const declLines = doc.splitTextToSize(decl, CW) as string[]
   doc.text(declLines, M, y)
-  y += declLines.length * 4.5 + 10
+  y += declLines.length * 4.5 + 12
 
+  // ── Assinatura ────────────────────────────────────────────────────────────────
   const sw = 80
   doc.setDrawColor(50, 65, 80); doc.setLineWidth(0.3)
   doc.line(W / 2 - sw / 2, y, W / 2 + sw / 2, y)
@@ -604,8 +669,6 @@ export interface QuitacaoParams {
     data_pagamento: string | null
     valor: number
     valor_pago: number | null
-    juros_mora: number
-    multa: number
     tipo_pagamento: string | null
     status: string
   }>
@@ -679,14 +742,12 @@ export async function gerarQuitacaoPDF(params: QuitacaoParams): Promise<void> {
   const formaLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque' }
   autoTable(doc, {
     startY: y,
-    head: [['#', 'Vencimento', 'Pago em', 'Parcela', 'Juros Diários', 'Multa', 'Total Pago', 'Forma']],
+    head: [['#', 'Vencimento', 'Pago em', 'Valor da Parcela', 'Total Pago', 'Forma']],
     body: params.parcelas.map(p => [
       String(p.numero_parcela),
       fmtData(p.data_vencimento),
       fmtData(p.data_pagamento),
       fmt(p.valor),
-      p.juros_mora > 0 ? fmt(p.juros_mora) : '—',
-      p.multa > 0 ? fmt(p.multa) : '—',
       fmt(p.valor_pago ?? 0),
       formaLabel[p.tipo_pagamento ?? ''] ?? (p.tipo_pagamento ?? '—'),
     ]),
@@ -695,7 +756,7 @@ export async function gerarQuitacaoPDF(params: QuitacaoParams): Promise<void> {
     headStyles: { fillColor: BLUE, textColor: WHITE, fontStyle: 'bold', halign: 'center' as const, fontSize: 7 },
     columnStyles: {
       0: { halign: 'center' as const }, 1: { halign: 'center' as const },
-      2: { halign: 'center' as const }, 7: { halign: 'center' as const },
+      2: { halign: 'center' as const }, 5: { halign: 'center' as const },
     },
     alternateRowStyles: { fillColor: [248, 250, 252] },
   })
@@ -703,24 +764,12 @@ export async function gerarQuitacaoPDF(params: QuitacaoParams): Promise<void> {
   y = lastY(doc) + 6
 
   const totalPago = params.parcelas.reduce((s, p) => s + (p.valor_pago ?? 0), 0)
-  const totalJuros = params.parcelas.reduce((s, p) => s + p.juros_mora, 0)
-  const totalMulta = params.parcelas.reduce((s, p) => s + p.multa, 0)
 
   doc.setFillColor(...LIGHT)
-  doc.rect(M, y, CW, 30, 'F')
+  doc.rect(M, y, CW, 16, 'F')
   doc.setDrawColor(210, 220, 235); doc.setLineWidth(0.2)
-  doc.rect(M, y, CW, 30, 'S')
-  y += 7
-  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
-  doc.text('Total de Juros Diários:', M + 5, y)
-  doc.setFont('helvetica', 'bold'); doc.setTextColor(...DARK)
-  doc.text(totalJuros > 0 ? fmt(totalJuros) : '—', W - M - 5, y, { align: 'right' })
-  y += 7
-  doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY)
-  doc.text('Total de Multas:', M + 5, y)
-  doc.setFont('helvetica', 'bold'); doc.setTextColor(...DARK)
-  doc.text(totalMulta > 0 ? fmt(totalMulta) : '—', W - M - 5, y, { align: 'right' })
-  y += 7
+  doc.rect(M, y, CW, 16, 'S')
+  y += 9
   doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(...BLUE)
   doc.text('TOTAL PAGO:', M + 5, y)
   doc.text(fmt(totalPago), W - M - 5, y, { align: 'right' })
