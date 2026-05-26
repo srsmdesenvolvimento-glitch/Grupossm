@@ -121,18 +121,18 @@ function LoginForm() {
       <div className="lp-grain fixed inset-0 z-[2] pointer-events-none" />
 
       {/* ── Content ───────────────────────────────────────────────────── */}
-      <main className="relative z-10 min-h-screen flex flex-col items-center justify-center px-5 py-14">
-        <div className="w-full max-w-[400px] flex flex-col items-center">
+      <main className="relative z-10 min-h-screen flex flex-col items-center justify-center px-5 py-4">
+        <div className="w-full max-w-[380px] flex flex-col items-center">
 
           {/* ── Brand name ── */}
           <motion.div
-            initial={{ opacity: 0, y: -20, filter: 'blur(10px)' }}
+            initial={{ opacity: 0, y: -15, filter: 'blur(8px)' }}
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            transition={{ duration: 1.1, delay: 0.2, ease: EASE }}
-            className="flex flex-col items-center gap-1 mb-1"
+            transition={{ duration: 1.0, delay: 0.2, ease: EASE }}
+            className="flex flex-col items-center gap-0.5 mb-2"
           >
             <span
-              className="text-xs font-bold uppercase tracking-[0.3em]"
+              className="text-[10px] font-bold uppercase tracking-[0.3em]"
               style={{ color: 'rgba(212,165,40,0.5)' }}
             >
               Grupo
@@ -142,18 +142,18 @@ function LoginForm() {
             <motion.h2
               initial="hidden"
               animate="show"
-              variants={{ show: { transition: { staggerChildren: 0.13, delayChildren: 0.45 } } }}
+              variants={{ show: { transition: { staggerChildren: 0.1, delayChildren: 0.35 } } }}
               className="flex font-black leading-none tracking-tight select-none"
-              style={{ fontSize: 'clamp(3rem, 9vw, 4.5rem)' }}
+              style={{ fontSize: 'clamp(2.2rem, 7vw, 3rem)' }}
             >
               {['S','R','S','M'].map((l, i) => (
                 <motion.span
                   key={i}
                   variants={{
-                    hidden: { opacity: 0, y: 28, filter: 'blur(6px)' },
+                    hidden: { opacity: 0, y: 20, filter: 'blur(4px)' },
                     show:   { opacity: 1, y: 0,  filter: 'blur(0px)' },
                   }}
-                  transition={{ duration: 0.85, ease: EASE }}
+                  transition={{ duration: 0.7, ease: EASE }}
                   style={{
                     background: 'linear-gradient(160deg,#F5CC55 0%,#D4A528 45%,#A07010 100%)',
                     WebkitBackgroundClip: 'text',
@@ -169,22 +169,10 @@ function LoginForm() {
             <motion.div
               initial={{ scaleX: 0, opacity: 0 }}
               animate={{ scaleX: 1, opacity: 1 }}
-              transition={{ delay: 1.2, duration: 0.9, ease: EASE }}
-              className="h-px w-16 origin-left"
+              transition={{ delay: 0.9, duration: 0.7, ease: EASE }}
+              className="h-px w-12 origin-left mt-1"
               style={{ background: 'linear-gradient(90deg,#D4A528,rgba(212,165,40,0.1))' }}
             />
-          </motion.div>
-
-          {/* Divider */}
-          <motion.div
-            {...fadeUp(1.5)}
-            className="flex items-center gap-3 my-6 w-full max-w-[280px]"
-          >
-            <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg,transparent,rgba(212,165,40,0.25))' }} />
-            <span className="text-[10px] font-bold uppercase tracking-[0.22em]" style={{ color: 'rgba(212,165,40,0.5)' }}>
-              Sistema de Gestão
-            </span>
-            <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg,rgba(212,165,40,0.25),transparent)' }} />
           </motion.div>
 
           {/* Greeting pill */}
@@ -192,116 +180,105 @@ function LoginForm() {
             {greeting && (
               <motion.div
                 key={greeting.phase}
-                initial={{ opacity: 0, y: -10, scale: 0.92 }}
+                initial={{ opacity: 0, y: -8, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.92 }}
-                transition={{ duration: 0.45, ease: EASE }}
-                className="flex items-center gap-2.5 px-4 py-2.5 rounded-full mb-8"
+                exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                transition={{ duration: 0.4, ease: EASE }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full mb-4.5"
                 style={{
-                  background: 'rgba(212,165,40,0.07)',
-                  border: '1px solid rgba(212,165,40,0.2)',
-                  backdropFilter: 'blur(16px)',
+                  background: 'rgba(212,165,40,0.06)',
+                  border: '1px solid rgba(212,165,40,0.15)',
+                  backdropFilter: 'blur(12px)',
                 }}
               >
                 {phaseIcon[greeting.phase]}
-                <span className="text-sm font-bold" style={{ color: '#D4A528' }}>{greeting.text}</span>
-                <span className="w-px h-3.5" style={{ background: 'rgba(255,255,255,0.12)' }} />
-                <span className="text-sm font-mono font-semibold" style={{ color: 'rgba(255,255,255,0.5)' }}>{greeting.time}</span>
-                <span className="w-px h-3.5" style={{ background: 'rgba(255,255,255,0.12)' }} />
-                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                <span className="text-xs font-bold" style={{ color: '#D4A528' }}>{greeting.text}</span>
+                <span className="w-px h-3" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                <span className="text-xs font-mono font-semibold" style={{ color: 'rgba(255,255,255,0.5)' }}>{greeting.time}</span>
+                <span className="w-px h-3" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.25)' }}>
                   {greeting.date.split(',')[0]}
                 </span>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Heading */}
-          <motion.div {...fadeUp(1.9)} className="text-center mb-9">
-            <h1 className="text-4xl font-black text-white mb-2.5 tracking-tight leading-tight">
-              Bem-vindo
-            </h1>
-            <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.34)' }}>
-              Entre com suas credenciais para acessar o sistema
-            </p>
-          </motion.div>
-
           {/* Form card */}
-          <motion.div {...fadeUp(2.2)} className="w-full lp-card rounded-2xl p-7 mb-6">
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+          <motion.div {...fadeUp(1.3)} className="w-full lp-card rounded-2xl p-6 mb-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 
               {/* Email */}
-              <div className="space-y-2">
-                <label className="block text-[11px] font-bold uppercase tracking-[0.13em]"
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold uppercase tracking-[0.12em]"
                   style={{ color: 'rgba(255,255,255,0.3)' }}>
                   E-mail
                 </label>
                 <div className="relative">
-                  <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2"
+                  <Mail size={13} className="absolute left-3.5 top-1/2 -translate-y-1/2"
                     style={{ color: 'rgba(255,255,255,0.2)' }} />
                   <Input
                     id="email" type="email" placeholder="seu@email.com" autoComplete="email"
-                    className="lp-input pl-10 h-11 rounded-xl text-[15px] transition-all duration-200
-                      bg-white/[0.05] border-white/[0.09] text-white placeholder:text-white/[0.18]
+                    className="lp-input pl-9.5 h-10 rounded-xl text-sm transition-all duration-200
+                      bg-white/[0.04] border-white/[0.08] text-white placeholder:text-white/[0.15]
                       focus-visible:border-[#D4A528]/55 focus-visible:ring-1 focus-visible:ring-[#D4A528]/20
-                      focus-visible:bg-white/[0.08]"
+                      focus-visible:bg-white/[0.07]"
                     {...register('email')}
                   />
                 </div>
-                {errors.email && <p className="text-xs text-red-400">{errors.email.message}</p>}
+                {errors.email && <p className="text-xs text-red-400 mt-1">{errors.email.message}</p>}
               </div>
 
               {/* Senha */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-bold uppercase tracking-[0.13em]"
+                  <label className="block text-[10px] font-bold uppercase tracking-[0.12em]"
                     style={{ color: 'rgba(255,255,255,0.3)' }}>
                     Senha
                   </label>
-                  <a href="/esqueci-senha" className="lp-forgot text-xs transition-colors duration-200"
-                    style={{ color: 'rgba(255,255,255,0.22)' }}>
+                  <a href="/esqueci-senha" className="lp-forgot text-[11px] transition-colors duration-200"
+                    style={{ color: 'rgba(255,255,255,0.2)' }}>
                     Esqueci a senha
                   </a>
                 </div>
                 <div className="relative">
-                  <Lock size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2"
+                  <Lock size={13} className="absolute left-3.5 top-1/2 -translate-y-1/2"
                     style={{ color: 'rgba(255,255,255,0.2)' }} />
                   <Input
                     id="senha" type={verSenha ? 'text' : 'password'} placeholder="••••••••"
                     autoComplete="current-password"
-                    className="lp-input pl-10 pr-10 h-11 rounded-xl text-[15px] transition-all duration-200
-                      bg-white/[0.05] border-white/[0.09] text-white placeholder:text-white/[0.18]
+                    className="lp-input pl-9.5 pr-9.5 h-10 rounded-xl text-sm transition-all duration-200
+                      bg-white/[0.04] border-white/[0.08] text-white placeholder:text-white/[0.15]
                       focus-visible:border-[#D4A528]/55 focus-visible:ring-1 focus-visible:ring-[#D4A528]/20
-                      focus-visible:bg-white/[0.08]"
+                      focus-visible:bg-white/[0.07]"
                     {...register('senha')}
                   />
                   <button type="button" onClick={() => setVerSenha(v => !v)}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-opacity duration-200 hover:opacity-70"
-                    style={{ color: 'rgba(255,255,255,0.28)' }}>
-                    {verSenha ? <EyeOff size={14} /> : <Eye size={14} />}
+                    style={{ color: 'rgba(255,255,255,0.25)' }}>
+                    {verSenha ? <EyeOff size={13} /> : <Eye size={13} />}
                   </button>
                 </div>
-                {errors.senha && <p className="text-xs text-red-400">{errors.senha.message}</p>}
+                {errors.senha && <p className="text-xs text-red-400 mt-1">{errors.senha.message}</p>}
               </div>
 
               {/* Submit */}
-              <div className="pt-1">
+              <div className="pt-0.5">
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="lp-btn w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2.5
+                  className="lp-btn w-full h-11 rounded-xl font-bold text-xs flex items-center justify-center gap-2
                     transition-all duration-200 active:scale-[0.98] disabled:opacity-50 relative overflow-hidden"
                   style={{
                     background: 'linear-gradient(135deg,#D4A528 0%,#C9981C 50%,#B8860B 100%)',
                     color: '#0D0900',
-                    boxShadow: '0 4px 28px rgba(212,165,40,0.38)',
-                    fontSize: '14px',
+                    boxShadow: '0 4px 24px rgba(212,165,40,0.3)',
                     letterSpacing: '0.03em',
                   }}
                 >
                   <span className="lp-shimmer absolute inset-0 pointer-events-none" />
                   {isSubmitting
-                    ? <><Loader2 size={16} className="animate-spin" />Entrando...</>
-                    : <>Entrar no sistema<ArrowRight size={15} /></>
+                    ? <><Loader2 size={14} className="animate-spin" />Entrando...</>
+                    : <>Entrar no sistema<ArrowRight size={14} /></>
                   }
                 </button>
               </div>
@@ -310,30 +287,30 @@ function LoginForm() {
           </motion.div>
 
           {/* Feature pills */}
-          <div className="flex flex-wrap gap-2 justify-center mb-8">
+          <div className="flex flex-wrap gap-2 justify-center mb-4">
             {FEATURES.map(({ logo, label }, i) => (
               <motion.div
                 key={label}
-                initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                initial={{ opacity: 0, scale: 0.85, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                transition={{ delay: 2.8 + i * 0.1, duration: 0.6, type: 'spring', bounce: 0.25 }}
-                className="lp-pill flex items-center gap-2 px-3 py-1.5 rounded-full cursor-default"
-                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                transition={{ delay: 1.6 + i * 0.1, duration: 0.5, type: 'spring', bounce: 0.2 }}
+                className="lp-pill flex items-center gap-2 px-2.5 py-1 rounded-full cursor-default"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
               >
-                <Image src={logo} alt={label} width={18} height={18} className="object-contain rounded-sm" />
-                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.42)' }}>{label}</span>
+                <Image src={logo} alt={label} width={16} height={16} className="object-contain rounded-sm" />
+                <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.4)' }}>{label}</span>
               </motion.div>
             ))}
           </div>
 
           {/* Footer */}
-          <motion.div {...fadeUp(3.1)} className="flex items-center gap-3">
+          <motion.div {...fadeUp(1.9)} className="flex items-center gap-2.5 mt-1">
             <div className="flex items-center gap-1.5">
-              <div className="lp-dot w-1.5 h-1.5 rounded-full" style={{ background: '#4ade80' }} />
-              <span className="text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>Sistemas online</span>
+              <div className="lp-dot w-1.2 h-1.2 rounded-full" style={{ background: '#4ade80' }} />
+              <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.18)' }}>Sistemas online</span>
             </div>
-            <span style={{ color: 'rgba(255,255,255,0.1)' }}>·</span>
-            <span className="text-xs" style={{ color: 'rgba(255,255,255,0.15)' }}>
+            <span style={{ color: 'rgba(255,255,255,0.08)' }}>·</span>
+            <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.13)' }}>
               Grupo SRSM © 2026
             </span>
           </motion.div>
