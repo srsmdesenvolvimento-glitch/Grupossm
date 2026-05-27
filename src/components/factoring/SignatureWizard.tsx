@@ -25,6 +25,11 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   const [enviando, setEnviando] = useState(false)
   const [resultadoUrl, setResultadoUrl] = useState<string | null>(null)
 
+  // Calligraphy signature states
+  const [sigType, setSigType] = useState<'draw' | 'type'>('draw')
+  const [typedName, setTypedName] = useState('')
+  const [selectedFont, setSelectedFont] = useState<'Great Vibes' | 'Dancing Script' | 'Alex Brush'>('Great Vibes')
+
   // Refs for drawing canvas
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const isDrawing = useRef(false)
@@ -45,6 +50,78 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       )
     }
   }, [])
+
+  // Load calligraphic fonts dynamically on mount
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const link = document.createElement('link')
+      link.href = 'https://fonts.googleapis.com/css2?family=Alex+Brush&family=Dancing+Script:wght@600&family=Great+Vibes&display=swap'
+      link.rel = 'stylesheet'
+      document.head.appendChild(link)
+      return () => {
+        document.head.removeChild(link)
+      }
+    }
+  }, [])
+
+  // Initialize canvas background to white on mount or sigType change
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (canvas && sigType === 'draw') {
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+      }
+    }
+  }, [sigType])
+
+  // Draw typed name dynamically on canvas when input/font changes
+  useEffect(() => {
+    if (sigType === 'type') {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+
+      // Clear canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      // Draw background placeholder
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      // Draw thin grey signature guideline at bottom
+      ctx.strokeStyle = '#e2e8f0' // slate-200
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(30, canvas.height - 40)
+      ctx.lineTo(canvas.width - 30, canvas.height - 40)
+      ctx.stroke()
+
+      if (!typedName.trim()) {
+        // Draw placeholder text if empty
+        ctx.fillStyle = '#cbd5e1' // slate-300
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.font = "italic 16px sans-serif"
+        ctx.fillText('A assinatura aparecerá aqui...', canvas.width / 2, canvas.height / 2 - 10)
+        return
+      }
+
+      // Draw calligraphic text
+      ctx.fillStyle = '#0f172a' // slate-900 (ink color)
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      
+      let fontSize = 42
+      if (typedName.length > 15) fontSize = 34
+      if (typedName.length > 25) fontSize = 24
+      
+      ctx.font = `${fontSize}px '${selectedFont}', cursive`
+      ctx.fillText(typedName, canvas.width / 2, canvas.height / 2 - 15)
+    }
+  }, [typedName, selectedFont, sigType])
 
   // Canvas Drawing Logic
   const getCoordinates = (e: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent): { x: number, y: number } | null => {
@@ -68,6 +145,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   }
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (sigType === 'type') return // Disable drawing when typing
     // Prevent touch scrolling on mobile
     if (e.cancelable) e.preventDefault()
     
@@ -80,6 +158,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   }
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (sigType === 'type') return // Disable drawing when typing
     if (!isDrawing.current) return
     if (e.cancelable) e.preventDefault()
 
@@ -114,6 +193,13 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+    
+    if (sigType === 'type') {
+      setTypedName('')
+    } else {
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
   }
 
   // Camera file capture handlers
@@ -481,19 +567,89 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
         </div>
       )}
 
-      {/* STEP 4: DRAW DIGITAL SIGNATURE */}
+      {/* STEP 4: DRAW OR TYPE DIGITAL SIGNATURE */}
       {passo === 4 && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
           <div className="text-center space-y-1">
             <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
               <Award size={24} />
             </div>
-            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Assinatura Manuscrita</h2>
-            <p className="text-xs text-slate-400">Utilize o dedo ou mouse na caixa preta abaixo para fazer sua assinatura digital válida.</p>
+            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Assinatura Eletrônica</h2>
+            <p className="text-xs text-slate-400">Escolha desenhar sua assinatura ou simplesmente digite seu nome completo.</p>
           </div>
 
+          {/* Tab Selector between Draw and Type */}
+          <div className="flex bg-slate-950 p-1.5 rounded-full border border-slate-800 gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setSigType('draw')
+                clearCanvas()
+              }}
+              className={`flex-1 py-2 px-3 rounded-full text-[11px] font-black tracking-tight uppercase transition-all ${
+                sigType === 'draw' 
+                  ? 'bg-indigo-600 text-white shadow-md' 
+                  : 'text-slate-500 hover:text-slate-350'
+              }`}
+            >
+              Desenhar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSigType('type')
+                clearCanvas()
+              }}
+              className={`flex-1 py-2 px-3 rounded-full text-[11px] font-black tracking-tight uppercase transition-all ${
+                sigType === 'type' 
+                  ? 'bg-indigo-600 text-white shadow-md' 
+                  : 'text-slate-500 hover:text-slate-350'
+              }`}
+            >
+              Escrever / Digitar
+            </button>
+          </div>
+
+          {/* Typed Signature Input & Styles */}
+          {sigType === 'type' && (
+            <div className="w-full space-y-4 animate-fade-in">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Seu Nome Completo</label>
+                <input
+                  type="text"
+                  value={typedName}
+                  onChange={(e) => setTypedName(e.target.value)}
+                  placeholder="Digite seu nome para assinar..."
+                  className="w-full h-11 px-4 rounded-xl bg-slate-950 border border-slate-850 focus:border-indigo-500 text-slate-100 text-sm font-semibold placeholder:text-slate-700 transition-colors focus:outline-none"
+                />
+              </div>
+              
+              {/* Font Options Selector */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Estilo de Caligrafia</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['Great Vibes', 'Dancing Script', 'Alex Brush'] as const).map((font) => (
+                    <button
+                      key={font}
+                      type="button"
+                      onClick={() => setSelectedFont(font)}
+                      className={`py-2 px-1 rounded-lg border text-xs font-bold transition-all ${
+                        selectedFont === font
+                          ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400'
+                          : 'border-slate-800 bg-slate-950 hover:bg-slate-900 text-slate-500 hover:text-slate-400'
+                      }`}
+                      style={{ fontFamily: font }}
+                    >
+                      {font === 'Great Vibes' ? 'Elegante' : font === 'Dancing Script' ? 'Moderna' : 'Artística'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col items-center justify-center space-y-3">
-            <div className="w-full relative border border-slate-800 rounded-2xl overflow-hidden bg-slate-950 shadow-inner">
+            <div className="w-full relative border border-slate-800 rounded-2xl overflow-hidden bg-white shadow-inner">
               <canvas
                 ref={canvasRef}
                 width={400}
@@ -507,15 +663,17 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
                 onTouchEnd={stopDrawing}
                 className="w-full block touch-none cursor-crosshair"
               />
-              <button
-                onClick={clearCanvas}
-                className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wider px-3.5 py-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:text-indigo-400 text-slate-400 rounded-full transition-colors active:scale-95"
-              >
-                Limpar Quadro
-              </button>
+              {sigType === 'draw' && (
+                <button
+                  onClick={clearCanvas}
+                  className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wider px-3.5 py-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:text-indigo-400 text-slate-400 rounded-full transition-colors active:scale-95 shadow-lg"
+                >
+                  Limpar Quadro
+                </button>
+              )}
             </div>
             <p className="text-[10px] text-slate-500 font-semibold italic text-center w-full">
-              Sua assinatura manuscrita será vinculada à sua selfie, documento e endereço IP.
+              Sua assinatura digital registrada será vinculada à sua selfie, documento e endereço IP.
             </p>
           </div>
 
