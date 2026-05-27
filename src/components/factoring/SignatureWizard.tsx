@@ -1,0 +1,620 @@
+'use client'
+
+import { useState, useRef, useEffect } from 'react'
+import { 
+  FileText, ShieldCheck, Camera, Upload, Trash2, CheckCircle2, 
+  Loader2, Smartphone, MapPin, Award, ArrowRight, UserCheck, AlertTriangle 
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
+import { formatarMoeda, formatarCPF, formatarData } from '@/lib/utils/formatters'
+
+interface SignatureWizardProps {
+  id: string
+  contrato: any
+  cliente: any
+  parcelas: any[]
+}
+
+export default function SignatureWizard({ id, contrato, cliente, parcelas }: SignatureWizardProps) {
+  const [passo, setPasso] = useState(1)
+  const [termosAceitos, setTermosAceitos] = useState(false)
+  const [selfie, setSelfie] = useState<string | null>(null)
+  const [documento, setDocumento] = useState<string | null>(null)
+  const [geolocation, setGeolocation] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [resultadoUrl, setResultadoUrl] = useState<string | null>(null)
+
+  // Refs for drawing canvas
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const isDrawing = useRef(false)
+  const lastX = useRef(0)
+  const lastY = useRef(0)
+
+  // Capture user geolocation on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setGeolocation(`Lat: ${pos.coords.latitude.toFixed(4)}, Long: ${pos.coords.longitude.toFixed(4)} (precisão: ${pos.coords.accuracy.toFixed(0)}m)`)
+        },
+        () => {
+          setGeolocation('Permissão de geolocalização negada')
+        },
+        { enableHighAccuracy: true, timeout: 5000 }
+      )
+    }
+  }, [])
+
+  // Canvas Drawing Logic
+  const getCoordinates = (e: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent): { x: number, y: number } | null => {
+    const canvas = canvasRef.current
+    if (!canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    
+    // Check if touch event
+    if ('touches' in e && e.touches.length > 0) {
+      return {
+        x: e.touches[0].clientX - rect.left,
+        y: e.touches[0].clientY - rect.top
+      }
+    } else if ('clientX' in e) {
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      }
+    }
+    return null
+  }
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    // Prevent touch scrolling on mobile
+    if (e.cancelable) e.preventDefault()
+    
+    const coords = getCoordinates(e.nativeEvent)
+    if (!coords) return
+    
+    isDrawing.current = true
+    lastX.current = coords.x
+    lastY.current = coords.y
+  }
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing.current) return
+    if (e.cancelable) e.preventDefault()
+
+    const coords = getCoordinates(e.nativeEvent)
+    const canvas = canvasRef.current
+    if (!coords || !canvas) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.strokeStyle = '#000000'
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    ctx.lineWidth = 2.5
+
+    ctx.beginPath()
+    ctx.moveTo(lastX.current, lastY.current)
+    ctx.lineTo(coords.x, coords.y)
+    ctx.stroke()
+
+    lastX.current = coords.x
+    lastY.current = coords.y
+  }
+
+  const stopDrawing = () => {
+    isDrawing.current = false
+  }
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
+  // Camera file capture handlers
+  const processImageFile = (file: File, callback: (base64: string) => void) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('O arquivo selecionado precisa ser uma imagem.')
+      return
+    }
+    
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      if (e.target?.result && typeof e.target.result === 'string') {
+        callback(e.target.result)
+      }
+    }
+    reader.onerror = () => {
+      toast.error('Erro ao ler a imagem. Tente novamente.')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleDocumentCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      processImageFile(file, (base64) => {
+        setDocumento(base64)
+        toast.success('Foto do documento anexada com sucesso!')
+      })
+    }
+  }
+
+  const handleSelfieCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      processImageFile(file, (base64) => {
+        setSelfie(base64)
+        toast.success('Foto da selfie anexada com sucesso!')
+      })
+    }
+  }
+
+  // Submit Signature
+  const handleSubmitSignature = async () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    // Verify if canvas is empty
+    const blank = document.createElement('canvas')
+    blank.width = canvas.width
+    blank.height = canvas.height
+    if (canvas.toDataURL() === blank.toDataURL()) {
+      toast.warning('Por favor, faça seu desenho de assinatura no quadro antes de continuar.')
+      return
+    }
+
+    const signatureBase64 = canvas.toDataURL('image/png')
+    
+    setEnviando(true)
+    setPasso(5)
+
+    try {
+      const response = await fetch(`/api/emprestimos/${id}/assinar`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          selfie,
+          documento,
+          assinatura: signatureBase64,
+          geolocation,
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.erro || 'Falha ao processar assinatura eletrônica.')
+      }
+
+      setResultadoUrl(data.url)
+      toast.success('Contrato assinado digitalmente com sucesso!')
+    } catch (err: any) {
+      console.error('Erro de assinatura:', err)
+      toast.error(err.message || 'Erro ao processar assinatura eletrônica no servidor.')
+      setPasso(4) // Fallback to drawing if failed
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="flex-1 flex flex-col max-w-lg w-full mx-auto p-4 md:py-8 justify-center">
+      
+      {/* Wizard Header Status Bar */}
+      {passo < 5 && (
+        <div className="mb-6 space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
+            <span>Passo {passo} de 4</span>
+            <span>
+              {passo === 1 && 'Dados do Contrato'}
+              {passo === 2 && 'Comprovação Documento'}
+              {passo === 3 && 'Selfie de Segurança'}
+              {passo === 4 && 'Assinatura Digital'}
+            </span>
+          </div>
+          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden flex gap-0.5">
+            <div className={`h-full transition-all duration-300 ${passo >= 1 ? 'bg-indigo-500' : 'bg-slate-800'} flex-1`} />
+            <div className={`h-full transition-all duration-300 ${passo >= 2 ? 'bg-indigo-500' : 'bg-slate-800'} flex-1`} />
+            <div className={`h-full transition-all duration-300 ${passo >= 3 ? 'bg-indigo-500' : 'bg-slate-800'} flex-1`} />
+            <div className={`h-full transition-all duration-300 ${passo >= 4 ? 'bg-indigo-500' : 'bg-slate-800'} flex-1`} />
+          </div>
+        </div>
+      )}
+
+      {/* STEP 1: CONTRACT DETAILS */}
+      {passo === 1 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
+          <div className="text-center space-y-1">
+            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
+              <FileText size={24} />
+            </div>
+            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Assinatura Eletrônica</h2>
+            <p className="text-xs text-slate-400">Revise com atenção as condições do seu contrato de empréstimo.</p>
+          </div>
+
+          <div className="bg-slate-950 rounded-2xl border border-slate-800 p-4 space-y-3.5">
+            <div className="border-b border-slate-900 pb-2 flex items-center justify-between text-xs">
+              <span className="font-semibold text-slate-400">Identificação</span>
+              <span className="font-mono font-bold text-indigo-400">{contrato.numero_contrato}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <p className="text-slate-400 mb-0.5">Valor Financiado</p>
+                <p className="font-extrabold text-sm text-slate-200">{formatarMoeda(contrato.valor_principal)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 mb-0.5">Valor da Parcela</p>
+                <p className="font-extrabold text-sm text-slate-200">{formatarMoeda(contrato.valor_parcela)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 mb-0.5">Parcelamento</p>
+                <p className="font-bold text-slate-200">{contrato.prazo_meses}x parcelas fixas</p>
+              </div>
+              <div>
+                <p className="text-slate-400 mb-0.5">Taxa de Juros</p>
+                <p className="font-bold text-slate-200">{contrato.taxa_juros}% a.m.</p>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-900 pt-3 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Nome do Tomador:</span>
+                <span className="font-bold text-slate-200 text-right truncate max-w-[180px]">{cliente.nome}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">CPF do Tomador:</span>
+                <span className="font-bold font-mono text-slate-200">{formatarCPF(cliente.cpf)}</span>
+              </div>
+              {contrato.garantias && (
+                <div className="flex flex-col gap-0.5 pt-1.5 border-t border-slate-900/60">
+                  <span className="text-slate-400">Garantias Vinculadas:</span>
+                  <span className="font-semibold text-slate-300 italic">{contrato.garantias}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-amber-500/5 border border-amber-500/10 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-amber-300/90">
+            <ShieldCheck size={18} className="text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold mb-0.5">Autenticação por Biometria Facial</p>
+              <p className="text-[11px] text-slate-400">
+                Para prosseguir com a assinatura válida, você precisará capturar a foto do seu documento de identidade e uma selfie do seu rosto para resguardo operacional.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-2">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={termosAceitos}
+                onChange={(e) => setTermosAceitos(e.target.checked)}
+                className="mt-0.5 w-4 h-4 text-indigo-600 bg-slate-950 border-slate-800 rounded focus:ring-indigo-500 focus:ring-offset-slate-900"
+              />
+              <span className="text-xs text-slate-400 leading-relaxed font-semibold">
+                Li, compreendo perfeitamente e estou de acordo com as condições estipuladas do empréstimo e termos deste documento.
+              </span>
+            </label>
+
+            <Button
+              className="w-full h-11 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-950/50 disabled:opacity-50 transition-all duration-150 gap-2"
+              disabled={!termosAceitos}
+              onClick={() => setPasso(2)}
+            >
+              <span>Prosseguir para Comprovação</span>
+              <ArrowRight size={16} />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 2: DOCUMENT CAPTURE */}
+      {passo === 2 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
+          <div className="text-center space-y-1">
+            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
+              <Upload size={24} />
+            </div>
+            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Foto do Documento</h2>
+            <p className="text-xs text-slate-400">Anexe ou tire uma foto legível da frente/verso do seu documento de identidade (RG ou CNH).</p>
+          </div>
+
+          <div className="flex flex-col items-center justify-center">
+            {documento ? (
+              <div className="relative w-full rounded-2xl border border-slate-800 overflow-hidden bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-inner">
+                <img 
+                  src={documento} 
+                  alt="Pré-visualização do Documento" 
+                  className="max-h-full max-w-full object-contain"
+                />
+                <button
+                  onClick={() => setDocumento(null)}
+                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ) : (
+              <label className="w-full rounded-2xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 bg-slate-950 aspect-[4/3] flex flex-col items-center justify-center gap-3 cursor-pointer transition-all p-4 text-center">
+                <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-indigo-400 transition-colors shadow-sm">
+                  <Camera size={26} />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-300">Tirar Foto do Documento</p>
+                  <p className="text-[10px] text-slate-500 mt-1 max-w-[200px] mx-auto">
+                    Use a câmera traseira em local bem iluminado ou selecione um arquivo.
+                  </p>
+                </div>
+                {/* Mobile capture support environment = rear camera */}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleDocumentCapture}
+                  className="hidden"
+                />
+              </label>
+            )}
+          </div>
+
+          <div className="bg-slate-950/60 border border-slate-800/40 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-slate-400">
+            <AlertTriangle size={18} className="text-indigo-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-slate-300 mb-0.5">Dicas de Captura</p>
+              <ul className="list-disc pl-4 space-y-1 text-[11px]">
+                <li>Remova o documento do plástico de proteção.</li>
+                <li>Evite reflexos diretos de lâmpadas ou flash.</li>
+                <li>Certifique-se de que os dados e fotos estejam totalmente nítidos.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1 h-11 rounded-full font-bold border-slate-800 hover:bg-slate-850 text-slate-400"
+              onClick={() => setPasso(1)}
+            >
+              Voltar
+            </Button>
+            <Button
+              className="flex-1 h-11 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 shadow-lg shadow-indigo-950/50 transition-all gap-1"
+              disabled={!documento}
+              onClick={() => setPasso(3)}
+            >
+              <span>Avançar</span>
+              <ArrowRight size={16} />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 3: SELFIE CAPTURE */}
+      {passo === 3 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
+          <div className="text-center space-y-1">
+            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
+              <UserCheck size={24} />
+            </div>
+            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Selfie de Segurança</h2>
+            <p className="text-xs text-slate-400">Enquadre seu rosto perfeitamente e tire uma foto de frente para validação biométrica facial.</p>
+          </div>
+
+          <div className="flex flex-col items-center justify-center">
+            {selfie ? (
+              <div className="relative w-full rounded-2xl border border-slate-800 overflow-hidden bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-inner">
+                <img 
+                  src={selfie} 
+                  alt="Pré-visualização da Selfie" 
+                  className="max-h-full max-w-full object-contain"
+                />
+                <button
+                  onClick={() => setSelfie(null)}
+                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ) : (
+              <label className="w-full rounded-2xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 bg-slate-950 aspect-[4/3] flex flex-col items-center justify-center gap-3 cursor-pointer transition-all p-4 text-center">
+                <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-indigo-400 transition-colors shadow-sm relative overflow-hidden">
+                  {/* Glowing camera ring */}
+                  <div className="absolute inset-0 rounded-full border border-indigo-500/10 animate-ping opacity-70" />
+                  <Camera size={26} className="relative z-10" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-300">Tirar Selfie do Rosto</p>
+                  <p className="text-[10px] text-slate-500 mt-1 max-w-[200px] mx-auto">
+                    Tire uma foto frontal com a câmera de selfie ou selecione um arquivo.
+                  </p>
+                </div>
+                {/* Mobile capture support user = front camera */}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  onChange={handleSelfieCapture}
+                  className="hidden"
+                />
+              </label>
+            )}
+          </div>
+
+          <div className="bg-slate-950/60 border border-slate-800/40 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-slate-400">
+            <AlertTriangle size={18} className="text-indigo-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-slate-300 mb-0.5">Aviso Importante</p>
+              <ul className="list-disc pl-4 space-y-1 text-[11px]">
+                <li>Evite usar óculos escuros, bonés ou chapéu.</li>
+                <li>Mantenha uma expressão facial neutra e natural.</li>
+                <li>Fique em um local com iluminação frontal adequada.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1 h-11 rounded-full font-bold border-slate-800 hover:bg-slate-850 text-slate-400"
+              onClick={() => setPasso(2)}
+            >
+              Voltar
+            </Button>
+            <Button
+              className="flex-1 h-11 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 shadow-lg shadow-indigo-950/50 transition-all gap-1"
+              disabled={!selfie}
+              onClick={() => setPasso(4)}
+            >
+              <span>Avançar</span>
+              <ArrowRight size={16} />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 4: DRAW DIGITAL SIGNATURE */}
+      {passo === 4 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
+          <div className="text-center space-y-1">
+            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
+              <Award size={24} />
+            </div>
+            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Assinatura Manuscrita</h2>
+            <p className="text-xs text-slate-400">Utilize o dedo ou mouse na caixa preta abaixo para fazer sua assinatura digital válida.</p>
+          </div>
+
+          <div className="flex flex-col items-center justify-center space-y-3">
+            <div className="w-full relative border border-slate-800 rounded-2xl overflow-hidden bg-slate-950 shadow-inner">
+              <canvas
+                ref={canvasRef}
+                width={400}
+                height={180}
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+                onTouchStart={startDrawing}
+                onTouchMove={draw}
+                onTouchEnd={stopDrawing}
+                className="w-full block touch-none cursor-crosshair"
+              />
+              <button
+                onClick={clearCanvas}
+                className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wider px-3.5 py-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:text-indigo-400 text-slate-400 rounded-full transition-colors active:scale-95"
+              >
+                Limpar Quadro
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 font-semibold italic text-center w-full">
+              Sua assinatura manuscrita será vinculada à sua selfie, documento e endereço IP.
+            </p>
+          </div>
+
+          <div className="bg-slate-950/60 border border-slate-800/40 rounded-2xl p-3.5 space-y-2 text-[11px] text-slate-400 leading-relaxed">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+              <Smartphone size={14} className="text-indigo-400" />
+              <span>Metadados de Resguardo Jurídico</span>
+            </div>
+            <div className="space-y-1 font-semibold">
+              <div className="flex items-center gap-1.5">
+                <MapPin size={12} className="text-slate-500" />
+                <span>Geolocalização:</span>
+                <span className="text-slate-300 truncate max-w-[280px]">{geolocation || 'Buscando coordenadas...'}</span>
+              </div>
+              <p className="text-[10px] text-slate-500 leading-normal">
+                Nos moldes da MP 2.200-2/2001, registramos a assinatura digital integrada a IP e biometria para segurança operacional mútua.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1 h-11 rounded-full font-bold border-slate-800 hover:bg-slate-850 text-slate-400"
+              onClick={() => setPasso(3)}
+            >
+              Voltar
+            </Button>
+            <Button
+              className="flex-1 h-11 rounded-full font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-950/50 transition-all gap-1.5"
+              onClick={handleSubmitSignature}
+            >
+              <CheckCircle2 size={16} />
+              <span>Confirmar & Assinar</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 5: LOADING / SUCCESS PAGE */}
+      {passo === 5 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-6 shadow-2xl relative overflow-hidden animate-fade-in-up">
+          {enviando ? (
+            <div className="py-8 space-y-6">
+              <div className="w-16 h-16 rounded-full border border-indigo-500/10 flex items-center justify-center mx-auto text-indigo-500 relative">
+                <Loader2 size={32} className="animate-spin relative z-10" />
+                <div className="absolute inset-0 rounded-full border border-indigo-500/20 animate-ping opacity-60" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black tracking-tight text-slate-100">Processando Assinatura...</h2>
+                <p className="text-xs text-slate-400 mt-2 max-w-xs mx-auto leading-relaxed">
+                  Estamos fazendo o upload seguro das fotos, gerando seu Termo de Autenticidade Digital e assinando o seu contrato oficial. Aguarde alguns segundos.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="py-6 space-y-6 animate-scale-up">
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-500" />
+              
+              <div className="w-18 h-18 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto text-emerald-500 relative">
+                <CheckCircle2 size={40} className="relative z-10" />
+                <div className="absolute inset-0 rounded-full border border-emerald-500/10 animate-ping opacity-40" />
+              </div>
+              
+              <div className="space-y-2">
+                <h2 className="text-xl font-black text-slate-100 tracking-tight">Contrato Assinado com Sucesso!</h2>
+                <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+                  Parabéns! O processo de assinatura digital do contrato **{contrato.numero_contrato}** foi concluído com sucesso e está 100% verificado.
+                </p>
+              </div>
+
+              <div className="bg-slate-950 rounded-2xl border border-slate-800 p-4 text-left text-[11px] font-semibold text-slate-400 space-y-1.5 max-w-xs mx-auto">
+                <p className="text-center font-bold text-slate-300 uppercase tracking-wider text-[9px] mb-1">Registro de Autenticidade</p>
+                <div className="flex justify-between">
+                  <span>Tomador:</span>
+                  <span className="text-slate-200">{cliente.nome}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Horário:</span>
+                  <span className="text-slate-200 font-mono">{new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Validação:</span>
+                  <span className="text-emerald-500 font-bold">Biometria e Evidências Salvas</span>
+                </div>
+              </div>
+
+              {resultadoUrl && (
+                <div className="pt-2 max-w-xs mx-auto">
+                  <a href={resultadoUrl} target="_blank" rel="noopener noreferrer" 
+                    className="flex items-center justify-center w-full h-11 rounded-full font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-950/40 transition-all text-sm active:scale-[0.98]">
+                    Visualizar Contrato Assinado
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

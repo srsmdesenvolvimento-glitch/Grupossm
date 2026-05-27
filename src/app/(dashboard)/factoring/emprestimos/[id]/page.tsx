@@ -145,6 +145,15 @@ export default function EmprestimoDetalhePage() {
 
   async function handleGerarContrato() {
     if (!emprestimo || !cliente) return
+
+    // Se estiver assinado digitalmente, abre o PDF assinado oficial diretamente
+    const assinaturaDoc = Array.isArray(emprestimo.documentos) && 
+      (emprestimo.documentos.find((doc: any) => doc.tipo === 'assinatura_digital') as any)
+    if (assinaturaDoc?.url) {
+      window.open(assinaturaDoc.url, '_blank')
+      return
+    }
+
     setGerandoPDF(true)
     try {
       await gerarContratoPDF({
@@ -854,6 +863,20 @@ export default function EmprestimoDetalhePage() {
                 >
                   {statusInfo.label}
                 </span>
+                
+                {(() => {
+                  const isAssinado = Array.isArray(emprestimo.documentos) && 
+                    emprestimo.documentos.some((doc: any) => doc.tipo === 'assinatura_digital')
+                  return (
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                      isAssinado 
+                        ? 'bg-[#E6F4EA] text-[#34A853] border-[#34A853]/20' 
+                        : 'bg-[#FEF7E0] text-[#FBBC04] border-[#FBBC04]/20'
+                    }`}>
+                      {isAssinado ? '✓ Assinado' : '⏰ Assinatura Pendente'}
+                    </span>
+                  )
+                })()}
               </div>
               <p className="text-xs text-muted-foreground/60 font-semibold">
                 {emprestimo.data_liberacao ? `Data de Liberação: ${formatarData(emprestimo.data_liberacao)}` : 'Aguardando Liberação'}
@@ -914,6 +937,55 @@ export default function EmprestimoDetalhePage() {
             )}
           </div>
         </div>
+
+        {/* Signature Alert / Action Panel */}
+        {(() => {
+          const isAssinado = Array.isArray(emprestimo.documentos) && 
+            emprestimo.documentos.some((doc: any) => doc.tipo === 'assinatura_digital')
+          
+          if (isAssinado || ['quitado', 'cancelado'].includes(emprestimo.status)) return null
+          
+          const linkAssinatura = typeof window !== 'undefined' 
+            ? `${window.location.origin}/assinar/${emprestimo.id}` 
+            : ''
+            
+          const handleCopiarLink = () => {
+            navigator.clipboard.writeText(linkAssinatura)
+            toast.success('Link de assinatura eletrônica copiado!')
+          }
+          
+          const handleEnviarWhatsApp = () => {
+            if (!cliente) return
+            const tel = (cliente.telefone ?? '').replace(/\D/g, '')
+            const numero = tel.startsWith('55') ? tel : `55${tel}`
+            const msg = `Olá, ${cliente.nome.split(' ')[0]}! Por favor, realize a assinatura eletrônica segura do seu contrato de empréstimo ${emprestimo.numero_contrato} clicando no link abaixo:\n\n🔗 ${linkAssinatura}\n\nVocê precisará capturar a foto do seu documento de identidade e uma selfie do seu rosto para comprovação.`
+            window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank')
+          }
+          
+          return (
+            <div className="bg-[#FEF7E0]/40 border border-[#FBBC04]/20 rounded-3xl p-5 flex flex-wrap items-center justify-between gap-4 shadow-m3-1 relative overflow-hidden transition-all hover:shadow-m3-2 animate-fade-in-up">
+              <div className="absolute top-0 bottom-0 left-0 w-1.5 bg-[#FBBC04]" />
+              <div className="flex gap-3 max-w-xl min-w-0">
+                <span className="text-xl mt-0.5 shrink-0">⏰</span>
+                <div className="min-w-0">
+                  <h4 className="font-extrabold text-foreground text-sm leading-normal">Contrato Aguardando Assinatura Digital</h4>
+                  <p className="text-xs text-muted-foreground leading-relaxed mt-1">
+                    Este contrato ainda não foi assinado eletronicamente pelo tomador **{cliente?.nome ?? ''}**. Envie o link seguro para que o cliente realize a biometria facial e assinatura.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="h-9.5 rounded-full border-border/80 hover:bg-muted font-bold text-xs" onClick={handleCopiarLink}>
+                  Copiar Link
+                </Button>
+                <Button size="sm" className="h-9.5 rounded-full text-white bg-[#1A73E8] hover:bg-[#1557B0] font-bold text-xs gap-1.5 shadow-sm" onClick={handleEnviarWhatsApp}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-send"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  Enviar via WhatsApp
+                </Button>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Info Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1154,7 +1226,7 @@ export default function EmprestimoDetalhePage() {
               </div>
             )}
 
-            {/* Guarantees */}
+            {/* Garantias */}
             {emprestimo.garantias && (
               <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 relative overflow-hidden">
                 <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
@@ -1162,6 +1234,69 @@ export default function EmprestimoDetalhePage() {
                 <p className="text-xs text-muted-foreground font-semibold leading-relaxed">{emprestimo.garantias}</p>
               </div>
             )}
+
+            {/* Assinatura Eletrônica Card */}
+            {(() => {
+              const isAssinado = Array.isArray(emprestimo.documentos) && 
+                emprestimo.documentos.some((doc: any) => doc.tipo === 'assinatura_digital')
+              if (!isAssinado) return null
+              
+              const signatureDoc = (emprestimo.documentos as any[]).find((doc: any) => doc.tipo === 'assinatura_digital')
+              const meta = signatureDoc?.metadata
+              if (!meta) return null
+              
+              return (
+                <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 relative overflow-hidden space-y-4">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-[#34A853]" />
+                  <h3 className="font-bold text-foreground text-xs uppercase tracking-wider border-b border-border/40 pb-2 flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#34A853] inline-block animate-pulse" />
+                    Assinatura Homologada
+                  </h3>
+                  
+                  <div className="text-[11px] space-y-2 font-semibold text-muted-foreground leading-normal">
+                    <div className="flex justify-between">
+                      <span>Assinado em:</span>
+                      <span className="text-foreground font-mono">{formatarData(meta.signed_at.split('T')[0])} {meta.signed_at.split('T')[1]?.substring(0, 5)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>IP de Origem:</span>
+                      <span className="text-foreground font-mono">{meta.ip}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Geolocalização:</span>
+                      <span className="text-foreground text-right truncate max-w-[150px]">{meta.geolocation}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3.5 pt-2">
+                    {meta.selfie_url && (
+                      <div className="space-y-1 text-center">
+                        <p className="text-[9px] font-bold text-muted-foreground/60 uppercase tracking-wider">Selfie Coletada</p>
+                        <a href={meta.selfie_url} target="_blank" rel="noreferrer" className="block border border-border/60 rounded-xl overflow-hidden bg-muted/20 aspect-square hover:opacity-85 transition-opacity">
+                          <img src={meta.selfie_url} alt="Selfie" className="w-full h-full object-cover" />
+                        </a>
+                      </div>
+                    )}
+                    {meta.doc_url && (
+                      <div className="space-y-1 text-center">
+                        <p className="text-[9px] font-bold text-muted-foreground/60 uppercase tracking-wider">Documento</p>
+                        <a href={meta.doc_url} target="_blank" rel="noreferrer" className="block border border-border/60 rounded-xl overflow-hidden bg-muted/20 aspect-square hover:opacity-85 transition-opacity">
+                          <img src={meta.doc_url} alt="Documento" className="w-full h-full object-cover" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="pt-2">
+                    <a href={(signatureDoc as any).url} target="_blank" rel="noreferrer" 
+                      className="inline-flex items-center justify-center w-full h-9 rounded-full font-bold text-[#34A853] hover:bg-[#E6F4EA] border border-[#34A853]/20 bg-background text-xs gap-1.5 shadow-sm transition-colors">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-check-circle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                      Ver Contrato Assinado
+                    </a>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Docs */}
             <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 relative overflow-hidden space-y-3">

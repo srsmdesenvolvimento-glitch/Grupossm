@@ -939,3 +939,276 @@ export async function gerarQuitacaoPDF(params: QuitacaoParams, options?: { outpu
   }
   doc.save(`quitacao-${params.contrato.numero_contrato}.pdf`)
 }
+
+// ── Assinatura Eletrônica & Comprovante de Autenticidade Digital ───────────
+
+export interface AssinaturaEvidencia {
+  signed_at: string
+  ip: string
+  user_agent: string
+  selfie_url?: string
+  doc_url?: string
+  signature_base64?: string
+  geolocation?: string
+}
+
+export async function gerarContratoComAssinaturaPDF(
+  params: ContratoParams & { assinatura: AssinaturaEvidencia },
+  options?: { output?: 'save' | 'blob' }
+): Promise<Blob | void> {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const W = 210, M = 10
+
+  const company = getCompanyDetails(params)
+  
+  // ── PÁGINA 1: O CONTRATO ORIGINAL ──
+  let y = drawMarketUpHeader(
+    doc,
+    'CONTRATO DE EMPRÉSTIMO COM GARANTIAS',
+    `CONTRATO: ${params.contrato.numero_contrato}`,
+    'SRS M FACTORING',
+    company,
+    params.cliente,
+    {
+      criacao: params.contrato.data_liberacao || new Date().toISOString().split('T')[0],
+      emissao: new Date().toISOString().split('T')[0],
+      vencimento: params.parcelas[0]?.data_vencimento || new Date().toISOString().split('T')[0]
+    },
+    M
+  )
+
+  const itens = [
+    {
+      ref: 'MÚTUO-PRIN',
+      desc: `PRINCIPAL LIBERADO REFERENTE AO CONTRATO ${params.contrato.numero_contrato}`,
+      qtd: '1,000',
+      valor: params.contrato.valor_principal,
+      total: params.contrato.valor_principal
+    },
+    {
+      ref: 'MÚTUO-JURM',
+      desc: `ENCARGOS FINANCEIROS SOBRE O MÚTUO PACTUADO (${params.contrato.taxa_juros}% A.M.)`,
+      qtd: '1,000',
+      valor: params.contrato.total_juros,
+      total: params.contrato.total_juros
+    }
+  ]
+
+  y = drawMarketUpItens(doc, itens, y)
+  
+  const totais = {
+    itens: params.contrato.valor_principal,
+    desconto: 0,
+    frete: 0,
+    outros: params.contrato.total_juros,
+    total: params.contrato.total_pagar
+  }
+
+  y = drawMarketUpTotals(doc, totais, y)
+
+  const condicoes = params.parcelas.slice(0, 10).map(p => ({
+    desc: `PROMESSORIA (PARCELA ${String(p.numero_parcela).padStart(2, '0')}/${String(params.contrato.prazo_meses).padStart(2, '0')})`,
+    vencimento: p.data_vencimento,
+    pagamento: '',
+    valor: p.valor,
+    saldo: p.valor,
+    observacao: 'EM ABERTO'
+  }))
+
+  y = drawMarketUpCondicoes(doc, condicoes, y)
+
+  const obsText = params.contrato.observacoes ?? ''
+  const matchMora = obsText.match(/\[Mora:\s*([\d.]+)%\s*ao\s*dia\]/)
+  const jurosMoraDiario = matchMora ? parseFloat(matchMora[1]) : 0.033
+  const obsLimpa = obsText.replace(/\[Mora:\s*[\d.]+%\s*ao\s*dia\]/, '').trim()
+
+  const obs = `GARANTIAS APRESENTADAS: ${params.contrato.garantias || 'NÃO ESPECIFICADAS'}. JUROS DE MORA POR ATRASO PACTUADO: ${jurosMoraDiario}% AO DIA. OBSERVACÕES GERAIS: ${obsLimpa || 'SEM OBSERVACÕES ADICIONAIS'}. ESTE CONTRATO SERVE COMO TÍTULO EXECUTIVO EXTRAJUDICIAL CONFORME LEGISLAÇÃO VIGENTE.`
+  
+  drawMarketUpFooterAndSignatures(doc, company, params.cliente.nome, obs, y, W)
+
+  // ── PÁGINA 2: COMPROVANTE DE AUTENTICIDADE DIGITAL ──
+  doc.addPage()
+  
+  // Page Border Box
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.25)
+  doc.rect(10, 10, 190, 277)
+  
+  // Header
+  doc.setFillColor(240, 240, 240)
+  doc.rect(10, 10, 190, 15, 'F')
+  doc.rect(10, 10, 190, 15)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.setTextColor(0, 0, 0)
+  doc.text('COMPROVANTE DE ASSINATURA ELETRÔNICA & AUTENTICIDADE DIGITAL', 15, 19)
+  
+  // Contrato Info Row
+  doc.rect(10, 25, 190, 12)
+  doc.line(75, 25, 75, 37)
+  doc.line(135, 25, 135, 37)
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(80, 80, 80)
+  doc.text('Identificação do Contrato', 12, 28.5)
+  doc.text('Nome do Tomador / Devedor', 77, 28.5)
+  doc.text('CPF do Tomador', 137, 28.5)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(0, 0, 0)
+  doc.text(params.contrato.numero_contrato, 12, 33)
+  doc.text(params.cliente.nome.toUpperCase(), 77, 33)
+  doc.text(fmtCpf(params.cliente.cpf), 137, 33)
+  
+  // Signature Metadata Box
+  doc.rect(10, 37, 190, 20)
+  doc.line(100, 37, 100, 57)
+  doc.line(10, 47, 200, 47)
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(80, 80, 80)
+  doc.text('Data/Hora de Assinatura (Brasília)', 12, 40.5)
+  doc.text('IP do Dispositivo', 102, 40.5)
+  doc.text('Navegador / User Agent', 12, 50.5)
+  doc.text('Geolocalização / Coordenadas', 102, 50.5)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(0, 0, 0)
+  doc.text(fmtData(params.assinatura.signed_at.split('T')[0]) + ' ' + (params.assinatura.signed_at.split('T')[1] ? params.assinatura.signed_at.split('T')[1].substring(0, 8) : ''), 12, 44.5)
+  doc.text(params.assinatura.ip || 'Não detectado', 102, 44.5)
+  
+  const uaLines = doc.splitTextToSize(params.assinatura.user_agent || 'Não detectado', 84)
+  doc.text(uaLines, 12, 53.5)
+  doc.text(params.assinatura.geolocation || 'Não fornecida pelo dispositivo', 102, 54.5)
+  
+  // Section: Evidências Visuais
+  drawSectionHeaderBox(doc, 'EVIDÊNCIAS DE IDENTIFICAÇÃO E COMPROVAÇÃO DE ESTATUTO', 10, 62, 190)
+  
+  // 1. Selfie Box (Foto de Rosto)
+  doc.rect(10, 62, 90, 95)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(120, 120, 120)
+  doc.text('FOTO DO ROSTO (SELFIE)', 15, 66.5)
+  
+  // 2. Documento Box
+  doc.rect(100, 62, 100, 95)
+  doc.text('DOCUMENTO DE IDENTIDADE (COMPROVANTE)', 105, 66.5)
+  
+  // Carregar e desenhar Selfie e Documento
+  let selfieLoaded = false
+  let docLoaded = false
+  
+  if (params.assinatura.selfie_url) {
+    const selfieBase64 = await loadLogo(params.assinatura.selfie_url)
+    if (selfieBase64) {
+      try {
+        doc.addImage(selfieBase64, 'JPEG', 15, 70, 80, 80)
+        selfieLoaded = true
+      } catch (err) {
+        console.error('Erro ao renderizar selfie no PDF:', err)
+      }
+    }
+  }
+  
+  if (params.assinatura.doc_url) {
+    const docBase64 = await loadLogo(params.assinatura.doc_url)
+    if (docBase64) {
+      try {
+        doc.addImage(docBase64, 'JPEG', 105, 70, 90, 80)
+        docLoaded = true
+      } catch (err) {
+        console.error('Erro ao renderizar documento no PDF:', err)
+      }
+    }
+  }
+  
+  if (!selfieLoaded) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(150, 150, 150)
+    doc.text('[Selfie do rosto não disponível]', 55, 110, { align: 'center' })
+  }
+  if (!docLoaded) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(150, 150, 150)
+    doc.text('[Foto do documento não disponível]', 150, 110, { align: 'center' })
+  }
+  
+  // Section: Assinatura Manuscrita
+  drawSectionHeaderBox(doc, 'ASSINATURA DIGITAL DO TOMADOR', 10, 162, 190)
+  
+  doc.rect(10, 162, 190, 50)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(120, 120, 120)
+  doc.text('RUBRICA / ASSINATURA DESENHADA DIGITALMENTE', 15, 166.5)
+  
+  let signatureLoaded = false
+  if (params.assinatura.signature_base64) {
+    try {
+      doc.addImage(params.assinatura.signature_base64, 'PNG', 35, 170, 140, 36)
+      signatureLoaded = true
+    } catch (err) {
+      console.error('Erro ao renderizar assinatura manuscrita no PDF:', err)
+    }
+  }
+  
+  if (!signatureLoaded) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(150, 150, 150)
+    doc.text('[Assinatura manuscrita digital não disponível]', 105, 190, { align: 'center' })
+  }
+  
+  // Legal Compliance Text Box
+  drawSectionHeaderBox(doc, 'VALIDADE OPERACIONAL E RESPALDO OPERATIVO', 10, 217, 190)
+  
+  const complianceText = 'DECLARAMOS PARA TODOS OS FINS DE DIREITO QUE A ASSINATURA ELETRÔNICA E OS DADOS OPERACIONAIS ACIMA COLETADOS CONSTITUEM MANIFESTAÇÃO DE VONTADE INEQUÍVOCA E PERFEITA, TENDO A PARTE CONCORDADO EXPLICITAMENTE EM REALIZAR A ASSINATURA ELETRÔNICA DO CONTRATO POR ESTE MEIO, DANDO INTEGRAL VALIDADE E RECONHECIMENTO AO TÍTULO FINANCEIRO EXECUTIVO GERADO NESTE MEIO, NOS TERMOS DO ARTIGO 10, § 2º DA MEDIDA PROVISÓRIA Nº 2.200-2/2001 E DO CÓDIGO CIVIL BRASILEIRO. ESTE REGISTRO FICA VINCULADO E A ANEXO AO CONTRATO ORIGINAL PARA PLENA AUDITORIA E APRESENTAÇÃO OPERACIONAL.'
+  
+  const compLines = doc.splitTextToSize(complianceText, 182) as string[]
+  const compH = compLines.length * 4 + 4
+  doc.rect(10, 217, 190, compH)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(80, 80, 80)
+  doc.text(compLines, 12, 222)
+  
+  // Signatures of Auditory and Verification
+  const sw = 75
+  const sigY = 217 + compH + 10
+  
+  doc.setDrawColor(180, 180, 180)
+  doc.setLineWidth(0.2)
+  doc.line(20, sigY + 12, 20 + sw, sigY + 12)
+  doc.line(W - 20 - sw, sigY + 12, W - 20, sigY + 12)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(0, 0, 0)
+  doc.text('EVIDÊNCIA CRIPTOGRÁFICA REGISTRADA', 20 + sw / 2, sigY + 16, { align: 'center' })
+  doc.text(params.cliente.nome.toUpperCase(), W - 20 - sw / 2, sigY + 16, { align: 'center' })
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6)
+  doc.setTextColor(120, 120, 120)
+  doc.text('SISTEMA AUTOMÁTICO DE VERIFICAÇÃO', 20 + sw / 2, sigY + 19.5, { align: 'center' })
+  doc.text(`TOMADOR / ASSINANTE — CPF: ${fmtCpf(params.cliente.cpf)}`, W - 20 - sw / 2, sigY + 19.5, { align: 'center' })
+  
+  // Bottom Watermark
+  doc.setFontSize(6.5)
+  doc.setTextColor(180, 180, 180)
+  doc.text('CERTIFICADO DE ASSINATURA DIGITAL E INTEGRIDADE OPERACIONAL SRS M FACTORING', W / 2, 282, { align: 'center' })
+
+  if (options?.output === 'blob') {
+    return doc.output('blob')
+  }
+  doc.save(`contrato-assinado-${params.contrato.numero_contrato}.pdf`)
+}
+

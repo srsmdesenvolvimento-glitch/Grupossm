@@ -38,6 +38,12 @@ export default function EmprestimosPage() {
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [filtroCard, setFiltroCard] = useState<'todos' | 'ativos' | 'liberadoMes' | 'quitadosMes'>('todos')
+  const [filtroAssinatura, setFiltroAssinatura] = useState('todos')
+
+  const isAssinado = (e: any) => {
+    if (!e.documentos || !Array.isArray(e.documentos)) return false
+    return e.documentos.some((doc: any) => doc.tipo === 'assinatura_digital')
+  }
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual) return
@@ -96,6 +102,11 @@ export default function EmprestimosPage() {
     if (filtroCard === 'ativos' && e.status !== 'ativo') return false
     if (filtroCard === 'liberadoMes' && (e.data_liberacao ?? '') < inicioMes) return false
     if (filtroCard === 'quitadosMes' && !(e.status === 'quitado' && (e.data_quitacao ?? '') >= inicioMes)) return false
+    if (filtroAssinatura !== 'todos') {
+      const assinado = isAssinado(e)
+      if (filtroAssinatura === 'assinado' && !assinado) return false
+      if (filtroAssinatura === 'pendente' && assinado) return false
+    }
     if (busca) {
       const q = busca.toLowerCase()
       if (
@@ -169,6 +180,23 @@ export default function EmprestimosPage() {
       render: e => (
         <StatusBadge status={e.status} />
       ),
+    },
+    {
+      key: 'assinatura',
+      header: 'Assinatura',
+      render: e => {
+        const assinado = isAssinado(e)
+        return (
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide uppercase border ${
+            assinado 
+              ? 'bg-[#E6F4EA] text-[#34A853] border-[#34A853]/20 dark:bg-emerald-500/10 dark:text-emerald-400' 
+              : 'bg-[#FEF7E0] text-[#FBBC04] border-[#FBBC04]/20 dark:bg-amber-500/10 dark:text-amber-400'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${assinado ? 'bg-[#34A853] animate-pulse' : 'bg-[#FBBC04]'}`} />
+            {assinado ? 'Assinado' : 'Pendente'}
+          </span>
+        )
+      }
     },
     {
       key: 'data',
@@ -271,6 +299,17 @@ export default function EmprestimosPage() {
                   <SelectItem value="quitado" className="text-xs font-semibold text-muted-foreground">Quitados</SelectItem>
                   <SelectItem value="inadimplente" className="text-xs font-semibold text-[#EA4335]">Inadimplentes</SelectItem>
                   <SelectItem value="cancelado" className="text-xs font-semibold text-muted-foreground/60">Cancelados</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              <Select value={filtroAssinatura} onValueChange={v => setFiltroAssinatura(v ?? 'todos')}>
+                <SelectTrigger className="h-9.5 text-xs font-semibold rounded-full px-5 border-border bg-background focus:ring-[var(--gt-blue)] focus:border-[var(--gt-blue)] w-44 hover:bg-accent transition-colors">
+                  <SelectValue placeholder="Assinatura" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl border border-border bg-card">
+                  <SelectItem value="todos" className="text-xs font-semibold">Qualquer Assinatura</SelectItem>
+                  <SelectItem value="assinado" className="text-xs font-semibold text-[#34A853]">Assinados</SelectItem>
+                  <SelectItem value="pendente" className="text-xs font-semibold text-[#FBBC04]">Pendentes</SelectItem>
                 </SelectContent>
               </Select>
             </div>
