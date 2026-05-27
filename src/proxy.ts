@@ -9,6 +9,8 @@ function isPublicPath(pathname: string): boolean {
   }
   if (pathname.startsWith('/catalogo/')) return true
   if (pathname.startsWith('/api/webhooks/')) return true
+  if (pathname.startsWith('/assinar/')) return true
+  if (pathname.startsWith('/api/emprestimos/') && pathname.endsWith('/assinar')) return true
   return false
 }
 
