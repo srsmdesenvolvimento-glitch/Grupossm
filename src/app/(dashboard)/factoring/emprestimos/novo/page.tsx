@@ -295,7 +295,7 @@ export default function NovoEmprestimoPage() {
       const { error: pError } = await supabase.from('parcelas_emprestimo').insert(parcelasInsert)
       if (pError) throw pError
 
-      await supabase.from('movimentacoes_caixa').insert({
+      const { error: caixaError } = await supabase.from('movimentacoes_caixa').insert({
         empresa_id: empresaAtual.id,
         usuario_id: userId,
         tipo: 'saida',
@@ -306,13 +306,15 @@ export default function NovoEmprestimoPage() {
         referencia_id: empId,
         data_movimentacao: hojeStr,
       })
+      if (caixaError) throw caixaError
 
       const creditoDisponivel = cliente.credito_disponivel ?? cliente.limite_credito
-      await supabase.from('clientes_factoring').update({
+      const { error: limitError } = await supabase.from('clientes_factoring').update({
         credito_utilizado: (cliente.limite_credito - creditoDisponivel) + valorNum,
         ultima_operacao: hojeStr,
         total_emprestimos: undefined,
       }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+      if (limitError) throw limitError
 
       // ── Enviar Contrato Automático via WhatsApp ──
       try {
@@ -396,7 +398,7 @@ export default function NovoEmprestimoPage() {
                 .replace('{{prazo_meses}}', String(parcelasNum))
                 .replace('{{valor_parcela}}', formatarMoeda(resultado.parcela))
 
-              await supabase.from('notificacoes_log').insert({
+              const { error: notifError } = await supabase.from('notificacoes_log').insert({
                 empresa_id: empresaAtual.id,
                 canal: 'whatsapp',
                 destinatario: fullCliente.telefone,
@@ -406,6 +408,7 @@ export default function NovoEmprestimoPage() {
                 referencia_id: empId,
                 status: 'pendente',
               })
+              if (notifError) console.error('Falha ao enfileirar notificação:', notifError.message)
             }
           }
         }

@@ -314,7 +314,8 @@ export default function EmprestimoDetalhePage() {
         const restante = Math.round((subtotal - valorFinal) * 100) / 100
         
         // 1. Mark current installment as paid with partial amount and save calculated charges
-        await supabase.from('parcelas_emprestimo').update({ status: 'pago', multa: Number(multaCalculada.toFixed(2)), juros_mora: Number(jurosCalculado.toFixed(2)), valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
+        const { error: parcialPagError } = await supabase.from('parcelas_emprestimo').update({ status: 'pago', multa: Number(multaCalculada.toFixed(2)), juros_mora: Number(jurosCalculado.toFixed(2)), valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
+        if (parcialPagError) throw parcialPagError
         
         // Organize remaining balance according to option chosen
         if (partialOption === 'proxima') {
@@ -345,7 +346,7 @@ export default function EmprestimoDetalhePage() {
             const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
             const maxNum = Math.max(...(todas?.map(x => x.numero_parcela) ?? [0]))
             const novoVenc = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
-            await supabase.from('parcelas_emprestimo').insert({
+            const { error: novaParcelaProxError } = await supabase.from('parcelas_emprestimo').insert({
               empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
               numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
               valor: restanteComJuros, valor_principal: restanteComJuros, valor_juros: 0,
@@ -354,6 +355,7 @@ export default function EmprestimoDetalhePage() {
               multa: 0, juros_mora: 0, status: 'pendente',
               observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
             })
+            if (novaParcelaProxError) throw novaParcelaProxError
             toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} criado como nova parcela.`)
           }
         } else if (partialOption === 'diluir') {
@@ -374,12 +376,13 @@ export default function EmprestimoDetalhePage() {
           if (parcelasParaDiluir.length > 0) {
             const valorDiluido = Math.round((restanteComJuros / parcelasParaDiluir.length) * 100) / 100
             
-            const updates = parcelasParaDiluir.map(p => 
-              supabase.from('parcelas_emprestimo')
+            const updates = parcelasParaDiluir.map(async (p) => {
+              const { error: diluirError } = await supabase.from('parcelas_emprestimo')
                 .update({ valor: Math.round((p.valor + valorDiluido) * 100) / 100 })
                 .eq('id', p.id)
                 .eq('empresa_id', empresaAtual.id)
-            )
+              if (diluirError) throw diluirError
+            })
             await Promise.all(updates)
             toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} diluído entre as outras ${parcelasParaDiluir.length} parcelas (+${formatarMoeda(valorDiluido)} cada).`)
           } else {
@@ -387,7 +390,7 @@ export default function EmprestimoDetalhePage() {
             const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
             const maxNum = Math.max(...(todas?.map(x => x.numero_parcela) ?? [0]))
             const novoVenc = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
-            await supabase.from('parcelas_emprestimo').insert({
+            const { error: novaParcelaDiluirError } = await supabase.from('parcelas_emprestimo').insert({
               empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
               numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
               valor: restanteComJuros, valor_principal: restanteComJuros, valor_juros: 0,
@@ -396,6 +399,7 @@ export default function EmprestimoDetalhePage() {
               multa: 0, juros_mora: 0, status: 'pendente',
               observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
             })
+            if (novaParcelaDiluirError) throw novaParcelaDiluirError
             toast.success(`${formatarMoeda(valorFinal)} registrado! Sem outras parcelas pendentes para diluir, saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} criado como nova parcela.`)
           }
         } else if (partialOption === 'extra') {
@@ -406,7 +410,7 @@ export default function EmprestimoDetalhePage() {
           const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
           const maxNum = Math.max(...(todas?.map(x => x.numero_parcela) ?? [0]))
           
-          await supabase.from('parcelas_emprestimo').insert({
+          const { error: novaParcelaExtraError } = await supabase.from('parcelas_emprestimo').insert({
             empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
             numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
             valor: restanteComJuros, valor_principal: restanteComJuros, valor_juros: 0,
@@ -415,27 +419,32 @@ export default function EmprestimoDetalhePage() {
             multa: 0, juros_mora: 0, status: 'pendente',
             observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
           })
+          if (novaParcelaExtraError) throw novaParcelaExtraError
           toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} criado como nova parcela extra com vencimento em ${formatarData(venc)}.`)
         }
       } else {
         // Full payment and save calculated charges
-        await supabase.from('parcelas_emprestimo').update({ status: 'pago', multa: Number(multaCalculada.toFixed(2)), juros_mora: Number(jurosCalculado.toFixed(2)), valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
+        const { error: fullPagError } = await supabase.from('parcelas_emprestimo').update({ status: 'pago', multa: Number(multaCalculada.toFixed(2)), juros_mora: Number(jurosCalculado.toFixed(2)), valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
+        if (fullPagError) throw fullPagError
         const { data: restantes } = await supabase.from('parcelas_emprestimo').select('id').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id).in('status', ['pendente', 'atrasado'])
         if (!restantes?.length) {
-          await supabase.from('emprestimos').update({ status: 'quitado', saldo_devedor: 0, data_quitacao: hoje }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+          const { error: quitadoError } = await supabase.from('emprestimos').update({ status: 'quitado', saldo_devedor: 0, data_quitacao: hoje }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+          if (quitadoError) throw quitadoError
         }
         toast.success(`${formatarMoeda(valorFinal)} registrado com sucesso!`)
       }
 
       // Decrement Outstanding Balance
       const novoSaldoDevedor = Math.round(Math.max(0, (emprestimo.saldo_devedor ?? 0) - valorFinal) * 100) / 100
-      await supabase.from('emprestimos').update({ saldo_devedor: novoSaldoDevedor }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+      const { error: saldoError } = await supabase.from('emprestimos').update({ saldo_devedor: novoSaldoDevedor }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+      if (saldoError) throw saldoError
 
-      await supabase.from('movimentacoes_caixa').insert({
+      const { error: caixaError } = await supabase.from('movimentacoes_caixa').insert({
         empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'pagamento_parcela',
         descricao: `Pagamento parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — ${cliente?.nome ?? ''}`,
         valor: valorFinal, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
       })
+      if (caixaError) throw caixaError
 
       // ── Enviar Recibo Automático via WhatsApp ──
       try {
@@ -517,7 +526,7 @@ export default function EmprestimoDetalhePage() {
 
               const msgTexto = `Confirmamos o recebimento de ${formatarMoeda(valorFinal)} referente à parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} do contrato ${emprestimo.numero_contrato} via ${formaLabel}. Segue seu recibo em anexo.\n\n${publicUrl}`
 
-              await supabase.from('notificacoes_log').insert({
+              const { error: notifReciboError } = await supabase.from('notificacoes_log').insert({
                 empresa_id: empresaAtual.id,
                 canal: 'whatsapp',
                 destinatario: cliente.telefone,
@@ -527,6 +536,7 @@ export default function EmprestimoDetalhePage() {
                 referencia_id: emprestimo.id,
                 status: 'pendente',
               })
+              if (notifReciboError) console.error('Falha ao enfileirar notificação de recibo:', notifReciboError.message)
             }
           }
 
@@ -613,7 +623,7 @@ export default function EmprestimoDetalhePage() {
 
                 const msgTextoQ = `Parabéns, ${cliente.nome}! O seu empréstimo do contrato ${emprestimo.numero_contrato} foi 100% QUITADO e liquidado com sucesso! Segue seu Termo de Quitação Integral em anexo.\n\n${publicUrlQ}`
 
-                await supabase.from('notificacoes_log').insert({
+                const { error: notifQuitacaoError } = await supabase.from('notificacoes_log').insert({
                   empresa_id: empresaAtual.id,
                   canal: 'whatsapp',
                   destinatario: cliente.telefone,
@@ -623,6 +633,7 @@ export default function EmprestimoDetalhePage() {
                   referencia_id: emprestimo.id,
                   status: 'pendente',
                 })
+                if (notifQuitacaoError) console.error('Falha ao enfileirar notificação de quitação:', notifQuitacaoError.message)
               }
             }
           }
@@ -658,16 +669,17 @@ export default function EmprestimoDetalhePage() {
         .in('status', ['pendente', 'atrasado'])
 
       if (pendentes && pendentes.length > 0) {
-        await supabase
+        const { error: parcelasQuitError } = await supabase
           .from('parcelas_emprestimo')
           .update({ status: 'pago', valor_pago: null, data_pagamento: hoje, tipo_pagamento: 'dinheiro' })
           .eq('emprestimo_id', emprestimo.id)
           .eq('empresa_id', empresaAtual.id)
           .in('status', ['pendente', 'atrasado'])
+        if (parcelasQuitError) throw parcelasQuitError
 
         // Register one caixa entry for the total settled amount
         const totalQuitado = pendentes.reduce((s, p) => s + (p.valor ?? 0), 0)
-        await supabase.from('movimentacoes_caixa').insert({
+        const { error: caixaQuitError } = await supabase.from('movimentacoes_caixa').insert({
           empresa_id: empresaAtual.id,
           tipo: 'entrada',
           categoria: 'quitacao_antecipada',
@@ -677,6 +689,7 @@ export default function EmprestimoDetalhePage() {
           referencia_id: emprestimo.id,
           data_movimentacao: hoje,
         })
+        if (caixaQuitError) throw caixaQuitError
       }
 
       // Generate Termo de Quitação PDF and trigger notifications
@@ -748,7 +761,7 @@ export default function EmprestimoDetalhePage() {
 
           const msgTextoQ = `Parabéns, ${cliente.nome}! O seu empréstimo do contrato ${emprestimo.numero_contrato} foi 100% QUITADO e liquidado antecipadamente com sucesso! Segue seu Termo de Quitação Integral em anexo.\n\n${publicUrlQ}`
 
-          await supabase.from('notificacoes_log').insert({
+          const { error: notifQuitAnteError } = await supabase.from('notificacoes_log').insert({
             empresa_id: empresaAtual.id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
@@ -756,6 +769,7 @@ export default function EmprestimoDetalhePage() {
             mensagem: msgTextoQ,
             status: 'pendente',
           })
+          if (notifQuitAnteError) console.error('Falha ao enfileirar notificação de quitação antecipada:', notifQuitAnteError.message)
         }
       }
 
@@ -774,8 +788,10 @@ export default function EmprestimoDetalhePage() {
     if (!emprestimo || !empresaAtual) return
     setProcessando(true)
     try {
-      await supabase.from('emprestimos').update({ status: 'cancelado' }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
-      await supabase.from('parcelas_emprestimo').update({ status: 'cancelado' }).eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id).in('status', ['pendente', 'atrasado'])
+      const { error: cancelEmpError } = await supabase.from('emprestimos').update({ status: 'cancelado' }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
+      if (cancelEmpError) throw cancelEmpError
+      const { error: cancelParcError } = await supabase.from('parcelas_emprestimo').update({ status: 'cancelado' }).eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id).in('status', ['pendente', 'atrasado'])
+      if (cancelParcError) throw cancelParcError
       toast.success('Contrato cancelado')
       setCancelarDialog(false)
       carregarDados()

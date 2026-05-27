@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
         const valorTotalComEncargos = Number(p.valor) + novaMulta + novosJuros
 
         // Atualiza a parcela no banco
-        await supabase
+        const { error: parcelaError } = await supabase
           .from('parcelas_emprestimo')
           .update({
             status: 'atrasado',
@@ -96,6 +96,10 @@ export async function GET(request: NextRequest) {
             juros_mora: Number(novosJuros.toFixed(2)),
           })
           .eq('id', p.id)
+        if (parcelaError) {
+          console.error(`Falha ao atualizar parcela ${p.id}:`, parcelaError.message)
+          return
+        }
 
         // Fila de cobrança de atraso via WhatsApp
         const cliente = p.clientes_factoring
@@ -117,7 +121,7 @@ export async function GET(request: NextRequest) {
             .replace(/\{\{valor_total\}\}/g, formatarMoeda(valorTotalComEncargos))
             .replace(/\{\{whatsapp_padrao\}\}/g, cfg.whatsapp_padrao)
 
-          await supabase.from('notificacoes_log').insert({
+          const { error: notifCobrancaError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
@@ -127,6 +131,7 @@ export async function GET(request: NextRequest) {
             referencia_id: p.emprestimo_id,
             status: 'pendente',
           })
+          if (notifCobrancaError) console.error('Falha ao enfileirar notificação de cobrança:', notifCobrancaError.message)
         }
       })
 
@@ -168,7 +173,7 @@ export async function GET(request: NextRequest) {
             .replace(/\{\{valor\}\}/g, formatarMoeda(Number(p.valor)))
             .replace(/\{\{whatsapp_padrao\}\}/g, cfg.whatsapp_padrao)
 
-          await supabase.from('notificacoes_log').insert({
+          const { error: notifHojeError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
@@ -178,6 +183,7 @@ export async function GET(request: NextRequest) {
             referencia_id: p.emprestimo_id,
             status: 'pendente',
           })
+          if (notifHojeError) console.error('Falha ao enfileirar notificação de vencimento hoje:', notifHojeError.message)
         }
       })
 
@@ -208,7 +214,7 @@ export async function GET(request: NextRequest) {
         if (cliente && cliente.telefone) {
           const msgTexto = `Olá, ${cliente.nome}! Passando para lembrar que sua parcela ${p.numero_parcela}/${p.total_parcelas} do contrato ${emprestimo?.numero_contrato ?? ''} vence em 3 dias (${formatarDataBR(p.data_vencimento)}) no valor de ${formatarMoeda(Number(p.valor))}. Evite multas pagando em dia! Chave PIX: ${cfg.whatsapp_padrao}.`
 
-          await supabase.from('notificacoes_log').insert({
+          const { error: notifTresDiasError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
@@ -218,6 +224,7 @@ export async function GET(request: NextRequest) {
             referencia_id: p.emprestimo_id,
             status: 'pendente',
           })
+          if (notifTresDiasError) console.error('Falha ao enfileirar notificação de 3 dias:', notifTresDiasError.message)
         }
       })
 

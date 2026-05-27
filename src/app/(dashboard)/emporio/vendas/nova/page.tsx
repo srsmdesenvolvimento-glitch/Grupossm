@@ -249,7 +249,7 @@ export default function NovaVendaPage() {
 
       if (vendaError || !venda) throw vendaError
 
-      await supabase.from('itens_venda').insert(
+      const { error: itensError } = await supabase.from('itens_venda').insert(
         carrinho.map((item) => ({
           venda_id: venda.id,
           produto_id: item.produto.id,
@@ -261,12 +261,14 @@ export default function NovaVendaPage() {
           total: item.produto.preco * item.quantidade,
         })),
       )
+      if (itensError) throw itensError
 
       for (const item of carrinho) {
-        await supabase
+        const { error: estoqueError } = await supabase
           .from('produtos')
           .update({ estoque: Math.max(0, item.produto.estoque - item.quantidade) })
           .eq('id', item.produto.id)
+        if (estoqueError) throw estoqueError
       }
 
       if (isCrediario && parcelas > 1) {
@@ -287,10 +289,11 @@ export default function NovaVendaPage() {
             status: 'pendente',
           })
         }
-        await supabase.from('parcelas_receber').insert(parcelasInsert)
+        const { error: parcelasError } = await supabase.from('parcelas_receber').insert(parcelasInsert)
+        if (parcelasError) throw parcelasError
       }
 
-      await supabase.from('movimentacoes_caixa').insert({
+      const { error: caixaError } = await supabase.from('movimentacoes_caixa').insert({
         empresa_id: empresaAtual!.id,
         usuario_id: user?.id ?? null,
         tipo: 'entrada',
@@ -301,6 +304,7 @@ export default function NovaVendaPage() {
         referencia_id: venda.id,
         data_movimentacao: new Date().toISOString().split('T')[0],
       })
+      if (caixaError) throw caixaError
 
       setSuccessDialog({ open: true, numero_venda: venda.numero_venda, venda_id: venda.id })
       resetarFormulario()

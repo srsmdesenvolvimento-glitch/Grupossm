@@ -52,18 +52,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Create usuarios profile
-    await admin.from('usuarios').insert({
+    const { error: perfilError } = await admin.from('usuarios').insert({
       id: newUser.user.id,
       nome,
       email,
     })
+    if (perfilError) {
+      return NextResponse.json({ erro: 'Erro ao criar perfil do usuário', detalhes: perfilError.message }, { status: 500 })
+    }
 
     // Link to company
-    await admin.from('usuario_empresa').insert({
+    const { error: vinculoError } = await admin.from('usuario_empresa').insert({
       usuario_id: newUser.user.id,
       empresa_id,
       papel,
     })
+    if (vinculoError) {
+      return NextResponse.json({ erro: 'Erro ao vincular usuário à empresa', detalhes: vinculoError.message }, { status: 500 })
+    }
 
     return NextResponse.json({ sucesso: true, id: newUser.user.id })
   } catch {
