@@ -323,10 +323,12 @@ export default function NovoClienteFactoringPage() {
           }
         }
         if (uploads.length > 0) {
-          await supabase
+          const { error: updateError } = await supabase
             .from('clientes_factoring')
             .update({ documentos: uploads })
             .eq('id', clienteData.id)
+            .eq('empresa_id', empresaAtual.id)
+          if (updateError) throw updateError
         }
         if (uploads.length < arquivosPendentes.size) {
           toast.warning(`${uploads.length} de ${arquivosPendentes.size} documentos enviados — verifique o bucket de storage`)

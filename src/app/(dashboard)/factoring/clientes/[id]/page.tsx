@@ -575,7 +575,8 @@ export default function ClientePerfilPage() {
     try {
       const meta = await uploadDocumentoCliente(supabase, empresaAtual.id, cliente.id, categoriaId, file)
       const novos = [...documentos.filter(d => d.categoria !== categoriaId), meta]
-      await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+      const { error: updateError } = await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+      if (updateError) throw updateError
       setDocumentos(novos)
       toast.success(`${meta.label} enviado com sucesso!`)
     } catch (err) {
@@ -593,7 +594,8 @@ export default function ClientePerfilPage() {
     try {
       await deletarDocumentoCliente(supabase, doc.path)
       const novos = documentos.filter(d => d.id !== doc.id)
-      await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+      const { error: updateError } = await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+      if (updateError) throw updateError
       setDocumentos(novos)
       toast.success('Documento removido.')
     } catch (err) {
