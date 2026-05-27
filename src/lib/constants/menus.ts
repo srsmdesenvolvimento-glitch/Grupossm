@@ -52,8 +52,13 @@ export const MENU_EMPORIO: MenuItem[] = [
   },
   {
     label: 'Mensagens',
-    href: '/emporio/mensagens',
+    href: '/mensagens',
     icon: 'MessageCircle',
+    subitems: [
+      { label: 'Fila de Envio', href: '/mensagens/fila', icon: 'List' },
+      { label: 'Histórico', href: '/mensagens/historico', icon: 'History' },
+      { label: 'Templates', href: '/mensagens/templates', icon: 'FileText' },
+    ],
   },
   {
     label: 'Configurações',
@@ -105,6 +110,16 @@ export const MENU_FACTORING: MenuItem[] = [
     ],
   },
   {
+    label: 'Mensagens',
+    href: '/mensagens',
+    icon: 'MessageCircle',
+    subitems: [
+      { label: 'Fila de Envio', href: '/mensagens/fila', icon: 'List' },
+      { label: 'Histórico', href: '/mensagens/historico', icon: 'History' },
+      { label: 'Templates', href: '/mensagens/templates', icon: 'FileText' },
+    ],
+  },
+  {
     label: 'Configurações',
     href: '/factoring/configuracoes',
     icon: 'Settings',
@@ -116,3 +131,4 @@ export const MENU_MENSAGENS: MenuItem[] = [
   { label: 'Clientes Empório', href: '/mensagens/emporio', icon: 'Armchair' },
   { label: 'Clientes Factoring', href: '/mensagens/factoring', icon: 'Banknote' },
 ]
+

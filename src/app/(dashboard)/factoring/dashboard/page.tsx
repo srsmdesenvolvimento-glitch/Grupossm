@@ -732,7 +732,7 @@ export default function FactoringDashboard() {
             {[
               { label: 'Novo Contrato',    sub: 'Emitir Empréstimo',    icon: Banknote,      color: '#1A73E8', href: '/factoring/emprestimos/novo',          primary: true  },
               { label: 'Ver Contratos',    sub: 'Histórico & Baixas',   icon: CheckCircle,   color: '#34A853', href: '/factoring/emprestimos',               primary: true  },
-              { label: 'Simulador',        sub: 'Cálculo Sistema Price', icon: Scale,         color: '#A142F4', href: '/factoring/emprestimos/simulador',     primary: false },
+              { label: 'Simulador',        sub: 'Cálculo de Parcelas Fixas', icon: Scale,         color: '#A142F4', href: '/factoring/emprestimos/simulador',     primary: false },
               { label: 'Novo Cliente',     sub: 'Cadastrar Tomador',    icon: UserCheck,     color: '#FBBC04', href: '/factoring/clientes/novo',             primary: false },
               { label: 'Contas a Receber', sub: 'Pendências Financeiras', icon: TrendingUp,    color: '#FA903E', href: '/factoring/financeiro/contas-receber', primary: false },
               { label: 'Inadimplentes',    sub: 'Mesa de Cobrança',      icon: AlertCircle,   color: '#EA4335', href: '/factoring/parcelas/inadimplentes',    primary: false },

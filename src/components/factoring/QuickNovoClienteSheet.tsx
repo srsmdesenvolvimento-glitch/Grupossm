@@ -139,7 +139,7 @@ export function QuickNovoClienteSheet({ open, onClose, onClienteCriado }: QuickN
             <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--gt-blue-light)' }}>
               <UserPlus size={16} style={{ color: 'var(--gt-blue)' }} />
             </div>
-            Cadastro Rápido de Cliente
+            Cadastro de Cliente
           </SheetTitle>
           <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
             Preencha os dados essenciais. Informações complementares podem ser adicionadas no perfil do cliente depois.

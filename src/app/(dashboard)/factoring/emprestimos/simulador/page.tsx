@@ -117,7 +117,7 @@ export default function SimuladorPage() {
       <div className="space-y-6 max-w-6xl mx-auto">
         <PageHeader 
           titulo="Simulador" 
-          descricao="Realize simulações rápidas de parcelamento no sistema Price" 
+          descricao="Realize simulações rápidas de parcelamento com parcelas fixas" 
           icone={Calculator}
           corIcone="var(--gt-blue)"
         />
@@ -132,7 +132,7 @@ export default function SimuladorPage() {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-foreground tracking-tight">Parâmetros de Cálculo</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">Sistema Price — juros compostos mensais</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Parcelas Fixas — com juros compostos mensais</p>
                 </div>
               </div>
 
@@ -331,7 +331,7 @@ export default function SimuladorPage() {
                 <div className="bg-card rounded-2xl border border-border/50 overflow-hidden shadow-m3-1">
                   <div className="px-6 py-4.5 border-b border-border/50 flex items-center justify-between bg-card">
                     <h3 className="font-bold text-foreground text-sm tracking-tight">Tabela de Amortização</h3>
-                    <span className="text-xs font-bold text-muted-foreground/80 bg-muted px-2.5 py-1 rounded-full">{resultado.tabela.length} parcelas · Price</span>
+                    <span className="text-xs font-bold text-muted-foreground/80 bg-muted px-2.5 py-1 rounded-full">{resultado.tabela.length} parcelas fixas</span>
                   </div>
                   <DataTable
                     columns={columns}

@@ -54,7 +54,7 @@ export default function EmprestimoDetalhePage() {
   const supabase = createClient()
 
   const [emprestimo, setEmprestimo] = useState<Emprestimo | null>(null)
-  const [cliente, setCliente] = useState<Pick<ClienteFactoring, 'id' | 'nome' | 'cpf' | 'telefone' | 'score_interno'> | null>(null)
+  const [cliente, setCliente] = useState<ClienteFactoring | null>(null)
   const [parcelas, setParcelas] = useState<ParcelaEmprestimo[]>([])
   const [movs, setMovs] = useState<MovimentacaoCaixa[]>([])
   const [loading, setLoading] = useState(true)
@@ -106,9 +106,27 @@ export default function EmprestimoDetalhePage() {
         total_parcelas_pagas: totalPagas,
         total_parcelas_restantes: totalRestantes,
       },
-      cliente: { nome: cliente.nome, cpf: cliente.cpf ?? null, telefone: cliente.telefone },
+      cliente: {
+        nome: cliente.nome,
+        cpf: cliente.cpf ?? null,
+        telefone: cliente.telefone,
+        endereco: cliente.endereco,
+        numero: cliente.numero,
+        complemento: cliente.complemento,
+        bairro: cliente.bairro,
+        cidade: cliente.cidade,
+        estado: cliente.estado,
+        cep: cliente.cep
+      },
       contrato: { numero_contrato: emprestimo.numero_contrato },
       empresaNome: empresaAtual?.nome,
+      empresaCnpj: empresaAtual?.cnpj,
+      empresaTelefone: empresaAtual?.telefone,
+      empresaEmail: empresaAtual?.email,
+      empresaEndereco: empresaAtual?.endereco,
+      empresaCidade: empresaAtual?.cidade,
+      empresaEstado: empresaAtual?.estado,
+      empresaCep: empresaAtual?.cep,
     })
   }
 
@@ -122,35 +140,7 @@ export default function EmprestimoDetalhePage() {
     window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank')
   }
 
-  async function handleGerarQuitacao() {
-    if (!emprestimo || !cliente) return
-    setGerandoPDF(true)
-    try {
-      await gerarQuitacaoPDF({
-        contrato: {
-          numero_contrato: emprestimo.numero_contrato,
-          valor_principal: emprestimo.valor_principal,
-          taxa_juros: emprestimo.taxa_juros,
-          prazo_meses: emprestimo.prazo_meses,
-          data_liberacao: emprestimo.data_liberacao,
-          data_quitacao: emprestimo.data_quitacao ?? null,
-        },
-        cliente: { nome: cliente.nome, cpf: cliente.cpf ?? null, telefone: cliente.telefone },
-        parcelas: parcelas.filter(p => p.status === 'pago').map(p => ({
-          numero_parcela: p.numero_parcela,
-          data_vencimento: p.data_vencimento,
-          data_pagamento: p.data_pagamento,
-          valor: p.valor,
-          valor_pago: p.valor_pago,
-          tipo_pagamento: p.tipo_pagamento,
-          status: p.status,
-        })),
-        empresaNome: empresaAtual?.nome,
-      })
-    } finally {
-      setGerandoPDF(false)
-    }
-  }
+
 
   async function handleGerarContrato() {
     if (!emprestimo || !cliente) return
@@ -158,9 +148,70 @@ export default function EmprestimoDetalhePage() {
     try {
       await gerarContratoPDF({
         contrato: emprestimo,
-        cliente,
+        cliente: {
+          nome: cliente.nome,
+          cpf: cliente.cpf ?? null,
+          telefone: cliente.telefone,
+          endereco: cliente.endereco,
+          numero: cliente.numero,
+          complemento: cliente.complemento,
+          bairro: cliente.bairro,
+          cidade: cliente.cidade,
+          estado: cliente.estado,
+          cep: cliente.cep
+        },
         parcelas,
         empresaNome: empresaAtual?.nome,
+        empresaCnpj: empresaAtual?.cnpj,
+      })
+    } finally {
+      setGerandoPDF(false)
+    }
+  }
+
+  async function handleGerarQuitacao() {
+    if (!emprestimo || !cliente) return
+    setGerandoPDF(true)
+    try {
+      const parcelasMapeadas = parcelas.map(p => ({
+        numero_parcela: p.numero_parcela,
+        data_vencimento: p.data_vencimento,
+        data_pagamento: p.data_pagamento,
+        valor: p.valor,
+        valor_pago: p.valor_pago,
+        tipo_pagamento: p.tipo_pagamento,
+        status: p.status,
+      }))
+      await gerarQuitacaoPDF({
+        contrato: {
+          numero_contrato: emprestimo.numero_contrato,
+          valor_principal: emprestimo.valor_principal,
+          taxa_juros: emprestimo.taxa_juros,
+          prazo_meses: emprestimo.prazo_meses,
+          data_liberacao: emprestimo.data_liberacao,
+          data_quitacao: emprestimo.data_quitacao ?? new Date().toISOString().split('T')[0],
+        },
+        cliente: {
+          nome: cliente.nome,
+          cpf: cliente.cpf ?? null,
+          telefone: cliente.telefone,
+          endereco: cliente.endereco,
+          numero: cliente.numero,
+          complemento: cliente.complemento,
+          bairro: cliente.bairro,
+          cidade: cliente.cidade,
+          estado: cliente.estado,
+          cep: cliente.cep
+        },
+        parcelas: parcelasMapeadas,
+        empresaNome: empresaAtual?.nome,
+        empresaCnpj: empresaAtual?.cnpj,
+        empresaTelefone: empresaAtual?.telefone,
+        empresaEmail: empresaAtual?.email,
+        empresaEndereco: empresaAtual?.endereco,
+        empresaCidade: empresaAtual?.cidade,
+        empresaEstado: empresaAtual?.estado,
+        empresaCep: empresaAtual?.cep,
       })
     } finally {
       setGerandoPDF(false)
@@ -183,7 +234,7 @@ export default function EmprestimoDetalhePage() {
 
       const { data: cli } = await supabase
         .from('clientes_factoring')
-        .select('id, nome, cpf, telefone, score_interno')
+        .select('*')
         .eq('id', emp.cliente_id)
         .single()
       setCliente(cli ?? null)
@@ -289,6 +340,8 @@ export default function EmprestimoDetalhePage() {
             toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} criado como nova parcela.`)
           }
         } else if (partialOption === 'diluir') {
+          const jurosPct = Number(partialJurosPct) || 0
+          const restanteComJuros = Math.round(restante * (1 + jurosPct / 100) * 100) / 100
           // Dilute remainder among other pending/atrasado parcelas
           const { data: restantes } = await supabase
             .from('parcelas_emprestimo')
@@ -302,7 +355,7 @@ export default function EmprestimoDetalhePage() {
           const parcelasParaDiluir = (restantes ?? []).filter(p => p.id !== pagarParcela.id)
           
           if (parcelasParaDiluir.length > 0) {
-            const valorDiluido = Math.round((restante / parcelasParaDiluir.length) * 100) / 100
+            const valorDiluido = Math.round((restanteComJuros / parcelasParaDiluir.length) * 100) / 100
             
             const updates = parcelasParaDiluir.map(p => 
               supabase.from('parcelas_emprestimo')
@@ -311,7 +364,7 @@ export default function EmprestimoDetalhePage() {
                 .eq('empresa_id', empresaAtual.id)
             )
             await Promise.all(updates)
-            toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} diluído entre as outras ${parcelasParaDiluir.length} parcelas (+${formatarMoeda(valorDiluido)} cada).`)
+            toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} diluído entre as outras ${parcelasParaDiluir.length} parcelas (+${formatarMoeda(valorDiluido)} cada).`)
           } else {
             // No other pending installments — fallback: create a new one
             const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
@@ -320,15 +373,17 @@ export default function EmprestimoDetalhePage() {
             await supabase.from('parcelas_emprestimo').insert({
               empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
               numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
-              valor: restante, valor_principal: restante, valor_juros: 0,
-              saldo_devedor_antes: restante, saldo_devedor_apos: 0,
+              valor: restanteComJuros, valor_principal: restanteComJuros, valor_juros: 0,
+              saldo_devedor_antes: restanteComJuros, saldo_devedor_apos: 0,
               valor_pago: null, data_vencimento: novoVenc, data_pagamento: null, tipo_pagamento: null,
               multa: 0, juros_mora: 0, status: 'pendente',
               observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
             })
-            toast.success(`${formatarMoeda(valorFinal)} registrado! Sem outras parcelas pendentes para diluir, saldo de ${formatarMoeda(restante)} criado como nova parcela.`)
+            toast.success(`${formatarMoeda(valorFinal)} registrado! Sem outras parcelas pendentes para diluir, saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} criado como nova parcela.`)
           }
         } else if (partialOption === 'extra') {
+          const jurosPct = Number(partialJurosPct) || 0
+          const restanteComJuros = Math.round(restante * (1 + jurosPct / 100) * 100) / 100
           // Create custom extra installment
           const venc = partialDueDate || (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
           const { data: todas } = await supabase.from('parcelas_emprestimo').select('numero_parcela').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id)
@@ -337,13 +392,13 @@ export default function EmprestimoDetalhePage() {
           await supabase.from('parcelas_emprestimo').insert({
             empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: emprestimo.cliente_id,
             numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
-            valor: restante, valor_principal: restante, valor_juros: 0,
-            saldo_devedor_antes: restante, saldo_devedor_apos: 0,
+            valor: restanteComJuros, valor_principal: restanteComJuros, valor_juros: 0,
+            saldo_devedor_antes: restanteComJuros, saldo_devedor_apos: 0,
             valor_pago: null, data_vencimento: venc, data_pagamento: null, tipo_pagamento: null,
             multa: 0, juros_mora: 0, status: 'pendente',
             observacoes: `Saldo da parcela ${pagarParcela.numero_parcela} — parcial de ${formatarMoeda(valorFinal)}`,
           })
-          toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restante)} criado como nova parcela extra com vencimento em ${formatarData(venc)}.`)
+          toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} criado como nova parcela extra com vencimento em ${formatarData(venc)}.`)
         }
       } else {
         // Full payment
@@ -364,6 +419,201 @@ export default function EmprestimoDetalhePage() {
         descricao: `Pagamento parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — ${cliente?.nome ?? ''}`,
         valor: valorFinal, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
       })
+
+      // ── Enviar Recibo Automático via WhatsApp ──
+      try {
+        if (cliente) {
+          const dataVenc = new Date(pagarParcela.data_vencimento + 'T12:00:00')
+          const dataPag = new Date()
+          const diffTime = dataPag.getTime() - dataVenc.getTime()
+          const diasAtraso = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)))
+
+          const { data: todasP } = await supabase
+            .from('parcelas_emprestimo')
+            .select('id, status')
+            .eq('emprestimo_id', emprestimo.id)
+          
+          const totalPagas = (todasP ?? []).filter(x => x.status === 'pago').length + 1
+          const totalRestantes = Math.max(0, (todasP ?? []).length - totalPagas)
+
+          const reciboParams = {
+            parcela: {
+              numero_parcela: pagarParcela.numero_parcela,
+              total_parcelas: pagarParcela.total_parcelas,
+              data_vencimento: pagarParcela.data_vencimento,
+              data_pagamento: hoje,
+              valor: pagarParcela.valor,
+              valor_pago: valorFinal,
+              tipo_pagamento: pagForma,
+              multa: pagarParcela.multa ?? 0,
+              juros_mora: pagarParcela.juros_mora ?? 0,
+              dias_atraso: diasAtraso > 0 ? diasAtraso : undefined,
+              saldo_devedor_parcela: Math.round(Math.max(0, pagarParcela.valor - valorFinal) * 100) / 100,
+              saldo_devedor_total: Math.round(Math.max(0, novoSaldoDevedor) * 100) / 100,
+              total_parcelas_pagas: totalPagas,
+              total_parcelas_restantes: totalRestantes,
+            },
+            cliente: {
+              nome: cliente.nome,
+              cpf: cliente.cpf ?? null,
+              telefone: cliente.telefone,
+              endereco: cliente.endereco,
+              numero: cliente.numero,
+              complemento: cliente.complemento,
+              bairro: cliente.bairro,
+              cidade: cliente.cidade,
+              estado: cliente.estado,
+              cep: cliente.cep
+            },
+            contrato: { numero_contrato: emprestimo.numero_contrato },
+            empresaNome: empresaAtual.nome,
+            empresaCnpj: empresaAtual.cnpj,
+            empresaTelefone: empresaAtual.telefone,
+            empresaEmail: empresaAtual.email,
+            empresaEndereco: empresaAtual.endereco,
+            empresaCidade: empresaAtual.cidade,
+            empresaEstado: empresaAtual.estado,
+            empresaCep: empresaAtual.cep,
+          }
+
+          const reciboBlob = await gerarReciboParcela(reciboParams, { output: 'blob' })
+
+          if (reciboBlob instanceof Blob) {
+            const rcId = `${emprestimo.numero_contrato}-P${String(pagarParcela.numero_parcela).padStart(2, '0')}`
+            const filePath = `${empresaAtual.id}/${cliente.id}/recibos/recibo-${rcId}-${Date.now()}.pdf`
+            const { error: uploadError } = await supabase.storage
+              .from('documentos-clientes')
+              .upload(filePath, reciboBlob, {
+                contentType: 'application/pdf',
+                upsert: false,
+              })
+
+            if (!uploadError) {
+              const { data: urlData } = supabase.storage
+                .from('documentos-clientes')
+                .getPublicUrl(filePath)
+              
+              const publicUrl = urlData.publicUrl
+
+              const formas: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque' }
+              const formaLabel = formas[pagForma] ?? 'PIX'
+
+              const msgTexto = `Confirmamos o recebimento de ${formatarMoeda(valorFinal)} referente à parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} do contrato ${emprestimo.numero_contrato} via ${formaLabel}. Segue seu recibo em anexo.\n\n${publicUrl}`
+
+              await supabase.from('notificacoes_log').insert({
+                empresa_id: empresaAtual.id,
+                canal: 'whatsapp',
+                destinatario: cliente.telefone,
+                assunto: `Recibo de Pagamento - Parcela ${pagarParcela.numero_parcela}`,
+                mensagem: msgTexto,
+                referencia_tipo: 'emprestimo',
+                referencia_id: emprestimo.id,
+                status: 'pendente',
+              })
+            }
+          }
+
+          // Se for a última parcela quitada, também gera o Termo de Quitação Integral!
+          if (totalRestantes === 0) {
+            const { data: todasP_Q } = await supabase
+              .from('parcelas_emprestimo')
+              .select('*')
+              .eq('emprestimo_id', emprestimo.id)
+              .order('numero_parcela', { ascending: true })
+
+            const parcelasMapeadas = (todasP_Q ?? []).map(pItem => {
+              if (pItem.id === pagarParcela.id) {
+                return {
+                  numero_parcela: pagarParcela.numero_parcela,
+                  data_vencimento: pagarParcela.data_vencimento,
+                  data_pagamento: hoje,
+                  valor: pagarParcela.valor,
+                  valor_pago: valorFinal,
+                  tipo_pagamento: pagForma,
+                  status: 'pago'
+                }
+              }
+              return {
+                numero_parcela: pItem.numero_parcela,
+                data_vencimento: pItem.data_vencimento,
+                data_pagamento: pItem.data_pagamento,
+                valor: pItem.valor,
+                valor_pago: pItem.valor_pago,
+                tipo_pagamento: pItem.tipo_pagamento,
+                status: pItem.status
+              }
+            })
+
+            const quitacaoParams = {
+              contrato: {
+                numero_contrato: emprestimo.numero_contrato,
+                valor_principal: emprestimo.valor_principal,
+                taxa_juros: emprestimo.taxa_juros,
+                prazo_meses: emprestimo.prazo_meses,
+                data_liberacao: emprestimo.data_liberacao,
+                data_quitacao: hoje,
+              },
+              cliente: {
+                nome: cliente.nome,
+                cpf: cliente.cpf ?? null,
+                telefone: cliente.telefone,
+                endereco: cliente.endereco,
+                numero: cliente.numero,
+                complemento: cliente.complemento,
+                bairro: cliente.bairro,
+                cidade: cliente.cidade,
+                estado: cliente.estado,
+                cep: cliente.cep
+              },
+              parcelas: parcelasMapeadas,
+              empresaNome: empresaAtual.nome,
+              empresaCnpj: empresaAtual.cnpj,
+              empresaTelefone: empresaAtual.telefone,
+              empresaEmail: empresaAtual.email,
+              empresaEndereco: empresaAtual.endereco,
+              empresaCidade: empresaAtual.cidade,
+              empresaEstado: empresaAtual.estado,
+              empresaCep: empresaAtual.cep,
+            }
+
+            const quitacaoBlob = await gerarQuitacaoPDF(quitacaoParams, { output: 'blob' })
+
+            if (quitacaoBlob instanceof Blob) {
+              const filePathQ = `${empresaAtual.id}/${cliente.id}/recibos/quitacao-${emprestimo.numero_contrato}-${Date.now()}.pdf`
+              const { error: uploadErrorQ } = await supabase.storage
+                .from('documentos-clientes')
+                .upload(filePathQ, quitacaoBlob, {
+                  contentType: 'application/pdf',
+                  upsert: false,
+                })
+
+              if (!uploadErrorQ) {
+                const { data: urlDataQ } = supabase.storage
+                  .from('documentos-clientes')
+                  .getPublicUrl(filePathQ)
+                
+                const publicUrlQ = urlDataQ.publicUrl
+
+                const msgTextoQ = `Parabéns, ${cliente.nome}! O seu empréstimo do contrato ${emprestimo.numero_contrato} foi 100% QUITADO e liquidado com sucesso! Segue seu Termo de Quitação Integral em anexo.\n\n${publicUrlQ}`
+
+                await supabase.from('notificacoes_log').insert({
+                  empresa_id: empresaAtual.id,
+                  canal: 'whatsapp',
+                  destinatario: cliente.telefone,
+                  assunto: `Termo de Quitação Integral - ${emprestimo.numero_contrato}`,
+                  mensagem: msgTextoQ,
+                  referencia_tipo: 'emprestimo',
+                  referencia_id: emprestimo.id,
+                  status: 'pendente',
+                })
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao gerar/enviar PDF do recibo:', e)
+      }
+
       setPagarParcela(null)
       carregarDados()
     } catch (err) { logError('registrarPagamento', err); toast.error(parseSupabaseError(err, 'Erro ao registrar pagamento')) }
@@ -371,7 +621,7 @@ export default function EmprestimoDetalhePage() {
   }
 
   async function quitarAntecipado() {
-    if (!emprestimo || !empresaAtual) return
+    if (!emprestimo || !empresaAtual || !cliente) return
     setProcessando(true)
     try {
       const hoje = new Date().toISOString().split('T')[0]
@@ -412,7 +662,87 @@ export default function EmprestimoDetalhePage() {
         })
       }
 
-      toast.success('Empréstimo quitado com sucesso! Todas as parcelas foram marcadas como pagas.')
+      // Generate Termo de Quitação PDF and trigger notifications
+      const { data: todasP } = await supabase
+        .from('parcelas_emprestimo')
+        .select('*')
+        .eq('emprestimo_id', emprestimo.id)
+        .order('numero_parcela')
+
+      const parcelasMapeadas = (todasP ?? []).map(p => ({
+        numero_parcela: p.numero_parcela,
+        data_vencimento: p.data_vencimento,
+        data_pagamento: p.data_pagamento || hoje,
+        valor: p.valor,
+        valor_pago: p.valor_pago || p.valor,
+        tipo_pagamento: p.tipo_pagamento || 'dinheiro',
+        status: 'pago',
+      }))
+
+      const quitacaoParams = {
+        contrato: {
+          numero_contrato: emprestimo.numero_contrato,
+          valor_principal: emprestimo.valor_principal,
+          taxa_juros: emprestimo.taxa_juros,
+          prazo_meses: emprestimo.prazo_meses,
+          data_liberacao: emprestimo.data_liberacao,
+          data_quitacao: hoje,
+        },
+        cliente: {
+          nome: cliente.nome,
+          cpf: cliente.cpf ?? null,
+          telefone: cliente.telefone,
+          endereco: cliente.endereco,
+          numero: cliente.numero,
+          complemento: cliente.complemento,
+          bairro: cliente.bairro,
+          cidade: cliente.cidade,
+          estado: cliente.estado,
+          cep: cliente.cep
+        },
+        parcelas: parcelasMapeadas,
+        empresaNome: empresaAtual.nome,
+        empresaCnpj: empresaAtual.cnpj,
+        empresaTelefone: empresaAtual.telefone,
+        empresaEmail: empresaAtual.email,
+        empresaEndereco: empresaAtual.endereco,
+        empresaCidade: empresaAtual.cidade,
+        empresaEstado: empresaAtual.estado,
+        empresaCep: empresaAtual.cep,
+      }
+
+      const quitacaoBlob = await gerarQuitacaoPDF(quitacaoParams, { output: 'blob' })
+
+      if (quitacaoBlob instanceof Blob) {
+        const filePathQ = `${empresaAtual.id}/${cliente.id}/recibos/quitacao-${emprestimo.numero_contrato}-${Date.now()}.pdf`
+        const { error: uploadErrorQ } = await supabase.storage
+          .from('documentos-clientes')
+          .upload(filePathQ, quitacaoBlob, {
+            contentType: 'application/pdf',
+            upsert: false,
+          })
+
+        if (!uploadErrorQ) {
+          const { data: urlDataQ } = supabase.storage
+            .from('documentos-clientes')
+            .getPublicUrl(filePathQ)
+          
+          const publicUrlQ = urlDataQ.publicUrl
+
+          const msgTextoQ = `Parabéns, ${cliente.nome}! O seu empréstimo do contrato ${emprestimo.numero_contrato} foi 100% QUITADO e liquidado antecipadamente com sucesso! Segue seu Termo de Quitação Integral em anexo.\n\n${publicUrlQ}`
+
+          await supabase.from('notificacoes_log').insert({
+            empresa_id: empresaAtual.id,
+            canal: 'whatsapp',
+            destinatario: cliente.telefone,
+            assunto: `Termo de Quitação Integral - ${emprestimo.numero_contrato}`,
+            mensagem: msgTextoQ,
+            status: 'pendente',
+          })
+        }
+      }
+
+      toast.success('Empréstimo quitado com sucesso! Termo de Quitação enviado.')
       setQuitarDialog(false)
       carregarDados()
     } catch (err) {
@@ -572,7 +902,7 @@ export default function EmprestimoDetalhePage() {
           </div>
           <div className="bg-card rounded-2xl border border-border p-4 shadow-m3-1 relative overflow-hidden transition-all hover:scale-[1.01]">
             <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
-            <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider mb-1">Valor da Parcela (Price)</p>
+            <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider mb-1">Valor da Parcela</p>
             <p className="text-lg font-black text-foreground">{formatarMoeda(emprestimo.valor_parcela)}</p>
           </div>
         </div>
@@ -1008,42 +1338,42 @@ export default function EmprestimoDetalhePage() {
                       )}
                     </div>
 
-                    {/* Juros sobre saldo remanescente — só para "Somar à Próxima" */}
-                    {partialOption === 'proxima' && (
-                      <div className="space-y-2 pt-2 border-t border-[#FA903E]/20">
-                        <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                          Juros sobre o saldo remanescente (opcional)
-                        </Label>
-                        <div className="relative flex items-center">
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            placeholder="0"
-                            value={partialJurosPct}
-                            onChange={e => setPartialJurosPct(e.target.value)}
-                            className="h-9 pr-8 focus-visible:ring-1 focus-visible:ring-[#FA903E] focus-visible:border-[#FA903E] rounded-lg text-sm font-semibold"
-                          />
-                          <span className="absolute right-3 text-xs font-bold text-muted-foreground/60">%</span>
-                        </div>
-                        {Number(partialJurosPct) > 0 && (
-                          <div className="rounded-lg border border-[#FA903E]/25 bg-orange-50/50 dark:bg-orange-950/10 p-2.5 space-y-1 text-[11px] font-semibold">
-                            <div className="flex justify-between text-muted-foreground">
-                              <span>Saldo restante</span>
-                              <span>{formatarMoeda(restante)}</span>
-                            </div>
-                            <div className="flex justify-between text-[#FA903E]">
-                              <span>+ {Number(partialJurosPct)}% juros</span>
-                              <span>+ {formatarMoeda(Math.round(restante * (Number(partialJurosPct) / 100) * 100) / 100)}</span>
-                            </div>
-                            <div className="flex justify-between text-foreground font-black border-t border-[#FA903E]/20 pt-1.5">
-                              <span>Vai para a próxima parcela</span>
-                              <span className="text-[#FA903E]">{formatarMoeda(Math.round(restante * (1 + Number(partialJurosPct) / 100) * 100) / 100)}</span>
-                            </div>
-                          </div>
-                        )}
+                    {/* Juros sobre saldo remanescente — Exibe para todas as opções */}
+                    <div className="space-y-2 pt-2 border-t border-[#FA903E]/20">
+                      <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                        Juros sobre o saldo remanescente (opcional)
+                      </Label>
+                      <div className="relative flex items-center">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          placeholder="0"
+                          value={partialJurosPct}
+                          onChange={e => setPartialJurosPct(e.target.value)}
+                          className="h-9 pr-8 focus-visible:ring-1 focus-visible:ring-[#FA903E] focus-visible:border-[#FA903E] rounded-lg text-sm font-semibold"
+                        />
+                        <span className="absolute right-3 text-xs font-bold text-muted-foreground/60">%</span>
                       </div>
-                    )}
+                      {Number(partialJurosPct) > 0 && (
+                        <div className="rounded-lg border border-[#FA903E]/25 bg-orange-50/50 dark:bg-orange-950/10 p-2.5 space-y-1 text-[11px] font-semibold">
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Saldo restante original</span>
+                            <span>{formatarMoeda(restante)}</span>
+                          </div>
+                          <div className="flex justify-between text-[#FA903E]">
+                            <span>+ {Number(partialJurosPct)}% juros</span>
+                            <span>+ {formatarMoeda(Math.round(restante * (Number(partialJurosPct) / 100) * 100) / 100)}</span>
+                          </div>
+                          <div className="flex justify-between text-foreground font-black border-t border-[#FA903E]/20 pt-1.5">
+                            {partialOption === 'proxima' && <span>Soma à próxima parcela</span>}
+                            {partialOption === 'diluir' && <span>Valor total a diluir</span>}
+                            {partialOption === 'extra' && <span>Valor da parcela extra</span>}
+                            <span className="text-[#FA903E]">{formatarMoeda(Math.round(restante * (1 + Number(partialJurosPct) / 100) * 100) / 100)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Vencimento da Parcela Extra */}
                     {partialOption === 'extra' && (

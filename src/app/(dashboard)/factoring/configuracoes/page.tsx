@@ -45,6 +45,17 @@ export default function ConfiguracoesFactoringPage() {
   const [jurosMoraDiario, setJurosMoraDiario] = useState('0.033')
   const [saldoInicialCaixa, setSaldoInicialCaixa] = useState('0')
 
+  // Empresa
+  const [empresaNome, setEmpresaNome] = useState('')
+  const [empresaCnpj, setEmpresaCnpj] = useState('')
+  const [empresaTelefone, setEmpresaTelefone] = useState('')
+  const [empresaEmail, setEmpresaEmail] = useState('')
+  const [empresaEndereco, setEmpresaEndereco] = useState('')
+  const [empresaCidade, setEmpresaCidade] = useState('')
+  const [empresaEstado, setEmpresaEstado] = useState('')
+  const [empresaCep, setEmpresaCep] = useState('')
+  const [salvandoEmpresa, setSalvandoEmpresa] = useState(false)
+
   // Usuários
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([])
   const [loadingUsuarios] = useState(false)
@@ -101,7 +112,17 @@ export default function ConfiguracoesFactoringPage() {
   }, [empresaAtual])
 
   useEffect(() => {
-    if (!ctxLoading && empresaAtual) carregarDados()
+    if (!ctxLoading && empresaAtual) {
+      carregarDados()
+      setEmpresaNome(empresaAtual.nome ?? '')
+      setEmpresaCnpj(empresaAtual.cnpj ?? '')
+      setEmpresaTelefone(empresaAtual.telefone ?? '')
+      setEmpresaEmail(empresaAtual.email ?? '')
+      setEmpresaEndereco(empresaAtual.endereco ?? '')
+      setEmpresaCidade(empresaAtual.cidade ?? '')
+      setEmpresaEstado(empresaAtual.estado ?? '')
+      setEmpresaCep(empresaAtual.cep ?? '')
+    }
   }, [ctxLoading, empresaAtual, carregarDados])
 
   async function salvarFinanceiro() {
@@ -137,6 +158,36 @@ export default function ConfiguracoesFactoringPage() {
       toast.error('Erro ao salvar configurações')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function salvarEmpresa() {
+    if (!empresaAtual) return
+    setSalvandoEmpresa(true)
+    try {
+      const { error } = await supabase
+        .from('empresas')
+        .update({
+          nome: empresaNome,
+          cnpj: empresaCnpj,
+          telefone: empresaTelefone,
+          email: empresaEmail,
+          endereco: empresaEndereco,
+          cidade: empresaCidade,
+          estado: empresaEstado.slice(0, 2).toUpperCase(),
+          cep: empresaCep,
+        })
+        .eq('id', empresaAtual.id)
+      if (error) throw error
+      toast.success('Configurações da empresa atualizadas!')
+      setTimeout(() => {
+        window.location.reload()
+      }, 1000)
+    } catch (err) {
+      console.error(err)
+      toast.error('Erro ao salvar configurações da empresa')
+    } finally {
+      setSalvandoEmpresa(false)
     }
   }
 
@@ -281,6 +332,12 @@ export default function ConfiguracoesFactoringPage() {
               Financeiro
             </TabsTrigger>
             <TabsTrigger 
+              value="empresa" 
+              className="rounded-full px-5 py-2 font-bold text-xs tracking-tight transition-all duration-200 data-[state=active]:bg-[var(--gt-blue)] data-[state=active]:text-white data-[state=active]:shadow-sm"
+            >
+              Empresa
+            </TabsTrigger>
+            <TabsTrigger 
               value="usuarios" 
               className="rounded-full px-5 py-2 font-bold text-xs tracking-tight transition-all duration-200 data-[state=active]:bg-[var(--gt-blue)] data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
@@ -350,6 +407,119 @@ export default function ConfiguracoesFactoringPage() {
                   className="h-10 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 rounded-full px-6 font-medium shadow-sm transition-all duration-200"
                 >
                   {saving ? 'Salvando...' : 'Salvar Financeiro'}
+                </Button>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* ── Empresa ── */}
+          <TabsContent value="empresa">
+            <div className="bg-card rounded-2xl border border-border/50 shadow-m3-1 p-6 space-y-6">
+              <div>
+                <h2 className="text-base font-bold text-foreground tracking-tight">Dados da Empresa</h2>
+                <p className="text-sm text-muted-foreground mt-1">Essas informações aparecerão no cabeçalho de todos os contratos, recibos e termos gerados pelo sistema.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t border-border/40 pt-5">
+                <div className="space-y-2">
+                  <Label htmlFor="empresa-nome" className="font-semibold text-xs text-foreground/80">Nome Fantasia / Razão Social</Label>
+                  <Input
+                    id="empresa-nome"
+                    value={empresaNome}
+                    onChange={e => setEmpresaNome(e.target.value)}
+                    placeholder="Ex: SRS M Factoring Ltda"
+                    className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="empresa-cnpj" className="font-semibold text-xs text-foreground/80">CNPJ</Label>
+                  <Input
+                    id="empresa-cnpj"
+                    value={empresaCnpj}
+                    onChange={e => setEmpresaCnpj(e.target.value)}
+                    placeholder="Ex: 21.707.455/0001-11"
+                    className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="empresa-telefone" className="font-semibold text-xs text-foreground/80">Telefone para Contato</Label>
+                  <Input
+                    id="empresa-telefone"
+                    value={empresaTelefone}
+                    onChange={e => setEmpresaTelefone(e.target.value)}
+                    placeholder="Ex: (62) 98560-6974"
+                    className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="empresa-email" className="font-semibold text-xs text-foreground/80">E-mail Comercial</Label>
+                  <Input
+                    id="empresa-email"
+                    type="email"
+                    value={empresaEmail}
+                    onChange={e => setEmpresaEmail(e.target.value)}
+                    placeholder="Ex: contato@srsm.com"
+                    className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                  />
+                </div>
+
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="empresa-endereco" className="font-semibold text-xs text-foreground/80">Endereço Comercial</Label>
+                  <Input
+                    id="empresa-endereco"
+                    value={empresaEndereco}
+                    onChange={e => setEmpresaEndereco(e.target.value)}
+                    placeholder="Ex: Rua Três Marias, Quadra 10, Lote 02"
+                    className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="empresa-cep" className="font-semibold text-xs text-foreground/80">CEP</Label>
+                  <Input
+                    id="empresa-cep"
+                    value={empresaCep}
+                    onChange={e => setEmpresaCep(e.target.value)}
+                    placeholder="Ex: 74465-445"
+                    className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="empresa-cidade" className="font-semibold text-xs text-foreground/80">Cidade</Label>
+                    <Input
+                      id="empresa-cidade"
+                      value={empresaCidade}
+                      onChange={e => setEmpresaCidade(e.target.value)}
+                      placeholder="Goiânia"
+                      className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="empresa-estado" className="font-semibold text-xs text-foreground/80">UF</Label>
+                    <Input
+                      id="empresa-estado"
+                      maxLength={2}
+                      value={empresaEstado}
+                      onChange={e => setEmpresaEstado(e.target.value)}
+                      placeholder="GO"
+                      className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)] text-center uppercase"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end border-t border-border/40 pt-5">
+                <Button 
+                  onClick={salvarEmpresa} 
+                  disabled={salvandoEmpresa} 
+                  className="h-10 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 rounded-full px-6 font-medium shadow-sm transition-all duration-200"
+                >
+                  {salvandoEmpresa ? 'Salvando...' : 'Salvar Dados da Empresa'}
                 </Button>
               </div>
             </div>

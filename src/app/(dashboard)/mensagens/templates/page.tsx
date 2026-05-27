@@ -219,8 +219,10 @@ export default function TemplatesMensagensPage() {
 
   if (loading) return <LoadingPage />
 
+  const tipoEmpresa = empresaAtual?.tipo ?? 'factoring'
+
   return (
-    <AppShell empresa="factoring" titulo="Templates de Mensagens">
+    <AppShell empresa={tipoEmpresa} titulo="Templates de Mensagens">
       <div className="flex gap-6 h-[calc(100vh-140px)]">
         {/* Sidebar */}
         <div className="w-56 flex-shrink-0 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">

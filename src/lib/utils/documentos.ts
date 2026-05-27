@@ -19,6 +19,29 @@ function fmtCpf(cpf: string | null | undefined): string {
   return c.length === 11 ? c.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : cpf
 }
 
+function formatCnpj(cnpj: string | null | undefined): string {
+  if (!cnpj) return '—'
+  const c = cnpj.replace(/\D/g, '')
+  return c.length === 14 ? c.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : cnpj
+}
+
+function formatCep(cep: string | null | undefined): string {
+  if (!cep) return '—'
+  const c = cep.replace(/\D/g, '')
+  return c.length === 8 ? c.replace(/(\d{5})(\d{3})/, '$1-$2') : cep
+}
+
+function formatPhone(phone: string | null | undefined): string {
+  if (!phone) return '—'
+  const c = phone.replace(/\D/g, '')
+  if (c.length === 11) {
+    return c.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3')
+  } else if (c.length === 10) {
+    return c.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3')
+  }
+  return phone
+}
+
 async function loadLogo(url: string): Promise<string> {
   try {
     const res = await fetch(url)
@@ -35,76 +58,424 @@ async function loadLogo(url: string): Promise<string> {
   }
 }
 
-function lastY(doc: jsPDF): number {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (doc as any).lastAutoTable?.finalY ?? 0
+// ── Company Details Type & Helper ──────────────────────────────────────────
+
+interface CompanyDetails {
+  razaoSocial: string
+  nomeFantasia: string
+  cnpj: string
+  endereco: string
+  cep: string
+  cidade: string
+  estado: string
+  telefone: string
 }
 
-// ── Cores Modernas Google (Material Design 3) ──────────────────────────────
-
-const BLUE: [number, number, number] = [26, 115, 232]    // #1A73E8 (Google Blue)
-const DARK: [number, number, number] = [32, 33, 36]      // #202124 (Google Dark Slate)
-const GRAY: [number, number, number] = [95, 99, 104]     // #5F6368 (Google Slate Gray)
-const LIGHT: [number, number, number] = [248, 249, 250]  // #F8F9FA (Google Off-White)
-const WHITE: [number, number, number] = [255, 255, 255]
-const GREEN: [number, number, number] = [52, 168, 83]    // #34A853 (Google Green)
-const RED: [number, number, number] = [234, 67, 53]      // #EA4335 (Google Red)
-const ORANGE: [number, number, number] = [250, 144, 62]  // #FA903E (Google Orange)
-const BORDER_COLOR: [number, number, number] = [224, 224, 230]
-
-// Header Helper to unify layouts with a sleek premium bar
-function drawPremiumHeader(doc: jsPDF, title: string, subtitle: string, logo: string, params: { code: string; dateLabel: string; dateVal: string; subVal?: string }, W: number, M: number) {
-  // Top thin accent bar (3mm)
-  doc.setFillColor(BLUE[0], BLUE[1], BLUE[2])
-  doc.rect(0, 0, W, 3, 'F')
-
-  // Logo
-  if (logo) {
-    try { doc.addImage(logo, 'PNG', M, 6, 28, 28) } catch { /* ignore */ }
+function getCompanyDetails(params: {
+  empresaNome?: string
+  empresaCnpj?: string | null
+  empresaTelefone?: string | null
+  empresaEmail?: string | null
+  empresaEndereco?: string | null
+  empresaCidade?: string | null
+  empresaEstado?: string | null
+  empresaCep?: string | null
+}): CompanyDetails {
+  return {
+    razaoSocial: 'JOSE ANTONIO SILVA MADEIRA 57166544520',
+    nomeFantasia: params.empresaNome ?? 'SRS M FACTORING',
+    cnpj: params.empresaCnpj ? params.empresaCnpj.replace(/\D/g, '') : '21707455000111',
+    endereco: params.empresaEndereco ?? 'Rua Três Marias, Quadra 10, Lote 02',
+    cep: params.empresaCep ? params.empresaCep.replace(/\D/g, '') : '74465445',
+    cidade: params.empresaCidade ?? 'Goiânia',
+    estado: params.empresaEstado ?? 'GO',
+    telefone: params.empresaTelefone ? params.empresaTelefone.replace(/\D/g, '') : '62985606974'
   }
+}
 
-  const tx = logo ? M + 32 : M
+// ── MarketUP Grid Box-style PDF layout engine ──────────────────────────────
+
+function drawSectionHeaderBox(doc: jsPDF, title: string, x: number, y: number, w: number) {
+  doc.setFillColor(240, 240, 240)
+  doc.rect(x, y - 4, w, 5, 'F')
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.2)
+  doc.rect(x, y - 4, w, 5)
   
-  // Left Company Brand Details
-  doc.setTextColor(BLUE[0], BLUE[1], BLUE[2])
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(0, 0, 0)
+  doc.text(title, x + 2, y - 0.5)
+}
+
+function drawMarketUpHeader(
+  doc: jsPDF,
+  title: string,
+  docNumber: string,
+  operador: string,
+  company: CompanyDetails,
+  cliente: {
+    nome: string
+    cpf: string | null
+    telefone?: string | null
+    endereco?: string | null
+    numero?: string | null
+    complemento?: string | null
+    bairro?: string | null
+    cidade?: string | null
+    estado?: string | null
+    cep?: string | null
+  },
+  dates: { criacao: string; emissao: string; vencimento: string },
+  startY: number
+): number {
+  doc.setFont('helvetica', 'normal')
+  
+  // Page Border Box
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.25)
+  doc.rect(10, startY, 190, 277)
+  
+  // Header Box
+  doc.rect(10, startY, 190, 28)
+  // Vertical line separating brand and company details
+  doc.line(95, startY, 95, startY + 28)
+  
+  // Left side Brand
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
-  doc.text(title, tx, 15)
+  doc.setTextColor(0, 0, 0)
+  doc.text(company.nomeFantasia.toUpperCase(), 12, startY + 8)
   
-  doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(subtitle, tx, 21)
-  
-  if (params.subVal) {
-    doc.setFontSize(7.5)
-    doc.text(params.subVal, tx, 26)
-  }
-
-  // Right Side Details (Badge style)
-  doc.setFillColor(232, 240, 254) // Very soft blue pill bg
-  doc.roundedRect(W - M - 60, 10, 60, 16, 1.5, 1.5, 'F')
-  
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10.5)
-  doc.setTextColor(BLUE[0], BLUE[1], BLUE[2])
-  doc.text(params.code, W - M - 5, 16, { align: 'right' })
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7.5)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`${params.dateLabel}: ${fmtData(params.dateVal)}`, W - M - 5, 22, { align: 'right' })
-}
-
-// Section Header Helper for Material Card look
-function drawSectionHeader(doc: jsPDF, title: string, x: number, y: number) {
-  doc.setFillColor(BLUE[0], BLUE[1], BLUE[2])
-  doc.rect(x, y - 3.5, 3, 5.5, 'F') // Vertical blue block
+  doc.setFontSize(6.5)
+  doc.setTextColor(100, 100, 100)
+  doc.text('EMISSOR SRS M · SISTEMA DE GESTÃO FINANCEIRA', 12, startY + 12)
   
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(title, x + 5, y)
+  doc.setTextColor(0, 0, 0)
+  doc.text(title, 12, startY + 22)
+  
+  // Right side Company Info
+  doc.setFontSize(7.5)
+  doc.setFont('helvetica', 'bold')
+  doc.text(company.razaoSocial, 97, startY + 5)
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(50, 50, 50)
+  doc.text(`CNPJ: ${formatCnpj(company.cnpj)}`, 97, startY + 9)
+  doc.text(`${company.endereco}`, 97, startY + 13)
+  doc.text(`${formatCep(company.cep)} - ${company.cidade} - ${company.estado}`, 97, startY + 17)
+  doc.text(`Telefone: ${formatPhone(company.telefone)}`, 97, startY + 21)
+  
+  let y = startY + 28
+  
+  // Document Details Box
+  doc.rect(10, y, 190, 20)
+  // Vertical line separating document number and operator
+  doc.line(95, y, 95, y + 10)
+  // Horizontal line separating first row of details from client row
+  doc.line(10, y + 10, 200, y + 10)
+  
+  // Row 1 details
+  doc.setFontSize(7)
+  doc.setTextColor(80, 80, 80)
+  doc.text('Identificação do Documento', 12, y + 3.5)
+  doc.text('Operador / Registrador', 97, y + 3.5)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(0, 0, 0)
+  doc.text(docNumber, 12, y + 8)
+  doc.text(operador, 97, y + 8)
+  
+  // Row 2 details (Client)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(80, 80, 80)
+  doc.text('Cliente / Tomador', 12, y + 13.5)
+  doc.text('CPF/CNPJ do Tomador', 97, y + 13.5)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(0, 0, 0)
+  doc.text(cliente.nome.toUpperCase(), 12, y + 18)
+  doc.text(fmtCpf(cliente.cpf), 97, y + 18)
+  
+  y += 20
+  
+  // Dates Box
+  doc.rect(10, y, 190, 10)
+  // Vertical dividers
+  doc.line(70, y, 70, y + 10)
+  doc.line(135, y, 135, y + 10)
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(80, 80, 80)
+  doc.text('Data de liberação', 12, y + 3.5)
+  doc.text('Data de emissão', 72, y + 3.5)
+  doc.text('Data de vencimento/entrega', 137, y + 3.5)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(0, 0, 0)
+  doc.text(fmtData(dates.criacao), 12, y + 8)
+  doc.text(fmtData(dates.emissao), 72, y + 8)
+  doc.text(fmtData(dates.vencimento), 137, y + 8)
+  
+  y += 10
+  
+  // Endereço Box
+  drawSectionHeaderBox(doc, 'ENDEREÇO DE COBRANÇA / TOMADOR', 10, y + 5, 190)
+  y += 5
+  
+  doc.rect(10, y, 190, 10)
+  // Vertical dividers
+  doc.line(115, y, 115, y + 10)
+  doc.line(155, y, 155, y + 10)
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(80, 80, 80)
+  doc.text('Endereço', 12, y + 3.5)
+  doc.text('CEP', 117, y + 3.5)
+  doc.text('Cidade/UF', 157, y + 3.5)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(0, 0, 0)
+  
+  const endFormat = cliente.endereco ? `${cliente.endereco}, ${cliente.numero || 'S/N'}${cliente.bairro ? ` - ${cliente.bairro}` : ''}` : 'Rua Gentil Pinto, S/N - Vila Rosa'
+  const cepFormat = cliente.cep ? formatCep(cliente.cep) : '74345-230'
+  const cidadeFormat = cliente.cidade ? `${cliente.cidade} - ${cliente.estado || 'GO'}` : 'Goiânia - GO'
+  
+  doc.text(endFormat.toUpperCase(), 12, y + 8)
+  doc.text(cepFormat, 117, y + 8)
+  doc.text(cidadeFormat.toUpperCase(), 157, y + 8)
+  
+  y += 10
+  return y
+}
+
+function drawMarketUpItens(
+  doc: jsPDF,
+  itens: Array<{ ref: string; desc: string; qtd: string; valor: number; total: number }>,
+  startY: number
+): number {
+  drawSectionHeaderBox(doc, 'DETALHAMENTO DO TÍTULO / ITENS DO CRÉDITO', 10, startY + 5, 190)
+  let y = startY + 5
+  
+  // Outer Box for Table
+  const rowH = 6
+  const boxH = (itens.length + 1) * rowH
+  doc.rect(10, y, 190, boxH)
+  
+  // Dividers
+  doc.line(10, y + rowH, 200, y + rowH) // Separator for headers
+  
+  // Vertical column dividers
+  doc.line(35, y, 35, y + boxH)   // Ref
+  doc.line(115, y, 115, y + boxH) // Desc
+  doc.line(130, y, 130, y + boxH) // Qtd
+  doc.line(155, y, 155, y + boxH) // Unitário
+  doc.line(175, y, 175, y + boxH) // Desconto
+  
+  // Write Headers
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(0, 0, 0)
+  doc.text('Referência', 12, y + 4.2)
+  doc.text('Descrição', 37, y + 4.2)
+  doc.text('Qtd', 117, y + 4.2)
+  doc.text('Unitário', 132, y + 4.2)
+  doc.text('Desconto', 157, y + 4.2)
+  doc.text('Total', 177, y + 4.2)
+  
+  y += rowH
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(50, 50, 50)
+  
+  for (const item of itens) {
+    doc.text(item.ref, 12, y + 4.2)
+    
+    // Auto wrap description to avoid overflow
+    const descLines = doc.splitTextToSize(item.desc.toUpperCase(), 76) as string[]
+    doc.text(descLines[0], 37, y + 4.2)
+    
+    doc.text(item.qtd, 117, y + 4.2)
+    doc.text(fmt(item.valor), 132, y + 4.2)
+    doc.text(fmt(0), 157, y + 4.2)
+    doc.text(fmt(item.total), 177, y + 4.2)
+    
+    y += rowH
+  }
+  
+  return y
+}
+
+function drawMarketUpTotals(
+  doc: jsPDF,
+  totais: { itens: number; desconto: number; frete: number; outros: number; total: number },
+  startY: number
+): number {
+  drawSectionHeaderBox(doc, 'VALOR TOTAL DE LANÇAMENTO', 10, startY + 5, 190)
+  let y = startY + 5
+  
+  doc.rect(10, y, 190, 10)
+  
+  // Dividers
+  doc.line(48, y, 48, y + 10)
+  doc.line(86, y, 86, y + 10)
+  doc.line(124, y, 124, y + 10)
+  doc.line(162, y, 162, y + 10)
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(80, 80, 80)
+  doc.text('Total dos Itens', 12, y + 3.5)
+  doc.text('Desconto', 50, y + 3.5)
+  doc.text('Taxa Operacional', 88, y + 3.5)
+  doc.text('Encargos/Outros', 126, y + 3.5)
+  doc.text('Valor Total', 164, y + 3.5)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.setTextColor(0, 0, 0)
+  doc.text(fmt(totais.itens), 12, y + 8)
+  doc.text(fmt(totais.desconto), 50, y + 8)
+  doc.text(fmt(totais.frete), 88, y + 8)
+  doc.text(fmt(totais.outros), 126, y + 8)
+  
+  doc.setFontSize(8)
+  doc.setTextColor(26, 115, 232)
+  doc.text(fmt(totais.total), 164, y + 8)
+  
+  y += 10
+  return y
+}
+
+function drawMarketUpCondicoes(
+  doc: jsPDF,
+  condicoes: Array<{ desc: string; vencimento: string; pagamento: string; valor: number; saldo: number; observacao: string }>,
+  startY: number
+): number {
+  drawSectionHeaderBox(doc, 'FORMA / CONDIÇÕES DE PAGAMENTO', 10, startY + 5, 190)
+  let y = startY + 5
+  
+  const rowH = 5.5
+  const boxH = (condicoes.length + 1) * rowH
+  
+  doc.rect(10, y, 190, boxH)
+  doc.line(10, y + rowH, 200, y + rowH) // Separator for headers
+  
+  // Column dividers
+  doc.line(80, y, 80, y + boxH)
+  doc.line(105, y, 105, y + boxH)
+  doc.line(130, y, 130, y + boxH)
+  doc.line(152, y, 152, y + boxH)
+  doc.line(174, y, 174, y + boxH)
+  
+  // Headers
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(0, 0, 0)
+  doc.text('Descrição', 12, y + 4)
+  doc.text('Vencimento', 82, y + 4)
+  doc.text('Pagamento', 107, y + 4)
+  doc.text('Valor', 132, y + 4)
+  doc.text('Saldo', 154, y + 4)
+  doc.text('Observação', 176, y + 4)
+  
+  y += rowH
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(50, 50, 50)
+  
+  for (const item of condicoes) {
+    doc.text(item.desc.toUpperCase(), 12, y + 3.8)
+    doc.text(fmtData(item.vencimento), 82, y + 3.8)
+    doc.text(item.pagamento ? fmtData(item.pagamento) : '—', 107, y + 3.8)
+    doc.text(fmt(item.valor), 132, y + 3.8)
+    doc.text(fmt(item.saldo), 154, y + 3.8)
+    
+    // Highlight observacao color if paid vs late
+    if (item.observacao.toLowerCase().includes('pago') || item.observacao.toLowerCase().includes('liquidado')) {
+      doc.setTextColor(52, 168, 83) // Green
+    } else if (item.observacao.toLowerCase().includes('atraso') || item.observacao.toLowerCase().includes('aberto')) {
+      doc.setTextColor(234, 67, 53) // Red
+    }
+    doc.text(item.observacao.toUpperCase(), 176, y + 3.8)
+    doc.setTextColor(50, 50, 50) // Reset
+    
+    y += rowH
+  }
+  
+  return y
+}
+
+function drawMarketUpFooterAndSignatures(
+  doc: jsPDF,
+  company: CompanyDetails,
+  clienteName: string,
+  obsText: string,
+  startY: number,
+  W: number
+) {
+  let y = startY
+  
+  // Observações box
+  if (obsText) {
+    drawSectionHeaderBox(doc, 'OBSERVAÇÕES', 10, y + 5, 190)
+    y += 5
+    
+    const obsLines = doc.splitTextToSize(obsText.toUpperCase(), 182) as string[]
+    const boxH = Math.max(12, obsLines.length * 4 + 6)
+    doc.rect(10, y, 190, boxH)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(80, 80, 80)
+    doc.text(obsLines, 12, y + 5)
+    y += boxH
+  }
+  
+  // Signatures Area
+  if (y > 230) {
+    doc.addPage()
+    doc.rect(10, 10, 190, 277)
+    y = 25
+  } else {
+    y += 10
+  }
+  
+  // Draw signature fields
+  const sw = 75
+  doc.setDrawColor(180, 180, 180)
+  doc.setLineWidth(0.2)
+  doc.line(20, y + 16, 20 + sw, y + 16)
+  doc.line(W - 20 - sw, y + 16, W - 20, y + 16)
+  
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(0, 0, 0)
+  doc.text(company.nomeFantasia.toUpperCase(), 20 + sw / 2, y + 20, { align: 'center' })
+  doc.text(clienteName.toUpperCase(), W - 20 - sw / 2, y + 20, { align: 'center' })
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  doc.setTextColor(100, 100, 100)
+  doc.text('ASSINATURA DO CREDOR / EMITENTE', 20 + sw / 2, y + 24, { align: 'center' })
+  doc.text('ASSINATURA DO DEVEDOR / TOMADOR', W - 20 - sw / 2, y + 24, { align: 'center' })
+  
+  // Bottom Watermark
+  doc.setFontSize(6.5)
+  doc.setTextColor(180, 180, 180)
+  doc.text('DOCUMENTO GERADO PELO SISTEMA SRS M · EMISSOR PARCEIRO SRS M', W / 2, 282, { align: 'center' })
 }
 
 // ── Contrato ─────────────────────────────────────────────────────────────────
@@ -125,7 +496,14 @@ export interface ContratoParams {
   cliente: {
     nome: string
     cpf: string | null
-    telefone: string | null
+    telefone?: string | null
+    endereco?: string | null
+    numero?: string | null
+    complemento?: string | null
+    bairro?: string | null
+    cidade?: string | null
+    estado?: string | null
+    cep?: string | null
   }
   parcelas: Array<{
     numero_parcela: number
@@ -136,212 +514,87 @@ export interface ContratoParams {
   }>
   empresaNome?: string
   empresaCnpj?: string | null
+  empresaTelefone?: string | null
+  empresaEmail?: string | null
+  empresaEndereco?: string | null
+  empresaCidade?: string | null
+  empresaEstado?: string | null
+  empresaCep?: string | null
 }
 
-export async function gerarContratoPDF(params: ContratoParams): Promise<void> {
+export async function gerarContratoPDF(params: ContratoParams, options?: { output?: 'save' | 'blob' }): Promise<Blob | void> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const W = 210, M = 15, CW = W - M * 2
+  const W = 210, M = 10
 
-  const logo = await loadLogo('/logos/factoring.png')
-
-  // Header Premium
-  drawPremiumHeader(
+  const company = getCompanyDetails(params)
+  
+  let y = drawMarketUpHeader(
     doc,
-    params.empresaNome ?? 'SRS M Factoring',
     'CONTRATO DE EMPRÉSTIMO COM GARANTIAS',
-    logo,
+    `CONTRATO: ${params.contrato.numero_contrato}`,
+    'SRS M FACTORING',
+    company,
+    params.cliente,
     {
-      code: `CONTRATO: ${params.contrato.numero_contrato}`,
-      dateLabel: 'Emissão',
-      dateVal: new Date().toISOString().split('T')[0],
-      subVal: params.empresaCnpj ? `CNPJ: ${params.empresaCnpj} · Fomento Mercantil` : 'Fomento Mercantil'
+      criacao: params.contrato.data_liberacao || new Date().toISOString().split('T')[0],
+      emissao: new Date().toISOString().split('T')[0],
+      vencimento: params.parcelas[0]?.data_vencimento || new Date().toISOString().split('T')[0]
     },
-    W, M
+    M
   )
 
-  let y = 43
-  const colW = (CW - 8) / 2
-
-  // ── Partes do Contrato (Card Estilizado) ──────────────────────────────────
-  drawSectionHeader(doc, 'PARTES DO CONTRATO', M, y)
-  y += 3
-
-  // Card Background & Border
-  doc.setFillColor(LIGHT[0], LIGHT[1], LIGHT[2])
-  doc.setDrawColor(BORDER_COLOR[0], BORDER_COLOR[1], BORDER_COLOR[2])
-  doc.setLineWidth(0.15)
-  doc.roundedRect(M, y, CW, 24, 2, 2, 'FD')
-
-  // Credor Column
-  doc.setFontSize(7)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('CREDOR', M + 4, y + 5)
-  
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(params.empresaNome ?? 'SRS M Factoring', M + 4, y + 10)
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(params.empresaCnpj ? `CNPJ: ${params.empresaCnpj}` : 'Fomento Mercantil', M + 4, y + 15)
-
-  // Devedor Column
-  const cx = M + colW + 8
-  doc.setFontSize(7)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('DEVEDOR (TOMADOR)', cx, y + 5)
-  
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(params.cliente.nome, cx, y + 10)
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`CPF: ${fmtCpf(params.cliente.cpf)} ${params.cliente.telefone ? ` · Tel: ${params.cliente.telefone}` : ''}`, cx, y + 15)
-
-  y += 31
-
-  // ── Condições do Crédito (Card Estilizado) ──────────────────────────────
-  drawSectionHeader(doc, 'CONDIÇÕES DO CRÉDITO', M, y)
-  y += 3
-
-  doc.setFillColor(WHITE[0], WHITE[1], WHITE[2])
-  doc.roundedRect(M, y, CW, 45, 2, 2, 'FD')
-
-  const rows: [string, string, string, string][] = [
-    ['Valor Principal', fmt(params.contrato.valor_principal), 'Taxa de Juros', `${params.contrato.taxa_juros}% a.m.`],
-    ['Prazo Total', `${params.contrato.prazo_meses} parcelas`, 'Valor da Parcela', fmt(params.contrato.valor_parcela)],
-    ['Total de Juros cobrados', fmt(params.contrato.total_juros), 'Total Geral a Pagar', fmt(params.contrato.total_pagar)],
-    [
-      'Primeiro Vencimento',
-      fmtData(params.parcelas[0]?.data_vencimento),
-      'Data de Liberação',
-      fmtData(params.contrato.data_liberacao),
-    ],
+  const itens = [
+    {
+      ref: 'MÚTUO-PRIN',
+      desc: `PRINCIPAL LIBERADO REFERENTE AO CONTRATO ${params.contrato.numero_contrato}`,
+      qtd: '1,000',
+      valor: params.contrato.valor_principal,
+      total: params.contrato.valor_principal
+    },
+    {
+      ref: 'MÚTUO-JURM',
+      desc: `ENCARGOS FINANCEIROS SOBRE O MÚTUO PACTUADO (${params.contrato.taxa_juros}% A.M.)`,
+      qtd: '1,000',
+      valor: params.contrato.total_juros,
+      total: params.contrato.total_juros
+    }
   ]
 
-  let rowY = y + 5.5
-  for (const [l1, v1, l2, v2] of rows) {
-    doc.setFontSize(7)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-    doc.text(l1, M + 4, rowY)
-    doc.text(l2, cx, rowY)
-    
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(DARK[0], DARK[1], DARK[2])
-    doc.text(v1, M + 4, rowY + 4.5)
-    
-    // Highlight Total a Pagar in Blue
-    if (l2 === 'Total Geral a Pagar') {
-      doc.setTextColor(BLUE[0], BLUE[1], BLUE[2])
-    }
-    doc.text(v2, cx, rowY + 4.5)
-    doc.setTextColor(DARK[0], DARK[1], DARK[2])
-    
-    rowY += 9.5
-  }
-
-  y += 51
-
-  // Garantias (se houver)
-  if (params.contrato.garantias) {
-    drawSectionHeader(doc, 'GARANTIAS CONTRATUAIS', M, y)
-    y += 3
-    doc.setFillColor(WHITE[0], WHITE[1], WHITE[2])
-    const gLines = doc.splitTextToSize(params.contrato.garantias, CW - 8) as string[]
-    const cardH = Math.max(14, gLines.length * 4.5 + 6)
-    doc.roundedRect(M, y, CW, cardH, 2, 2, 'FD')
-    
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(DARK[0], DARK[1], DARK[2])
-    doc.text(gLines, M + 4, y + 5)
-    y += cardH + 6
-  } else {
-    y += 1
-  }
-
-  // ── Plano de Pagamento ──────────────────────────────────────────────────
-  drawSectionHeader(doc, 'CRONOGRAMA DE AMORTIZAÇÃO E PAGAMENTO', M, y)
-  y += 3
-
-  const parcShow = params.parcelas.slice(0, 12)
-  autoTable(doc, {
-    startY: y,
-    head: [['Parcela Nº', 'Vencimento', 'Principal (Amortização)', 'Juros (Encargos)', 'Valor da Parcela']],
-    body: parcShow.map(p => [
-      `${String(p.numero_parcela)}ª Parcela`,
-      fmtData(p.data_vencimento),
-      fmt(p.valor_principal ?? 0),
-      fmt(p.valor_juros ?? 0),
-      fmt(p.valor),
-    ]),
-    margin: { left: M, right: M },
-    styles: { fontSize: 8, cellPadding: 2.2, halign: 'right' as const, font: 'helvetica' },
-    headStyles: { fillColor: BLUE, textColor: WHITE, fontStyle: 'bold', halign: 'center' as const, fontSize: 8 },
-    columnStyles: { 0: { halign: 'center' as const }, 1: { halign: 'center' as const } },
-    alternateRowStyles: { fillColor: [250, 252, 255] },
-    tableLineColor: BORDER_COLOR,
-    tableLineWidth: 0.1,
-  })
-
-  y = lastY(doc) + 5
-
-  if (params.parcelas.length > 12) {
-    doc.setFontSize(7.5)
-    doc.setFont('helvetica', 'italic')
-    doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-    doc.text(`* Observação: Cronograma resumido. Mais ${params.parcelas.length - 12} parcela(s) não exibidas neste termo.`, M, y)
-    y += 5
-  }
-
-  // ── Assinaturas ─────────────────────────────────────────────────────────
-  if (y > 248) { doc.addPage(); y = 25 } else { y += 6 }
-
-  const todayFull = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
-  doc.setFontSize(8)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`Emitido em comum acordo em: __________________________, ${todayFull}`, M, y)
-  y += 14
-
-  const sw = 75
-  doc.setDrawColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.setLineWidth(0.15)
-  doc.line(M, y, M + sw, y)
-  doc.line(W - M - sw, y, W - M, y)
-
-  y += 4
-  doc.setFontSize(8.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(params.empresaNome ?? 'SRS M Factoring', M + sw / 2, y, { align: 'center' })
-  doc.text(params.cliente.nome, W - M - sw / 2, y, { align: 'center' })
+  y = drawMarketUpItens(doc, itens, y)
   
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7.5)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('CREDOR (ASSINATURA DIGITAL)', M + sw / 2, y + 4.2, { align: 'center' })
-  doc.text('DEVEDOR / TOMADOR', W - M - sw / 2, y + 4.2, { align: 'center' })
-  if (params.cliente.cpf) {
-    doc.text(`CPF: ${fmtCpf(params.cliente.cpf)}`, W - M - sw / 2, y + 8.2, { align: 'center' })
+  const totais = {
+    itens: params.contrato.valor_principal,
+    desconto: 0,
+    frete: 0,
+    outros: params.contrato.total_juros,
+    total: params.contrato.total_pagar
   }
 
-  // ── Footer ──────────────────────────────────────────────────────────────
-  doc.setFontSize(6.5)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(
-    `SRS M Factoring · Contrato nº ${params.contrato.numero_contrato} · Gerado digitalmente em ${new Date().toLocaleString('pt-BR')}`,
-    W / 2, 290, { align: 'center' }
-  )
+  y = drawMarketUpTotals(doc, totais, y)
 
+  const condicoes = params.parcelas.slice(0, 10).map(p => ({
+    desc: `PROMESSORIA (PARCELA ${String(p.numero_parcela).padStart(2, '0')}/${String(params.contrato.prazo_meses).padStart(2, '0')})`,
+    vencimento: p.data_vencimento,
+    pagamento: '',
+    valor: p.valor,
+    saldo: p.valor,
+    observacao: 'EM ABERTO'
+  }))
+
+  y = drawMarketUpCondicoes(doc, condicoes, y)
+
+  const obsText = params.contrato.observacoes ?? ''
+  const matchMora = obsText.match(/\[Mora:\s*([\d.]+)%\s*ao\s*dia\]/)
+  const jurosMoraDiario = matchMora ? parseFloat(matchMora[1]) : 0.033
+  const obsLimpa = obsText.replace(/\[Mora:\s*[\d.]+%\s*ao\s*dia\]/, '').trim()
+
+  const obs = `GARANTIAS APRESENTADAS: ${params.contrato.garantias || 'NÃO ESPECIFICADAS'}. JUROS DE MORA POR ATRASO PACTUADO: ${jurosMoraDiario}% AO DIA. OBSERVACÕES GERAIS: ${obsLimpa || 'SEM OBSERVAÇÕES ADICIONAIS'}. ESTE CONTRATO SERVE COMO TÍTULO EXECUTIVO EXTRAJUDICIAL CONFORME LEGISLAÇÃO VIGENTE.`
+  
+  drawMarketUpFooterAndSignatures(doc, company, params.cliente.nome, obs, y, W)
+
+  if (options?.output === 'blob') {
+    return doc.output('blob')
+  }
   doc.save(`contrato-${params.contrato.numero_contrato}.pdf`)
 }
 
@@ -356,153 +609,94 @@ export interface ReciboParams {
   desconto?: number
   formaPagamento: string
   data: string
+  cliente?: {
+    nome: string
+    cpf: string | null
+    telefone?: string | null
+    endereco?: string | null
+    numero?: string | null
+    complemento?: string | null
+    bairro?: string | null
+    cidade?: string | null
+    estado?: string | null
+    cep?: string | null
+  }
   empresaNome?: string
   empresaCnpj?: string | null
+  empresaTelefone?: string | null
+  empresaEmail?: string | null
+  empresaEndereco?: string | null
+  empresaCidade?: string | null
+  empresaEstado?: string | null
+  empresaCep?: string | null
 }
 
-export async function gerarReciboPDF(params: ReciboParams): Promise<void> {
+export async function gerarReciboPDF(params: ReciboParams, options?: { output?: 'save' | 'blob' }): Promise<Blob | void> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const W = 210, M = 15, CW = W - M * 2
+  const W = 210, M = 10
 
-  const logo = await loadLogo('/logos/factoring.png')
-
-  // Header Premium
+  const company = getCompanyDetails(params)
   const rcNum = Date.now().toString().slice(-6)
-  drawPremiumHeader(
+  
+  const clienteObj = params.cliente ?? {
+    nome: params.clienteNome,
+    cpf: params.clienteCpf,
+    telefone: ''
+  }
+
+  let y = drawMarketUpHeader(
     doc,
-    params.empresaNome ?? 'SRS M Factoring',
-    'RECIBO GERAL DE QUITAÇÃO',
-    logo,
+    'RECIBO GERAL DE QUITAÇÃO PARCIAL',
+    `RECIBO: #${rcNum}`,
+    'SRS M FACTORING',
+    company,
+    clienteObj,
     {
-      code: `RECIBO: #${rcNum}`,
-      dateLabel: 'Data',
-      dateVal: params.data,
-      subVal: params.empresaCnpj ? `CNPJ: ${params.empresaCnpj}` : 'Sociedade de Fomento'
+      criacao: params.data,
+      emissao: params.data,
+      vencimento: params.parcelas[0]?.vencimento || params.data
     },
-    W, M
+    M
   )
 
-  let y = 43
+  const itens = params.parcelas.map(p => ({
+    ref: `LANC-P${String(p.numero).padStart(2, '0')}`,
+    desc: `PAGAMENTO PARCELA ${p.numero} DO CONTRATO REFERENCIA ${params.contratoNumero || '—'}`,
+    qtd: '1,000',
+    valor: p.valor,
+    total: p.valor
+  }))
 
-  // ── Pagador ─────────────────────────────────────────────────────────────
-  drawSectionHeader(doc, 'PAGADOR / TOMADOR', M, y)
-  y += 3
-
-  doc.setFillColor(LIGHT[0], LIGHT[1], LIGHT[2])
-  doc.setDrawColor(BORDER_COLOR[0], BORDER_COLOR[1], BORDER_COLOR[2])
-  doc.setLineWidth(0.15)
-  doc.roundedRect(M, y, CW, 15, 2, 2, 'FD')
-
-  doc.setFontSize(10.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(params.clienteNome, M + 4, y + 6)
+  y = drawMarketUpItens(doc, itens, y)
   
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(
-    `CPF: ${fmtCpf(params.clienteCpf)} ${params.contratoNumero ? ` · Referente ao Contrato nº: ${params.contratoNumero}` : ''}`,
-    M + 4, y + 11
-  )
-
-  y += 22
-
-  // ── Parcelas Quitadas ───────────────────────────────────────────────────
-  drawSectionHeader(doc, 'PARCELAS E TÍTULOS QUITADOS NESTE ATO', M, y)
-  y += 3
-
-  autoTable(doc, {
-    startY: y,
-    head: [['Parcela Nº', 'Vencimento Original', 'Valor da Parcela']],
-    body: params.parcelas.map(p => [
-      `${p.numero}ª Parcela`,
-      fmtData(p.vencimento),
-      fmt(p.valor)
-    ]),
-    margin: { left: M, right: M },
-    styles: { fontSize: 8.5, cellPadding: 2.8, halign: 'right' as const },
-    headStyles: { fillColor: BLUE, textColor: WHITE, fontStyle: 'bold', halign: 'center' as const },
-    columnStyles: { 0: { halign: 'center' as const }, 1: { halign: 'center' as const } },
-    alternateRowStyles: { fillColor: [250, 252, 255] },
-    tableLineColor: BORDER_COLOR,
-    tableLineWidth: 0.1,
-  })
-
-  y = lastY(doc) + 6
-
-  // ── Totais e Resumos ────────────────────────────────────────────────────
-  const hasDesc = !!(params.desconto && params.desconto > 0)
-  const boxH = hasDesc ? 28 : 20
-  
-  doc.setFillColor(LIGHT[0], LIGHT[1], LIGHT[2])
-  doc.roundedRect(M, y, CW, boxH, 2, 2, 'FD')
-
-  const formaLabel: Record<string, string> = {
-    dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque',
-  }
-  const formaText = formaLabel[params.formaPagamento] ?? params.formaPagamento
-
-  y += 5.5
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('Forma de Recebimento:', M + 4, y)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(formaText, M + 40, y)
-
-  if (hasDesc) {
-    y += 7.5
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-    doc.text('Descontos Concedidos:', M + 4, y)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(GREEN[0], GREEN[1], GREEN[2])
-    doc.text(`- ${fmt(params.desconto ?? 0)}`, M + 40, y)
+  const totais = {
+    itens: params.valorTotal + (params.desconto ?? 0),
+    desconto: params.desconto ?? 0,
+    frete: 0,
+    outros: 0,
+    total: params.valorTotal
   }
 
-  y += 7.5
-  doc.setFontSize(11)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(BLUE[0], BLUE[1], BLUE[2])
-  doc.text('VALOR TOTAL RECEBIDO:', M + 4, y)
-  doc.text(fmt(params.valorTotal), M + CW - 4, y, { align: 'right' })
+  y = drawMarketUpTotals(doc, totais, y)
 
-  y += boxH - (hasDesc ? 13 : 5.5) + 6
+  const condicoes = params.parcelas.map(p => ({
+    desc: `PROMESSORIA (PARCELA ${String(p.numero).padStart(2, '0')})`,
+    vencimento: p.vencimento,
+    pagamento: params.data,
+    valor: p.valor,
+    saldo: 0,
+    observacao: 'LIQUIDADO'
+  }))
 
-  // ── Declaração ──────────────────────────────────────────────────────────
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  const decl = `SRS M Factoring declara ter recebido de ${params.clienteNome} a quantia líquida de ${fmt(params.valorTotal)} via ${formaText}, dando-lhe plena quitação para as obrigações e parcelas detalhadas neste documento.`
-  const declLines = doc.splitTextToSize(decl, CW) as string[]
-  doc.text(declLines, M, y)
-  y += declLines.length * 4.5 + 12
+  y = drawMarketUpCondicoes(doc, condicoes, y)
 
-  // ── Assinatura ─────────────────────────────────────────────────────────
-  const sw = 80
-  doc.setDrawColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.setLineWidth(0.15)
-  doc.line(W / 2 - sw / 2, y, W / 2 + sw / 2, y)
-  y += 4
+  const obs = `O TOMADOR DEVEDOR RECEBE QUITAÇÃO EFETIVA PARA AS PARCELAS DISCRIMINADAS NESTE TERMO DE RECEBIMENTO. FORMA DE PAGAMENTO ADOTADA: ${params.formaPagamento.toUpperCase()}.`
   
-  doc.setFontSize(8.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(params.empresaNome ?? 'SRS M Factoring', W / 2, y, { align: 'center' })
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7.5)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('RECEBEDOR AUTORIZADO', W / 2, y + 4, { align: 'center' })
-  doc.text(`Data da baixa: ${fmtData(params.data)}`, W / 2, y + 8, { align: 'center' })
+  drawMarketUpFooterAndSignatures(doc, company, params.clienteNome, obs, y, W)
 
-  // ── Footer ──────────────────────────────────────────────────────────────
-  doc.setFontSize(6.5)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`Recibo #${rcNum} · Emitido por SRS M Factoring · Página 1 de 1`, W / 2, 290, { align: 'center' })
-
+  if (options?.output === 'blob') {
+    return doc.output('blob')
+  }
   doc.save(`recibo-${params.clienteNome.replace(/\s+/g, '-').toLowerCase()}-${params.data}.pdf`)
 }
 
@@ -525,210 +719,108 @@ export interface ReciboParcela {
     total_parcelas_pagas?: number
     total_parcelas_restantes?: number
   }
-  cliente: { nome: string; cpf: string | null; telefone?: string | null }
+  cliente: {
+    nome: string
+    cpf: string | null
+    telefone?: string | null
+    endereco?: string | null
+    numero?: string | null
+    complemento?: string | null
+    bairro?: string | null
+    cidade?: string | null
+    estado?: string | null
+    cep?: string | null
+  }
   contrato: { numero_contrato: string }
   empresaNome?: string
   empresaCnpj?: string | null
+  empresaTelefone?: string | null
+  empresaEmail?: string | null
+  empresaEndereco?: string | null
+  empresaCidade?: string | null
+  empresaEstado?: string | null
+  empresaCep?: string | null
 }
 
-export async function gerarReciboParcela(p: ReciboParcela): Promise<void> {
+export async function gerarReciboParcela(p: ReciboParcela, options?: { output?: 'save' | 'blob' }): Promise<Blob | void> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const W = 210, M = 15, CW = W - M * 2
-  const logo = await loadLogo('/logos/factoring.png')
+  const W = 210, M = 10
 
+  const company = getCompanyDetails(p)
   const rcId = `${p.contrato.numero_contrato}-P${String(p.parcela.numero_parcela).padStart(2, '0')}`
-  const formaLabel: Record<string, string> = {
-    dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque',
-  }
-  const formaText = formaLabel[p.parcela.tipo_pagamento] ?? p.parcela.tipo_pagamento
 
-  // Header Premium
-  drawPremiumHeader(
+  let y = drawMarketUpHeader(
     doc,
-    p.empresaNome ?? 'SRS M Factoring',
     'COMPROVANTE DE PAGAMENTO DE TÍTULO',
-    logo,
+    `COMPROVANTE: ${rcId}`,
+    'SRS M FACTORING',
+    company,
+    p.cliente,
     {
-      code: `COMPROVANTE: ${rcId}`,
-      dateLabel: 'Baixa',
-      dateVal: p.parcela.data_pagamento,
-      subVal: p.empresaCnpj ? `CNPJ: ${p.empresaCnpj}` : 'Sociedade de Fomento'
+      criacao: p.parcela.data_vencimento,
+      emissao: p.parcela.data_pagamento,
+      vencimento: p.parcela.data_pagamento
     },
-    W, M
+    M
   )
 
-  let y = 43
-
-  // ── Status Badge / Alerta de Atraso ─────────────────────────────────────
-  const atraso = p.parcela.dias_atraso ?? 0
-  const badgeW = 90, badgeH = 12
-  
-  if (atraso > 0) {
-    doc.setFillColor(254, 237, 222) // Google Warning Soft Orange/Red background
-    doc.setDrawColor(ORANGE[0], ORANGE[1], ORANGE[2])
-    doc.setLineWidth(0.3)
-    doc.roundedRect(W / 2 - badgeW / 2, y, badgeW, badgeH, 1.5, 1.5, 'FD')
-    
-    doc.setFontSize(8.5)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(ORANGE[0], ORANGE[1], ORANGE[2])
-    doc.text(`PAGO COM ATRASO DE ${atraso} DIAS`, W / 2, y + 7.5, { align: 'center' })
-  } else {
-    doc.setFillColor(230, 244, 234) // Google Success Soft Green background
-    doc.setDrawColor(GREEN[0], GREEN[1], GREEN[2])
-    doc.setLineWidth(0.3)
-    doc.roundedRect(W / 2 - badgeW / 2, y, badgeW, badgeH, 1.5, 1.5, 'FD')
-    
-    doc.setFontSize(8.5)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(GREEN[0], GREEN[1], GREEN[2])
-    doc.text('PAGO E LIQUIDADO NO VENCIMENTO', W / 2, y + 7.5, { align: 'center' })
-  }
-
-  y += badgeH + 7
-
-  // ── Pagador ─────────────────────────────────────────────────────────────
-  drawSectionHeader(doc, 'TOMADOR / PAGADOR', M, y)
-  y += 3
-
-  doc.setFillColor(LIGHT[0], LIGHT[1], LIGHT[2])
-  doc.setDrawColor(BORDER_COLOR[0], BORDER_COLOR[1], BORDER_COLOR[2])
-  doc.setLineWidth(0.15)
-  doc.roundedRect(M, y, CW, 18, 2, 2, 'FD')
-
-  doc.setFontSize(10.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(p.cliente.nome, M + 4, y + 6)
-
-  const telFormat = p.cliente.telefone ? ` · Tel: ${p.cliente.telefone}` : ''
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`CPF: ${fmtCpf(p.cliente.cpf)}${telFormat} · Contrato Base: ${p.contrato.numero_contrato}`, M + 4, y + 11.5)
-
-  y += 25
-
-  // ── Detalhes e Valores em Grid ──────────────────────────────────────────
-  drawSectionHeader(doc, 'DETALHAMENTO FINANCEIRO DA PARCELA', M, y)
-  y += 3
-
-  // Grid Box Outer Border
-  doc.setFillColor(WHITE[0], WHITE[1], WHITE[2])
-  doc.roundedRect(M, y, CW, 50, 2, 2, 'FD')
-
-  // Column dividing line
-  const half = CW / 2
-  doc.setDrawColor(BORDER_COLOR[0], BORDER_COLOR[1], BORDER_COLOR[2])
-  doc.setLineWidth(0.15)
-  doc.line(M + half, y, M + half, y + 50)
-
-  // Horizontal separating lines
-  doc.line(M, y + 12.5, M + CW, y + 12.5)
-  doc.line(M, y + 25, M + CW, y + 25)
-  doc.line(M, y + 37.5, M + CW, y + 37.5)
-
-  const cells: { l: string; v: string; color?: [number, number, number] }[] = [
-    // Line 1
-    { l: 'Identificação da Parcela', v: `Parcela ${p.parcela.numero_parcela} de ${p.parcela.total_parcelas}` },
-    { l: 'Vencimento Original', v: fmtData(p.parcela.data_vencimento) },
-    
-    // Line 2
-    { l: 'Forma de Liquidação', v: formaText },
-    { l: 'Valor Nominal da Parcela', v: fmt(p.parcela.valor) },
-    
-    // Line 3
-    { l: 'Acréscimos (Multa e Juros cobrados)', v: fmt((p.parcela.multa ?? 0) + (p.parcela.juros_mora ?? 0)), color: (p.parcela.multa ?? 0) + (p.parcela.juros_mora ?? 0) > 0 ? RED : DARK },
-    { l: 'Valor Líquido Pago', v: fmt(p.parcela.valor_pago), color: GREEN },
-    
-    // Line 4
-    { l: 'Saldo Restante desta Parcela', v: fmt(p.parcela.saldo_devedor_parcela ?? 0), color: (p.parcela.saldo_devedor_parcela ?? 0) > 0.01 ? ORANGE : DARK },
-    { l: 'Saldo Devedor Total do Contrato', v: fmt(p.parcela.saldo_devedor_total ?? 0), color: BLUE }
+  const itens = [
+    {
+      ref: `PARC-N${String(p.parcela.numero_parcela).padStart(2, '0')}`,
+      desc: `AMORTIZAÇÃO E PAGAMENTO DA PARCELA ${p.parcela.numero_parcela} DE ${p.parcela.total_parcelas} - CONTRATO ${p.contrato.numero_contrato}`,
+      qtd: '1,000',
+      valor: p.parcela.valor,
+      total: p.parcela.valor
+    }
   ]
 
-  let idx = 0
-  for (let row = 0; row < 4; row++) {
-    const cy = y + (row * 12.5)
-    
-    // Cell Left
-    const c1 = cells[idx++]
-    doc.setFontSize(6.5)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-    doc.text(c1.l, M + 3, cy + 4)
-    doc.setFontSize(8.5)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(c1.color ? c1.color[0] : DARK[0], c1.color ? c1.color[1] : DARK[1], c1.color ? c1.color[2] : DARK[2])
-    doc.text(c1.v, M + 3, cy + 9.5)
-
-    // Cell Right
-    const c2 = cells[idx++]
-    doc.setFontSize(6.5)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-    doc.text(c2.l, M + half + 3, cy + 4)
-    doc.setFontSize(8.5)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(c2.color ? c2.color[0] : DARK[0], c2.color ? c2.color[1] : DARK[1], c2.color ? c2.color[2] : DARK[2])
-    doc.text(c2.v, M + half + 3, cy + 9.5)
+  const acrescimos = (p.parcela.multa ?? 0) + (p.parcela.juros_mora ?? 0)
+  if (acrescimos > 0) {
+    itens.push({
+      ref: 'ENCAR-ATR',
+      desc: `ENCARGOS MORATÓRIOS APLICADOS (MULTA/JUROS) POR ATRASO DE ${p.parcela.dias_atraso ?? 0} DIAS`,
+      qtd: '1,000',
+      valor: acrescimos,
+      total: acrescimos
+    })
   }
 
-  y += 56
-
-  // ── Highlight Box (VALOR LIQUIDADO) ─────────────────────────────────────
-  doc.setFillColor(BLUE[0], BLUE[1], BLUE[2])
-  doc.roundedRect(M, y, CW, 20, 2, 2, 'F')
+  y = drawMarketUpItens(doc, itens, y)
   
-  doc.setFontSize(7.5)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(200, 220, 255)
-  doc.text('RECURSO TOTAL AMORTIZADO E DEPOSITADO', M + CW / 2, y + 5.5, { align: 'center' })
-  
-  doc.setFontSize(16)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(WHITE[0], WHITE[1], WHITE[2])
-  doc.text(fmt(p.parcela.valor_pago), M + CW / 2, y + 14.5, { align: 'center' })
+  const totais = {
+    itens: p.parcela.valor,
+    desconto: 0,
+    frete: 0,
+    outros: acrescimos,
+    total: p.parcela.valor_pago
+  }
 
-  y += 26
+  y = drawMarketUpTotals(doc, totais, y)
 
-  // ── Declaração ──────────────────────────────────────────────────────────
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  
-  // Status textual
-  const pagasCount = p.parcela.total_parcelas_pagas ?? p.parcela.numero_parcela
-  const restCount = p.parcela.total_parcelas_restantes ?? Math.max(0, p.parcela.total_parcelas - pagasCount)
-  const statsString = `[Estatísticas deste empréstimo: ${pagasCount} parcelas pagas · ${restCount} parcelas em aberto].`
-  
-  const decl = `Confirmamos por este termo o recebimento da quantia de ${fmt(p.parcela.valor_pago)} da parcela ${p.parcela.numero_parcela}/${p.parcela.total_parcelas} correspondente ao contrato ${p.contrato.numero_contrato}, efetuado em ${fmtData(p.parcela.data_pagamento)}. ${statsString} Damos plena quitação para este pagamento.`
-  const declLines = doc.splitTextToSize(decl, CW) as string[]
-  doc.text(declLines, M, y)
-  y += declLines.length * 4.5 + 12
+  const condicoes = [
+    {
+      desc: `PROMESSORIA (PARCELA ${String(p.parcela.numero_parcela).padStart(2, '0')}/${String(p.parcela.total_parcelas).padStart(2, '0')})`,
+      vencimento: p.parcela.data_vencimento,
+      pagamento: p.parcela.data_pagamento,
+      valor: p.parcela.valor_pago,
+      saldo: p.parcela.saldo_devedor_parcela ?? 0,
+      observacao: (p.parcela.saldo_devedor_parcela ?? 0) > 0.01 ? 'QUITAÇÃO PARCIAL' : 'LIQUIDADO'
+    }
+  ]
 
-  // ── Assinatura ─────────────────────────────────────────────────────────
-  const sw = 80
-  doc.setDrawColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.setLineWidth(0.15)
-  doc.line(W / 2 - sw / 2, y, W / 2 + sw / 2, y)
-  
-  y += 4
-  doc.setFontSize(8.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(p.empresaNome ?? 'SRS M Factoring', W / 2, y, { align: 'center' })
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7.5)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('RECEBEDOR AUTORIZADO', W / 2, y + 4, { align: 'center' })
-  doc.text(fmtData(p.parcela.data_pagamento), W / 2, y + 8, { align: 'center' })
+  y = drawMarketUpCondicoes(doc, condicoes, y)
 
-  // ── Footer ──────────────────────────────────────────────────────────────
-  doc.setFontSize(6.5)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`SRS M Factoring · Comprovante digital ${rcId} · Gerado em ${new Date().toLocaleString('pt-BR')}`, W / 2, 290, { align: 'center' })
+  const statusText = (p.parcela.dias_atraso ?? 0) > 0 
+    ? `PAGAMENTO RECEBIDO COM ATRASO DE ${p.parcela.dias_atraso} DIAS (ENCARGOS APLICADOS).` 
+    : 'PAGAMENTO RECEBIDO DENTRO DO VENCIMENTO CONTRATUAL COM PLENA LIQUIDAÇÃO.'
 
+  const obs = `${statusText} ESTATÍSTICA DO CRÉDITO: ${p.parcela.total_parcelas_pagas ?? p.parcela.numero_parcela} PARCELAS PAGAS · ${p.parcela.total_parcelas_restantes ?? 0} PARCELAS RESTANTES. SALDO DEVEDOR RESIDUAL DO CONTRATO: ${fmt(p.parcela.saldo_devedor_total ?? 0)}.`
+  
+  drawMarketUpFooterAndSignatures(doc, company, p.cliente.nome, obs, y, W)
+
+  if (options?.output === 'blob') {
+    return doc.output('blob')
+  }
   doc.save(`recibo-${rcId}.pdf`)
 }
 
@@ -743,7 +835,18 @@ export interface QuitacaoParams {
     data_liberacao: string | null
     data_quitacao: string | null
   }
-  cliente: { nome: string; cpf: string | null; telefone?: string | null }
+  cliente: {
+    nome: string
+    cpf: string | null
+    telefone?: string | null
+    endereco?: string | null
+    numero?: string | null
+    complemento?: string | null
+    bairro?: string | null
+    cidade?: string | null
+    estado?: string | null
+    cep?: string | null
+  }
   parcelas: Array<{
     numero_parcela: number
     data_vencimento: string
@@ -755,189 +858,84 @@ export interface QuitacaoParams {
   }>
   empresaNome?: string
   empresaCnpj?: string | null
+  empresaTelefone?: string | null
+  empresaEmail?: string | null
+  empresaEndereco?: string | null
+  empresaCidade?: string | null
+  empresaEstado?: string | null
+  empresaCep?: string | null
 }
 
-export async function gerarQuitacaoPDF(params: QuitacaoParams): Promise<void> {
+export async function gerarQuitacaoPDF(params: QuitacaoParams, options?: { output?: 'save' | 'blob' }): Promise<Blob | void> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const W = 210, M = 15, CW = W - M * 2
-  const logo = await loadLogo('/logos/factoring.png')
+  const W = 210, M = 10
 
-  // Header Premium
-  drawPremiumHeader(
+  const company = getCompanyDetails(params)
+  
+  let y = drawMarketUpHeader(
     doc,
-    params.empresaNome ?? 'SRS M Factoring',
-    'TERMO DE QUITAÇÃO INTEGRAL E DEVOLUÇÃO',
-    logo,
+    'TERMO DE QUITAÇÃO INTEGRAL E LIQUIDAÇÃO',
+    `LIQUIDAÇÃO: ${params.contrato.numero_contrato}`,
+    'SRS M FACTORING',
+    company,
+    params.cliente,
     {
-      code: `LIQUIDAÇÃO: ${params.contrato.numero_contrato}`,
-      dateLabel: 'Liquidado',
-      dateVal: params.contrato.data_quitacao ?? new Date().toISOString().split('T')[0],
-      subVal: params.empresaCnpj ? `CNPJ: ${params.empresaCnpj}` : 'Sociedade de Fomento'
+      criacao: params.contrato.data_liberacao || new Date().toISOString().split('T')[0],
+      emissao: params.contrato.data_quitacao || new Date().toISOString().split('T')[0],
+      vencimento: params.contrato.data_quitacao || new Date().toISOString().split('T')[0]
     },
-    W, M
+    M
   )
 
-  let y = 43
-  const colW = (CW - 8) / 2
-  const cx = M + colW + 8
-
-  // ── Partes do Acordo ────────────────────────────────────────────────────
-  drawSectionHeader(doc, 'PARTES INTERESSADAS', M, y)
-  y += 3
-
-  doc.setFillColor(LIGHT[0], LIGHT[1], LIGHT[2])
-  doc.setDrawColor(BORDER_COLOR[0], BORDER_COLOR[1], BORDER_COLOR[2])
-  doc.setLineWidth(0.15)
-  doc.roundedRect(M, y, CW, 24, 2, 2, 'FD')
-
-  // Credor Column
-  doc.setFontSize(7.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('CREDOR', M + 4, y + 5)
-  doc.setFontSize(9.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(params.empresaNome ?? 'SRS M Factoring', M + 4, y + 10)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(params.empresaCnpj ? `CNPJ: ${params.empresaCnpj}` : 'Fomento Mercantil', M + 4, y + 15)
-
-  // Devedor Column
-  doc.setFontSize(7.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('DEVEDOR (TOMADOR)', cx, y + 5)
-  doc.setFontSize(9.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(params.cliente.nome, cx, y + 10)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`CPF: ${fmtCpf(params.cliente.cpf)} ${params.cliente.telefone ? ` · Tel: ${params.cliente.telefone}` : ''}`, cx, y + 15)
-
-  y += 31
-
-  // ── Condições Contratuais ───────────────────────────────────────────────
-  drawSectionHeader(doc, 'DADOS DO TÍTULO ORIGINAL', M, y)
-  y += 3
-
-  doc.setFillColor(WHITE[0], WHITE[1], WHITE[2])
-  doc.roundedRect(M, y, CW, 35, 2, 2, 'FD')
-
-  const condRows: [string, string, string, string][] = [
-    ['Contrato Referência', params.contrato.numero_contrato, 'Valor Principal Liberado', fmt(params.contrato.valor_principal)],
-    ['Taxa de Juros Combinada', `${params.contrato.taxa_juros}% a.m.`, 'Prazo Pactuado', `${params.contrato.prazo_meses} meses`],
-    ['Data de Liberação do Crédito', fmtData(params.contrato.data_liberacao), 'Data de Quitação Final', fmtData(params.contrato.data_quitacao)],
-  ]
-  
-  let rowY = y + 5.5
-  for (const [l1, v1, l2, v2] of condRows) {
-    doc.setFontSize(7)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-    doc.text(l1, M + 4, rowY)
-    doc.text(l2, cx, rowY)
-    doc.setFontSize(8.5)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(DARK[0], DARK[1], DARK[2])
-    doc.text(v1, M + 4, rowY + 4.2)
-    doc.text(v2, cx, rowY + 4.2)
-    rowY += 9.5
-  }
-
-  y += 42
-
-  // ── Histórico de Amortização ─────────────────────────────────────────────
-  drawSectionHeader(doc, 'HISTÓRICO COMPLETO DOS LANÇAMENTOS DE BAIXA', M, y)
-  y += 3
-
-  const formaLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque' }
-  autoTable(doc, {
-    startY: y,
-    head: [['Parcela', 'Vencimento', 'Baixado em', 'Valor Nominal', 'Total Pago', 'Canal']],
-    body: params.parcelas.map(p => [
-      `${p.numero_parcela}ª`,
-      fmtData(p.data_vencimento),
-      fmtData(p.data_pagamento),
-      fmt(p.valor),
-      fmt(p.valor_pago ?? 0),
-      formaLabel[p.tipo_pagamento ?? ''] ?? (p.tipo_pagamento ?? '—'),
-    ]),
-    margin: { left: M, right: M },
-    styles: { fontSize: 7, cellPadding: 2, halign: 'right' as const },
-    headStyles: { fillColor: BLUE, textColor: WHITE, fontStyle: 'bold', halign: 'center' as const, fontSize: 7.5 },
-    columnStyles: {
-      0: { halign: 'center' as const }, 1: { halign: 'center' as const },
-      2: { halign: 'center' as const }, 5: { halign: 'center' as const },
-    },
-    alternateRowStyles: { fillColor: [250, 252, 255] },
-    tableLineColor: BORDER_COLOR,
-    tableLineWidth: 0.1,
-  })
-
-  y = lastY(doc) + 6
-
   const totalPago = params.parcelas.reduce((s, p) => s + (p.valor_pago ?? 0), 0)
+  const totalJuros = Math.round(Math.max(0, totalPago - params.contrato.valor_principal) * 100) / 100
 
-  // Total Quitado Highlight Card
-  doc.setFillColor(LIGHT[0], LIGHT[1], LIGHT[2])
-  doc.roundedRect(M, y, CW, 14, 2, 2, 'FD')
-  
-  doc.setFontSize(10.5)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(BLUE[0], BLUE[1], BLUE[2])
-  doc.text('TOTAL AMORTIZADO LIQUIDADO:', M + 4, y + 8.5)
-  doc.text(fmt(totalPago), W - M - 4, y + 8.5, { align: 'right' })
-  y += 19
+  const itens = [
+    {
+      ref: 'MÚTUO-PRINC',
+      desc: `PRINCIPAL AMORTIZADO E DEVOLVIDO DO CONTRATO REFERENCIA ${params.contrato.numero_contrato}`,
+      qtd: '1,000',
+      valor: params.contrato.valor_principal,
+      total: params.contrato.valor_principal
+    },
+    {
+      ref: 'MÚTUO-JURO',
+      desc: `TOTAL DE ENCARGOS FINANCEIROS E MORATÓRIOS AMORTIZADOS NESTE ACORDO`,
+      qtd: '1,000',
+      valor: totalJuros,
+      total: totalJuros
+    }
+  ]
 
-  if (y > 238) { doc.addPage(); y = 20 }
+  y = drawMarketUpItens(doc, itens, y)
   
-  // ── Declaração ──────────────────────────────────────────────────────────
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  const decl = `A sociedade de fomento mercantil ${params.empresaNome ?? 'SRS M Factoring'} declara e certifica, por este termo de quitação integral, que o Tomador de Crédito ${params.cliente.nome}${params.cliente.cpf ? ` (portador do CPF: ${fmtCpf(params.cliente.cpf)})` : ''} adimpliu de forma irrevogável todas as parcelas e encargos de juros referentes ao contrato de mútuo financeiro nº ${params.contrato.numero_contrato}. Não restando qualquer saldo residual ou obrigação pendente, damos plena e geral quitação de débito.`
-  const declLines = doc.splitTextToSize(decl, CW) as string[]
-  doc.text(declLines, M, y)
-  y += declLines.length * 4.5 + 12
-
-  if (y > 250) { doc.addPage(); y = 25 } else { y += 4 }
-  
-  const todayFull = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
-  doc.setFontSize(8)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`Acordo encerrado e assinado em: __________________________, ${todayFull}`, M, y)
-  y += 14
-
-  const sw = 75
-  doc.setDrawColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.setLineWidth(0.15)
-  doc.line(M, y, M + sw, y)
-  doc.line(W - M - sw, y, W - M, y)
-  
-  y += 4
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(DARK[0], DARK[1], DARK[2])
-  doc.text(params.empresaNome ?? 'SRS M Factoring', M + sw / 2, y, { align: 'center' })
-  doc.text(params.cliente.nome, W - M - sw / 2, y, { align: 'center' })
-  
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text('CREDOR (ASSINATURA ELETRÔNICA)', M + sw / 2, y + 4, { align: 'center' })
-  doc.text('DEVEDOR (QUITADO)', W - M - sw / 2, y + 4, { align: 'center' })
-  if (params.cliente.cpf) {
-    doc.text(`CPF: ${fmtCpf(params.cliente.cpf)}`, W - M - sw / 2, y + 8, { align: 'center' })
+  const totais = {
+    itens: params.contrato.valor_principal,
+    desconto: 0,
+    frete: 0,
+    outros: totalJuros,
+    total: totalPago
   }
 
-  // ── Footer ──────────────────────────────────────────────────────────────
-  doc.setFontSize(6.5)
-  doc.setTextColor(GRAY[0], GRAY[1], GRAY[2])
-  doc.text(`SRS M Factoring · Termo de Quitação Contrato ${params.contrato.numero_contrato} · Gerado em ${new Date().toLocaleString('pt-BR')}`, W / 2, 290, { align: 'center' })
+  y = drawMarketUpTotals(doc, totais, y)
 
+  const condicoes = params.parcelas.slice(0, 10).map(p => ({
+    desc: `PROMESSORIA (PARCELA ${String(p.numero_parcela).padStart(2, '0')}/${String(params.contrato.prazo_meses).padStart(2, '0')})`,
+    vencimento: p.data_vencimento,
+    pagamento: p.data_pagamento || params.contrato.data_quitacao || '',
+    valor: p.valor_pago ?? p.valor,
+    saldo: 0,
+    observacao: 'PAGO/LIQUIDADO'
+  }))
+
+  y = drawMarketUpCondicoes(doc, condicoes, y)
+
+  const obs = `DECLARAMOS E CERTIFICAMOS QUE O TOMADOR DEVEDOR ADIMPLIU DE FORMA INTEGRAL E IRREVOGÁVEL TODOS OS VALORES DO MÚTUO REFERIDO. O CONTRATO ENCONTRA-SE 100% QUITADO E ARQUIVADO, NÃO RESTANDO SALDOS RESIDUAIS OU OBRIGAÇÕES DE QUALQUER NATUREZA ENTRE AS PARTES.`
+  
+  drawMarketUpFooterAndSignatures(doc, company, params.cliente.nome, obs, y, W)
+
+  if (options?.output === 'blob') {
+    return doc.output('blob')
+  }
   doc.save(`quitacao-${params.contrato.numero_contrato}.pdf`)
 }

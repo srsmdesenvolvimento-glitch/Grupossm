@@ -13,7 +13,7 @@ import { DataTable, type Column } from '@/components/shared/DataTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { QuickNovoClienteSheet } from '@/components/factoring/QuickNovoClienteSheet'
+import { gerarContratoPDF } from '@/lib/utils/documentos'
 import { formatarMoeda, formatarData, formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { toast } from 'sonner'
@@ -91,7 +91,7 @@ export default function NovoEmprestimoPage() {
   const supabase = createClient()
 
   const [step, setStep] = useState(1)
-  const [quickSheetOpen, setQuickSheetOpen] = useState(false)
+
 
   // Step 1
   const [busca, setBusca] = useState('')
@@ -107,6 +107,7 @@ export default function NovoEmprestimoPage() {
   const [dataVenc, setDataVenc] = useState(defaultVenc)
   const [garantias, setGarantias] = useState('')
   const [observacoes, setObservacoes] = useState('')
+  const [jurosMoraDiarioInput, setJurosMoraDiarioInput] = useState('0.033')
 
   const [salvando, setSalvando] = useState(false)
 
@@ -145,11 +146,12 @@ export default function NovoEmprestimoPage() {
     if (taxaParam) return
     supabase
       .from('config_factoring')
-      .select('taxa_juros_padrao')
+      .select('taxa_juros_padrao, juros_mora_diario')
       .eq('empresa_id', empresaAtual.id)
       .single()
       .then(({ data }) => {
         if (data?.taxa_juros_padrao) setTaxa(String(data.taxa_juros_padrao))
+        if (data?.juros_mora_diario) setJurosMoraDiarioInput(String(data.juros_mora_diario))
       })
   }, [empresaAtual, supabase]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -190,10 +192,7 @@ export default function NovoEmprestimoPage() {
       })
   }, [searchParams, empresaAtual]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleClienteCriado = (c: ClienteSumario) => {
-    setCliente(c)
-    setBusca(c.nome)
-  }
+
 
   const valorNum = Number(valor) || 0
   const taxaNum = Number(taxa) || 0
@@ -260,7 +259,7 @@ export default function NovoEmprestimoPage() {
           data_primeiro_vencimento: resultado.tabela[0]?.vencimento ?? dataVenc,
           data_liberacao: hojeStr,
           data_quitacao: null,
-          observacoes: observacoes || null,
+          observacoes: jurosMoraDiarioInput ? `[Mora: ${jurosMoraDiarioInput}% ao dia] ${observacoes || ''}` : (observacoes || null),
           garantias: garantias || null,
           documentos: [],
           status: 'ativo',
@@ -314,6 +313,105 @@ export default function NovoEmprestimoPage() {
         ultima_operacao: hojeStr,
         total_emprestimos: undefined,
       }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+
+      // ── Enviar Contrato Automático via WhatsApp ──
+      try {
+        const { data: fullCliente } = await supabase
+          .from('clientes_factoring')
+          .select('*')
+          .eq('id', cliente.id)
+          .single()
+
+        const { data: empData } = await supabase
+          .from('empresas')
+          .select('cnpj')
+          .eq('id', empresaAtual.id)
+          .single()
+        
+        const empresaCnpj = empData?.cnpj ?? null
+
+        if (fullCliente) {
+          const contratoParams = {
+            contrato: {
+              numero_contrato,
+              valor_principal: valorNum,
+              taxa_juros: taxaNum,
+              prazo_meses: parcelasNum,
+              valor_parcela: resultado.parcela,
+              total_pagar: resultado.total,
+              total_juros: resultado.totalJuros,
+              data_liberacao: hojeStr,
+              data_primeiro_vencimento: resultado.tabela[0]?.vencimento ?? dataVenc,
+              garantias: garantias || null,
+              observacoes: jurosMoraDiarioInput ? `[Mora: ${jurosMoraDiarioInput}% ao dia] ${observacoes || ''}` : (observacoes || null),
+            },
+            cliente: {
+              nome: fullCliente.nome,
+              cpf: fullCliente.cpf,
+              rg: fullCliente.rg,
+              orgao_emissor: fullCliente.orgao_emissor,
+              telefone: fullCliente.telefone,
+              email: fullCliente.email,
+              endereco: fullCliente.endereco,
+              numero: fullCliente.numero,
+              bairro: fullCliente.bairro,
+              cidade: fullCliente.cidade,
+              estado: fullCliente.estado,
+              cep: fullCliente.cep,
+            },
+            parcelas: resultado.tabela.map(row => ({
+              numero_parcela: row.numero,
+              data_vencimento: row.vencimento,
+              valor: row.parcela,
+              valor_principal: row.principal,
+              valor_juros: row.juros,
+            })),
+            empresaNome: empresaAtual.nome,
+            empresaCnpj: empresaCnpj,
+          }
+
+          const contratoBlob = await gerarContratoPDF(contratoParams, { output: 'blob' })
+
+          if (contratoBlob instanceof Blob) {
+            const filePath = `${empresaAtual.id}/${cliente.id}/contratos/contrato-${numero_contrato}-${Date.now()}.pdf`
+            const { error: uploadError } = await supabase.storage
+              .from('documentos-clientes')
+              .upload(filePath, contratoBlob, {
+                contentType: 'application/pdf',
+                upsert: false,
+              })
+
+            if (!uploadError) {
+              const { data: urlData } = supabase.storage
+                .from('documentos-clientes')
+                .getPublicUrl(filePath)
+              
+              const publicUrl = urlData.publicUrl
+
+              const template = `Olá, {{nome}}! O seu contrato {{numero_contrato}} foi emitido com sucesso no valor de {{valor_principal}} em {{prazo_meses}} parcelas de {{valor_parcela}}. Segue em anexo o documento oficial para sua conferência.\n\n${publicUrl}`
+              const msgTexto = template
+                .replace('{{nome}}', fullCliente.nome)
+                .replace('{{numero_contrato}}', numero_contrato)
+                .replace('{{valor_principal}}', formatarMoeda(valorNum))
+                .replace('{{prazo_meses}}', String(parcelasNum))
+                .replace('{{valor_parcela}}', formatarMoeda(resultado.parcela))
+
+              await supabase.from('notificacoes_log').insert({
+                empresa_id: empresaAtual.id,
+                canal: 'whatsapp',
+                destinatario: fullCliente.telefone,
+                assunto: `Contrato de Empréstimo ${numero_contrato}`,
+                mensagem: msgTexto,
+                referencia_tipo: 'emprestimo',
+                referencia_id: empId,
+                status: 'pendente',
+              })
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao gerar/enviar PDF do contrato:', e)
+      }
 
       toast.success(`Contrato ${numero_contrato} criado com sucesso!`)
       router.push(`/factoring/emprestimos/${empId}`)
@@ -373,11 +471,11 @@ export default function NovoEmprestimoPage() {
               </div>
               {!cliente && (
                 <button
-                  onClick={() => setQuickSheetOpen(true)}
+                  onClick={() => router.push('/factoring/clientes/novo?redirect=/factoring/emprestimos/novo')}
                   className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-full border border-[#1A73E8] text-[#1A73E8] bg-transparent hover:bg-[#E8F0FE] transition-all hover:scale-105 active:scale-95 shadow-sm"
                 >
                   <UserPlus size={14} />
-                  Cadastro Rápido
+                  Cadastro de Cliente
                 </button>
               )}
             </div>
@@ -422,10 +520,10 @@ export default function NovoEmprestimoPage() {
                 <div className="mt-3 flex items-center justify-between rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground bg-muted/10">
                   <span className="font-semibold text-xs text-muted-foreground/75">Nenhum tomador ativo localizado para &quot;{busca}&quot;</span>
                   <button
-                    onClick={() => setQuickSheetOpen(true)}
+                    onClick={() => router.push('/factoring/clientes/novo?redirect=/factoring/emprestimos/novo')}
                     className="ml-3 flex items-center gap-1 font-bold text-xs shrink-0 text-[#1A73E8] hover:underline"
                   >
-                    <UserPlus size={14} /> Cadastrar Rápido
+                    <UserPlus size={14} /> Cadastro de Cliente
                   </button>
                 </div>
               )}
@@ -470,7 +568,7 @@ export default function NovoEmprestimoPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Parcelas (Price)</Label>
+                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Número de Parcelas</Label>
                 <Input type="number" min={1} max={60} value={numParcelas} onChange={e => setNumParcelas(e.target.value)} className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-bold text-sm bg-card border-border/60" />
               </div>
               <div className="space-y-1.5">
@@ -482,9 +580,18 @@ export default function NovoEmprestimoPage() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Primeiro Vencimento</Label>
-              <Input type="date" value={dataVenc} onChange={e => setDataVenc(e.target.value)} className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-bold text-sm bg-card border-border/60" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Primeiro Vencimento</Label>
+                <Input type="date" value={dataVenc} onChange={e => setDataVenc(e.target.value)} className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-bold text-sm bg-card border-border/60" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Juros por Atraso (% ao dia)</Label>
+                <div className="relative">
+                  <Input type="number" min={0} step={0.001} value={jurosMoraDiarioInput} onChange={e => setJurosMoraDiarioInput(e.target.value)} className="h-11 pl-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-bold text-sm bg-card border-border/60" />
+                  <Percent size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
+                </div>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -520,7 +627,7 @@ export default function NovoEmprestimoPage() {
             {/* Table wrapper */}
             <div className="bg-card rounded-3xl border border-border/50 overflow-hidden shadow-m3-1 transition-all hover:shadow-m3-2">
               <div className="px-5 py-4 border-b border-border/40 bg-muted/15 flex items-center justify-between">
-                <h3 className="font-bold text-foreground text-sm tracking-tight">Fluxo de Caixa / Price</h3>
+                <h3 className="font-bold text-foreground text-sm tracking-tight">Fluxo de Caixa / Parcelas</h3>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 bg-background border border-border/50 rounded-full">{resultado.tabela.length} parcelas</span>
               </div>
               <DataTable
@@ -609,11 +716,7 @@ export default function NovoEmprestimoPage() {
         </div>
       </div>
 
-      <QuickNovoClienteSheet
-        open={quickSheetOpen}
-        onClose={() => setQuickSheetOpen(false)}
-        onClienteCriado={handleClienteCriado}
-      />
+
     </AppShell>
   )
 }

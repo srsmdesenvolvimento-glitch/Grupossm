@@ -143,8 +143,10 @@ export default function HistoricoMensagensPage() {
 
   if (loading) return <LoadingPage />
 
+  const tipoEmpresa = empresaAtual?.tipo ?? 'factoring'
+
   return (
-    <AppShell empresa="factoring" titulo="Histórico de Mensagens">
+    <AppShell empresa={tipoEmpresa} titulo="Histórico de Mensagens">
       <div className="space-y-6">
         {/* StatCards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

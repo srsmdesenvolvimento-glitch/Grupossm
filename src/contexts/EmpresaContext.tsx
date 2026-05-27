@@ -28,7 +28,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
 
     const { data: ues } = await supabase
       .from('usuario_empresa')
-      .select('papel, empresa_id, empresas(id, nome, tipo, logo_url, ativo)')
+      .select('papel, empresa_id, empresas(id, nome, tipo, logo_url, ativo, cnpj, telefone, email, endereco, cidade, estado, cep)')
       .eq('usuario_id', userId)
       .eq('ativo', true)
 
@@ -49,7 +49,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
     if (lista.length === 0) {
       const { data: all } = await supabase
         .from('empresas')
-        .select('id, nome, tipo, logo_url, ativo')
+        .select('id, nome, tipo, logo_url, ativo, cnpj, telefone, email, endereco, cidade, estado, cep')
         .eq('ativo', true)
       lista = (all ?? []) as EmpresaInfo[]
     }
