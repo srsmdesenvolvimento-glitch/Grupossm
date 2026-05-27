@@ -41,9 +41,11 @@ function buildGreeting(): Greeting {
 }
 
 function useGreeting() {
-  const [g, setG] = useState<Greeting | null>(null)
+  const [g, setG] = useState<Greeting | null>(() => {
+    if (typeof window !== 'undefined') return buildGreeting()
+    return null
+  })
   useEffect(() => {
-    setG(buildGreeting())
     const id = setInterval(() => setG(buildGreeting()), 30_000)
     return () => clearInterval(id)
   }, [])

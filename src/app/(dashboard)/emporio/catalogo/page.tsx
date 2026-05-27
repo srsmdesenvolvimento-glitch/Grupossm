@@ -92,7 +92,7 @@ export default function CatalogoConfigPage() {
       setCorPrimaria(data.cores?.primary ?? '#D4A528')
     }
     setLoading(false)
-  }, [empresaAtual?.id, supabase])
+  }, [empresaAtual, supabase])
 
   useEffect(() => {
     carregarConfig()
