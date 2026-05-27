@@ -58,6 +58,7 @@ export default function EmprestimoDetalhePage() {
   const [parcelas, setParcelas] = useState<ParcelaEmprestimo[]>([])
   const [movs, setMovs] = useState<MovimentacaoCaixa[]>([])
   const [loading, setLoading] = useState(true)
+  const [configFactoring, setConfigFactoring] = useState<any>(null)
 
   const [quitarDialog, setQuitarDialog] = useState(false)
   const [cancelarDialog, setCancelarDialog] = useState(false)
@@ -222,15 +223,17 @@ export default function EmprestimoDetalhePage() {
     if (!empresaAtual || !id) return
     setLoading(true)
     try {
-      const [{ data: emp }, { data: parcs }, { data: movsData }] = await Promise.all([
+      const [{ data: emp }, { data: parcs }, { data: movsData }, { data: configData }] = await Promise.all([
         supabase.from('emprestimos').select('*').eq('id', id).eq('empresa_id', empresaAtual.id).single(),
         supabase.from('parcelas_emprestimo').select('*').eq('emprestimo_id', id).order('numero_parcela'),
         supabase.from('movimentacoes_caixa').select('*').eq('referencia_tipo', 'emprestimo').eq('referencia_id', id).order('created_at', { ascending: false }),
+        supabase.from('config_factoring').select('*').eq('empresa_id', empresaAtual.id).maybeSingle(),
       ])
       if (!emp) { router.push('/factoring/emprestimos'); return }
       setEmprestimo(emp)
       setParcelas(parcs ?? [])
       setMovs(movsData ?? [])
+      setConfigFactoring(configData ?? null)
 
       const { data: cli } = await supabase
         .from('clientes_factoring')
@@ -282,7 +285,21 @@ export default function EmprestimoDetalhePage() {
   async function confirmarPagamentoParcela() {
     if (!pagarParcela || !emprestimo || !empresaAtual) return
     const hoje = new Date().toISOString().split('T')[0]
-    const subtotal = pagarParcela.valor - (pagarParcela.valor_pago ?? 0)
+    
+    const dias = calcDias(pagarParcela.data_vencimento)
+    const obsText = emprestimo.observacoes ?? ''
+    const matchMora = obsText.match(/\[Mora:\s*([\d.]+)%\s*ao\s*dia\]/)
+    const moraDiario = matchMora ? parseFloat(matchMora[1]) : (configFactoring?.juros_mora_diario ?? 0.033)
+    const multaAtrasoPct = configFactoring?.multa_atraso ?? 2.0
+
+    const multaCalculada = dias > 0
+      ? (pagarParcela.status === 'pendente' ? pagarParcela.valor * (multaAtrasoPct / 100) : (pagarParcela.multa || pagarParcela.valor * (multaAtrasoPct / 100)))
+      : 0
+    const jurosCalculado = dias > 0
+      ? pagarParcela.valor * (moraDiario / 100) * dias
+      : 0
+
+    const subtotal = (pagarParcela.valor + multaCalculada + jurosCalculado) - (pagarParcela.valor_pago ?? 0)
     const descontoNum = Number(pagDesconto) || 0
     const descontoValor = pagTipoDesc === '%' ? subtotal * descontoNum / 100 : descontoNum
     const valorDigitado = Number(pagValorParcial) || 0
@@ -296,8 +313,8 @@ export default function EmprestimoDetalhePage() {
       if (valorFinal < subtotal - 0.009) {
         const restante = Math.round((subtotal - valorFinal) * 100) / 100
         
-        // 1. Mark current installment as paid with partial amount
-        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
+        // 1. Mark current installment as paid with partial amount and save calculated charges
+        await supabase.from('parcelas_emprestimo').update({ status: 'pago', multa: Number(multaCalculada.toFixed(2)), juros_mora: Number(jurosCalculado.toFixed(2)), valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
         
         // Organize remaining balance according to option chosen
         if (partialOption === 'proxima') {
@@ -401,8 +418,8 @@ export default function EmprestimoDetalhePage() {
           toast.success(`${formatarMoeda(valorFinal)} registrado! Saldo de ${formatarMoeda(restanteComJuros)}${jurosPct > 0 ? ` (c/ ${jurosPct}% juros)` : ''} criado como nova parcela extra com vencimento em ${formatarData(venc)}.`)
         }
       } else {
-        // Full payment
-        await supabase.from('parcelas_emprestimo').update({ status: 'pago', juros_mora: 0, valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
+        // Full payment and save calculated charges
+        await supabase.from('parcelas_emprestimo').update({ status: 'pago', multa: Number(multaCalculada.toFixed(2)), juros_mora: Number(jurosCalculado.toFixed(2)), valor_pago: valorFinal, data_pagamento: hoje, tipo_pagamento: pagForma }).eq('id', pagarParcela.id).eq('empresa_id', empresaAtual.id)
         const { data: restantes } = await supabase.from('parcelas_emprestimo').select('id').eq('emprestimo_id', emprestimo.id).eq('empresa_id', empresaAtual.id).in('status', ['pendente', 'atrasado'])
         if (!restantes?.length) {
           await supabase.from('emprestimos').update({ status: 'quitado', saldo_devedor: 0, data_quitacao: hoje }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
@@ -1158,7 +1175,19 @@ export default function EmprestimoDetalhePage() {
       {/* ── Payment Dialog ─────────────────────────────────────── */}
       {pagarParcela && (() => {
         const dias = calcDias(pagarParcela.data_vencimento)
-        const subtotal = pagarParcela.valor - (pagarParcela.valor_pago ?? 0)
+        const obsText = emprestimo?.observacoes ?? ''
+        const matchMora = obsText.match(/\[Mora:\s*([\d.]+)%\s*ao\s*dia\]/)
+        const moraDiario = matchMora ? parseFloat(matchMora[1]) : (configFactoring?.juros_mora_diario ?? 0.033)
+        const multaAtrasoPct = configFactoring?.multa_atraso ?? 2.0
+
+        const multaCalculada = dias > 0
+          ? (pagarParcela.status === 'pendente' ? pagarParcela.valor * (multaAtrasoPct / 100) : (pagarParcela.multa || pagarParcela.valor * (multaAtrasoPct / 100)))
+          : 0
+        const jurosCalculado = dias > 0
+          ? pagarParcela.valor * (moraDiario / 100) * dias
+          : 0
+
+        const subtotal = (pagarParcela.valor + multaCalculada + jurosCalculado) - (pagarParcela.valor_pago ?? 0)
         const descontoNum = Number(pagDesconto) || 0
         const descontoValor = pagTipoDesc === '%' ? subtotal * descontoNum / 100 : descontoNum
         const valorParcialNum = Number(pagValorParcial) || 0
@@ -1183,16 +1212,35 @@ export default function EmprestimoDetalhePage() {
                       {dias > 0 && ` (${dias}d de atraso)`}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center font-bold text-base border-t border-border/30 pt-2 mt-1">
-                    <span className="text-foreground">Total da Parcela</span>
-                    <span className="text-foreground">{formatarMoeda(pagarParcela.valor)}</span>
+                  <div className="flex justify-between items-center font-semibold text-xs border-t border-border/30 pt-2">
+                    <span className="text-muted-foreground">Valor original da Parcela</span>
+                    <span className="text-foreground font-semibold">{formatarMoeda(pagarParcela.valor)}</span>
                   </div>
+                  
+                  {dias > 0 && (
+                    <>
+                      <div className="flex justify-between items-center text-xs font-semibold text-[#C5221F]">
+                        <span>Multa por Atraso ({multaAtrasoPct}%)</span>
+                        <span>+{formatarMoeda(multaCalculada)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs font-semibold text-[#C5221F]">
+                        <span>Juros de Mora ({moraDiario}% a.d. - {dias}d)</span>
+                        <span>+{formatarMoeda(jurosCalculado)}</span>
+                      </div>
+                    </>
+                  )}
+
                   {pagarParcela.valor_pago && pagarParcela.valor_pago > 0 && (
                     <div className="flex justify-between items-center text-xs font-semibold text-[#34A853]">
                       <span>Amortizado anteriormente</span>
                       <span>-{formatarMoeda(pagarParcela.valor_pago)}</span>
                     </div>
                   )}
+
+                  <div className="flex justify-between items-center font-bold text-base border-t border-border/30 pt-2 mt-1">
+                    <span className="text-foreground">Total Atualizado hoje</span>
+                    <span className="text-[#1A73E8] font-black">{formatarMoeda(subtotal)}</span>
+                  </div>
                 </div>
 
                 {/* Forma de Pagamento */}
