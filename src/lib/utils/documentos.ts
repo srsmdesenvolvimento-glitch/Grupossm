@@ -46,17 +46,26 @@ async function loadLogo(url: string): Promise<string> {
   try {
     const res = await fetch(url)
     if (!res.ok) return ''
-    const blob = await res.blob()
-    return new Promise<string>(resolve => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = () => resolve('')
-      reader.readAsDataURL(blob)
-    })
-  } catch {
+    if (typeof window === 'undefined') {
+      const arrayBuffer = await res.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
+      const contentType = res.headers.get('content-type') || 'image/jpeg'
+      return `data:${contentType};base64,${buffer.toString('base64')}`
+    } else {
+      const blob = await res.blob()
+      return new Promise<string>(resolve => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = () => resolve('')
+        reader.readAsDataURL(blob)
+      })
+    }
+  } catch (err) {
+    console.error('Erro ao carregar imagem no loadLogo:', err)
     return ''
   }
 }
+
 
 // ── Company Details Type & Helper ──────────────────────────────────────────
 
@@ -425,7 +434,8 @@ function drawMarketUpFooterAndSignatures(
   clienteName: string,
   obsText: string,
   startY: number,
-  W: number
+  W: number,
+  signatureBase64?: string
 ) {
   let y = startY
   
@@ -460,6 +470,15 @@ function drawMarketUpFooterAndSignatures(
   doc.line(20, y + 16, 20 + sw, y + 16)
   doc.line(W - 20 - sw, y + 16, W - 20, y + 16)
   
+  // Render signature image above the tomador line if present
+  if (signatureBase64) {
+    try {
+      doc.addImage(signatureBase64, 'PNG', W - 20 - sw + 12.5, y + 3, 50, 12)
+    } catch (err) {
+      console.error('Erro ao renderizar assinatura na folha de contrato:', err)
+    }
+  }
+  
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.setTextColor(0, 0, 0)
@@ -471,6 +490,7 @@ function drawMarketUpFooterAndSignatures(
   doc.setTextColor(100, 100, 100)
   doc.text('ASSINATURA DO CREDOR / EMITENTE', 20 + sw / 2, y + 24, { align: 'center' })
   doc.text('ASSINATURA DO DEVEDOR / TOMADOR', W - 20 - sw / 2, y + 24, { align: 'center' })
+
   
   // Bottom Watermark
   doc.setFontSize(6.5)
@@ -1024,7 +1044,8 @@ export async function gerarContratoComAssinaturaPDF(
 
   const obs = `GARANTIAS APRESENTADAS: ${params.contrato.garantias || 'NÃO ESPECIFICADAS'}. JUROS DE MORA POR ATRASO PACTUADO: ${jurosMoraDiario}% AO DIA. OBSERVACÕES GERAIS: ${obsLimpa || 'SEM OBSERVACÕES ADICIONAIS'}. ESTE CONTRATO SERVE COMO TÍTULO EXECUTIVO EXTRAJUDICIAL CONFORME LEGISLAÇÃO VIGENTE.`
   
-  drawMarketUpFooterAndSignatures(doc, company, params.cliente.nome, obs, y, W)
+  drawMarketUpFooterAndSignatures(doc, company, params.cliente.nome, obs, y, W, params.assinatura.signature_base64)
+
 
   // ── PÁGINA 2: COMPROVANTE DE AUTENTICIDADE DIGITAL ──
   doc.addPage()

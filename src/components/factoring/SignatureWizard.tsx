@@ -25,10 +25,18 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   const [enviando, setEnviando] = useState(false)
   const [resultadoUrl, setResultadoUrl] = useState<string | null>(null)
 
+  // Live Camera states
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
+  const [cameraAtiva, setCameraAtiva] = useState(false)
+  const [carregandoCamera, setCarregandoCamera] = useState(false)
+  const [permissaoNegada, setPermissaoNegada] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
   // Calligraphy signature states
   const [sigType, setSigType] = useState<'draw' | 'type'>('draw')
   const [typedName, setTypedName] = useState('')
   const [selectedFont, setSelectedFont] = useState<'Great Vibes' | 'Dancing Script' | 'Alex Brush'>('Great Vibes')
+  const [hasDrawn, setHasDrawn] = useState(false)
 
   // Refs for drawing canvas
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -50,6 +58,87 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       )
     }
   }, [])
+
+  // Control camera session on Step 3
+  const iniciarCamera = async () => {
+    setCarregandoCamera(true)
+    setPermissaoNegada(false)
+    try {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop())
+      }
+      
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      })
+      
+      setCameraStream(stream)
+      setCameraAtiva(true)
+      
+      // Allow DOM rendering of video element
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play().catch(e => console.error("Erro ao reproduzir câmera:", e))
+        }
+      }, 150)
+    } catch (err) {
+      console.error('Erro ao acessar a câmera:', err)
+      setPermissaoNegada(true)
+    } finally {
+      setCarregandoCamera(false)
+    }
+  }
+
+  const pararCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop())
+      setCameraStream(null)
+    }
+    setCameraAtiva(false)
+  }
+
+  const capturarFoto = () => {
+    const video = videoRef.current
+    if (!video) return
+    
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth || 640
+      canvas.height = video.videoHeight || 480
+      const ctx = canvas.getContext('2d')
+      
+      if (ctx) {
+        // Mirror the image horizontally to match what the user sees in the selfie mirror view
+        ctx.translate(canvas.width, 0)
+        ctx.scale(-1, 1)
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+        
+        const base64 = canvas.toDataURL('image/jpeg', 0.85)
+        setSelfie(base64)
+        pararCamera()
+        toast.success('Selfie de biometria capturada com sucesso!')
+      }
+    } catch (err) {
+      console.error('Erro ao capturar frame:', err)
+      toast.error('Erro ao tirar a foto. Tente novamente.')
+    }
+  }
+
+  useEffect(() => {
+    if (passo === 3 && !selfie) {
+      iniciarCamera()
+    }
+    return () => {
+      pararCamera()
+    }
+  }, [passo, selfie])
 
   // Load calligraphic fonts dynamically on mount
   useEffect(() => {
@@ -181,6 +270,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
 
     lastX.current = coords.x
     lastY.current = coords.y
+    setHasDrawn(true)
   }
 
   const stopDrawing = () => {
@@ -199,6 +289,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     } else {
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
+      setHasDrawn(false)
     }
   }
 
@@ -231,27 +322,19 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     }
   }
 
-  const handleSelfieCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      processImageFile(file, (base64) => {
-        setSelfie(base64)
-        toast.success('Foto da selfie anexada com sucesso!')
-      })
-    }
-  }
 
   // Submit Signature
   const handleSubmitSignature = async () => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    // Verify if canvas is empty
-    const blank = document.createElement('canvas')
-    blank.width = canvas.width
-    blank.height = canvas.height
-    if (canvas.toDataURL() === blank.toDataURL()) {
-      toast.warning('Por favor, faça seu desenho de assinatura no quadro antes de continuar.')
+    // Verify if signature is provided
+    if (sigType === 'draw' && !hasDrawn) {
+      toast.warning('Por favor, desenhe sua assinatura no quadro antes de continuar.')
+      return
+    }
+    if (sigType === 'type' && !typedName.trim()) {
+      toast.warning('Por favor, digite seu nome completo para assinar.')
       return
     }
 
@@ -495,7 +578,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
             <p className="text-xs text-slate-400">Enquadre seu rosto perfeitamente e tire uma foto de frente para validação biométrica facial.</p>
           </div>
 
-          <div className="flex flex-col items-center justify-center">
+          <div className="flex flex-col items-center justify-center w-full">
             {selfie ? (
               <div className="relative w-full rounded-2xl border border-slate-800 overflow-hidden bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-inner">
                 <img 
@@ -510,28 +593,63 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
                   <Trash2 size={16} />
                 </button>
               </div>
-            ) : (
-              <label className="w-full rounded-2xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 bg-slate-950 aspect-[4/3] flex flex-col items-center justify-center gap-3 cursor-pointer transition-all p-4 text-center">
-                <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-indigo-400 transition-colors shadow-sm relative overflow-hidden">
-                  {/* Glowing camera ring */}
-                  <div className="absolute inset-0 rounded-full border border-indigo-500/10 animate-ping opacity-70" />
-                  <Camera size={26} className="relative z-10" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-300">Tirar Selfie do Rosto</p>
-                  <p className="text-[10px] text-slate-500 mt-1 max-w-[200px] mx-auto">
-                    Tire uma foto frontal com a câmera de selfie ou selecione um arquivo.
+            ) : permissaoNegada ? (
+              <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/5 aspect-[4/3] flex flex-col items-center justify-center gap-4 p-6 text-center">
+                <AlertTriangle size={36} className="text-red-500 animate-bounce" />
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-red-400">Acesso à câmera bloqueado</p>
+                  <p className="text-[10px] text-slate-400 max-w-[240px] mx-auto leading-normal">
+                    Para garantir a legitimidade e segurança deste contrato, a selfie deve ser capturada em tempo real. Favor autorizar a câmera em seu navegador.
                   </p>
                 </div>
-                {/* Mobile capture support user = front camera */}
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="user"
-                  onChange={handleSelfieCapture}
-                  className="hidden"
+                <Button
+                  onClick={iniciarCamera}
+                  size="sm"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-9 px-4 rounded-full text-xs shadow-md"
+                >
+                  Permitir Câmera e Tentar Novamente
+                </Button>
+              </div>
+            ) : carregandoCamera ? (
+              <div className="w-full rounded-2xl border border-slate-800 bg-slate-950 aspect-[4/3] flex flex-col items-center justify-center gap-3 p-4 text-center">
+                <Loader2 size={32} className="animate-spin text-indigo-500" />
+                <p className="text-xs font-bold text-slate-400">Iniciando câmera de segurança...</p>
+              </div>
+            ) : (
+              <div className="relative w-full rounded-2xl border border-slate-800 overflow-hidden bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-inner">
+                {/* Elemento de Vídeo com espelhamento horizontal para parecer espelho */}
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover scale-x-[-1]"
                 />
-              </label>
+                
+                {/* Máscara de foco oval profissional para o rosto */}
+                <div className="absolute inset-0 border-[3px] border-dashed border-indigo-500/20 rounded-2xl pointer-events-none flex items-center justify-center overflow-hidden">
+                  <div className="w-[170px] h-[220px] border-2 border-indigo-400/80 rounded-full bg-transparent shadow-[0_0_0_9999px_rgba(15,23,42,0.65)]" />
+                </div>
+
+                {/* Guia de enquadramento translúcido em texto */}
+                <div className="absolute top-3 left-0 right-0 text-center pointer-events-none z-10">
+                  <span className="px-3 py-1 bg-slate-950/80 border border-slate-800 text-[10px] font-bold tracking-wider uppercase text-slate-300 rounded-full">
+                    Enquadre seu rosto no centro
+                  </span>
+                </div>
+
+                {/* Botão circular vermelho estilo obturador para disparar */}
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
+                  <button
+                    type="button"
+                    onClick={capturarFoto}
+                    className="w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg border-4 border-white transition-all active:scale-90 duration-75"
+                    title="Tirar Selfie"
+                  >
+                    <div className="w-4.5 h-4.5 bg-white rounded-full animate-pulse" />
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

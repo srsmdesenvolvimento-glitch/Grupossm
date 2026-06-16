@@ -156,6 +156,56 @@ export async function POST(
       return NextResponse.json({ erro: 'Falha ao registrar a assinatura digital no banco de dados.' }, { status: 500 })
     }
 
+    // 10.5 Update Client Record Documents List
+    const existingClientDocs = Array.isArray(cliente.documentos) ? cliente.documentos : []
+    const updatedClientDocs = [
+      ...existingClientDocs.filter((d: any) => d.path !== finalContractPath && d.path !== selfiePath && d.path !== docPath),
+      {
+        id: `doc_selfie_${id}`,
+        categoria: 'foto',
+        label: `Selfie de Confirmação (Contrato ${emprestimo.numero_contrato})`,
+        nome_original: `selfie_${id}.jpg`,
+        path: selfiePath,
+        url: selfieUrl,
+        tipo_mime: 'image/jpeg',
+        tamanho: selfieBuffer.length,
+        criado_em: signedAt,
+      },
+      {
+        id: `doc_idcard_${id}`,
+        categoria: 'rg_cnh',
+        label: `Documento de Identidade (Contrato ${emprestimo.numero_contrato})`,
+        nome_original: `documento_${id}.jpg`,
+        path: docPath,
+        url: docUrl,
+        tipo_mime: 'image/jpeg',
+        tamanho: docBuffer.length,
+        criado_em: signedAt,
+      },
+      {
+        id: `doc_contract_${id}`,
+        categoria: 'contrato_assinado',
+        label: `Contrato Assinado - ${emprestimo.numero_contrato}`,
+        nome_original: `contrato_assinado_${emprestimo.numero_contrato}.pdf`,
+        path: finalContractPath,
+        url: finalPdfUrl,
+        tipo_mime: 'application/pdf',
+        tamanho: pdfBuffer.length,
+        criado_em: signedAt,
+      }
+    ]
+
+    const { error: clientUpdateError } = await supabase
+      .from('clientes_factoring')
+      .update({
+        documentos: updatedClientDocs,
+      })
+      .eq('id', emprestimo.cliente_id)
+
+    if (clientUpdateError) {
+      console.error('Erro ao atualizar cliente com documentos da assinatura:', clientUpdateError)
+    }
+
     // 11. Enqueue WhatsApp Notification
     try {
       const msgTexto = `Parabéns, ${cliente.nome}! O seu contrato de empréstimo ${emprestimo.numero_contrato} foi assinado digitalmente com sucesso!\n\nVocê pode baixar a sua via oficial com o registro de autenticidade (selfie, documento e assinatura) no link abaixo:\n\n${finalPdfUrl}`

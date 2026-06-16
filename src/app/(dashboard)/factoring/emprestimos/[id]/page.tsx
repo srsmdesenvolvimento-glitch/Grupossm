@@ -9,6 +9,7 @@ import {
   QrCode, ArrowLeftRight, Receipt, MessageCircle, BadgeCheck,
 } from 'lucide-react'
 import { gerarContratoPDF, gerarReciboParcela, gerarQuitacaoPDF, type ReciboParcela, type QuitacaoParams } from '@/lib/utils/documentos'
+import { recalcularScoreCliente } from '@/lib/utils/score'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -651,6 +652,11 @@ export default function EmprestimoDetalhePage() {
         console.error('Erro ao gerar/enviar PDF do recibo:', e)
       }
 
+      // Atualiza score_interno do cliente após pagamento
+      if (emprestimo?.cliente_id && empresaAtual?.id) {
+        recalcularScoreCliente(emprestimo.cliente_id, empresaAtual.id, supabase).catch(() => {})
+      }
+
       setPagarParcela(null)
       carregarDados()
     } catch (err) { logError('registrarPagamento', err); toast.error(parseSupabaseError(err, 'Erro ao registrar pagamento')) }
@@ -784,6 +790,12 @@ export default function EmprestimoDetalhePage() {
 
       toast.success('Empréstimo quitado com sucesso! Termo de Quitação enviado.')
       setQuitarDialog(false)
+
+      // Atualiza score_interno do cliente após quitação
+      if (emprestimo?.cliente_id && empresaAtual?.id) {
+        recalcularScoreCliente(emprestimo.cliente_id, empresaAtual.id, supabase).catch(() => {})
+      }
+
       carregarDados()
     } catch (err) {
       logError('quitarAntecipado', err)

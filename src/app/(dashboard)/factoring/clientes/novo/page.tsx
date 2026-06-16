@@ -6,7 +6,9 @@ import {
   User, Phone, MapPin, CreditCard, Users, FileText, CheckCircle2,
   ChevronLeft, ChevronRight, Search, Building2, CheckCircle, XCircle,
   Loader2, AlertCircle, Camera, Home, Banknote, Paperclip, X,
+  ShieldCheck, ArrowRight, BarChart3, TrendingDown,
 } from 'lucide-react'
+import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -18,12 +20,15 @@ import {
 } from '@/components/ui/select'
 import { formatarCPF, formatarTelefone } from '@/lib/utils/formatters'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
+import { buscarRelatorioAssertiva, scoreLabel, scoreColor } from '@/lib/assertiva/client'
+import type { RelatorioCompleto } from '@/lib/assertiva/types'
 import { buscarEnderecoPorCep } from '@/lib/utils/cep'
 import {
   CATEGORIAS_DOCUMENTO, uploadDocumentoCliente, formatarTamanho, ehImagem,
   type DocumentoMeta,
 } from '@/lib/utils/storage'
 import { toast } from 'sonner'
+import { recalcularScoreCliente } from '@/lib/utils/score'
 
 // ── Validadores locais ────────────────────────────────────────────────────────
 function validarCPF(cpf: string): boolean {
@@ -95,11 +100,18 @@ export default function NovoClienteFactoringPage() {
   const { empresaAtual } = useEmpresa()
   const supabase = createClient()
 
-  const [step, setStep] = useState(1)
+  const [step, setStep] = useState(0)
   const [salvando, setSalvando] = useState(false)
   const [buscandoCep, setBuscandoCep] = useState(false)
   const [buscandoCnpj, setBuscandoCnpj] = useState(false)
   const [clienteCriadoId, setClienteCriadoId] = useState<string | null>(null)
+  const [dadosAssertiva, setDadosAssertiva] = useState<RelatorioCompleto | null>(null)
+  const [buscandoAssertiva, setBuscandoAssertiva] = useState(false)
+  const [assertivaConsultada, setAssertivaConsultada] = useState(false)
+  const [assertivaErro, setAssertivaErro] = useState<string | null>(null)
+  const [expandirRelatorio, setExpandirRelatorio] = useState(false)
+  const [verificandoDuplicata, setVerificandoDuplicata] = useState(false)
+  const [cpfDuplicado, setCpfDuplicado] = useState(false)
 
   // Tipo de pessoa
   const [tipoPessoa, setTipoPessoa] = useState<'fisica' | 'juridica'>('fisica')
@@ -190,50 +202,152 @@ export default function NovoClienteFactoringPage() {
     if (c.length === 8) buscarCep(c)
   }, [cep, buscarCep])
 
-  const buscarCNPJ = async () => {
-    const c = cnpj.replace(/\D/g, '')
-    if (!validarCNPJ(c)) { toast.error('CNPJ inválido — verifique o número'); return }
-    setBuscandoCnpj(true)
-    try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${c}`)
-      if (!res.ok) throw new Error()
-      const data = await res.json()
-
-      setNome(data.razao_social ?? '')
-
-      // Telefone: BrasilAPI retorna "11 912345678"
-      const tel1 = (data.ddd_telefone_1 ?? '').replace(/\D/g, '')
-      if (tel1) setTelefone(tel1)
-
-      if (data.email) setEmail(data.email.toLowerCase())
-
-      // Endereço
-      if (data.cep) setCep(data.cep.replace(/\D/g, ''))
-      if (data.logradouro) setEndereco(data.logradouro)
-      if (data.numero) setNumero(data.numero)
-      if (data.complemento) setComplemento(data.complemento)
-      if (data.bairro) setBairro(data.bairro)
-      if (data.municipio) setCidade(data.municipio)
-      if (data.uf) setEstado(data.uf)
-
-      // Sócios como referências
-      if (data.qsa?.length) {
-        const refs = (data.qsa as Array<{ nome_socio?: string; qualificacao_socio?: string }>)
-          .slice(0, 3)
-          .map(s => ({ nome: s.nome_socio ?? '', parentesco: s.qualificacao_socio ?? 'Sócio', telefone: '' }))
-        setReferencias([...refs, ...Array(Math.max(0, 3 - refs.length)).fill(emptyRef())])
+  const preencherCamposComAssertiva = useCallback((data: RelatorioCompleto) => {
+    if (!data) return
+    
+    // Nome
+    if (data.nome) setNome(data.nome)
+    
+    // Data de Nascimento (with formatting fallback)
+    if (data.data_nascimento) {
+      let dt = data.data_nascimento
+      if (dt.includes('T')) dt = dt.split('T')[0]
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(dt)) {
+        const [d, m, y] = dt.split('/')
+        dt = `${y}-${m}-${d}`
       }
-
-      setCnpjConsultado(data)
-      const situacao = data.descricao_situacao_cadastral ?? ''
-      toast.success(`${data.razao_social} — Situação: ${situacao}`)
-    } catch (err) {
-      logError('buscarCNPJ', err)
-      toast.error('CNPJ não encontrado na Receita Federal')
-    } finally {
-      setBuscandoCnpj(false)
+      setDataNascimento(dt)
     }
-  }
+
+    // Renda Mensal / Faturamento
+    if (data.renda_estimada) {
+      setRendaMensal(String(Math.round(data.renda_estimada)))
+    } else if (data.faturamento_presumido && typeof data.faturamento_presumido === 'number') {
+      setRendaMensal(String(Math.round(data.faturamento_presumido)))
+    }
+
+    // Estado Civil
+    if (data.estado_civil_api) {
+      const ec = data.estado_civil_api.toLowerCase()
+      if (ec.includes('solteir')) setEstadoCivil('solteiro')
+      else if (ec.includes('casad')) setEstadoCivil('casado')
+      else if (ec.includes('divorciad')) setEstadoCivil('divorciado')
+      else if (ec.includes('viuv')) setEstadoCivil('viuvo')
+      else if (ec.includes('separad')) setEstadoCivil('separado')
+      else if (ec.includes('uniao') || ec.includes('união') || ec.includes('estavel') || ec.includes('estável')) setEstadoCivil('uniao_estavel')
+    }
+
+    // Profissão / Segmento
+    if (data.ocupacao) {
+      setProfissao(data.ocupacao)
+    } else if (data.cnae_descricao) {
+      setProfissao(data.cnae_descricao)
+    }
+
+    // Telefone
+    if (data.telefones?.length) {
+      const t = data.telefones.find((x: any) => x.tipo?.toLowerCase() === 'celular' || x.whatsapp) ?? data.telefones[0]
+      const num = (t.ddd ?? '') + (t.numero ?? '')
+      const cleanNum = num.replace(/\D/g, '')
+      if (cleanNum.length >= 10) setTelefone(formatarTelefone(cleanNum))
+    }
+
+    // E-mail
+    if (data.emails?.length) {
+      const sorted = [...data.emails].sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0))
+      if (sorted[0]?.email) setEmail(sorted[0].email)
+    }
+
+    // Endereço
+    if (data.enderecos?.length) {
+      const end = data.enderecos[0]
+      if (end.cep) {
+        const c = end.cep.replace(/\D/g, '')
+        setCep(c.length > 5 ? `${c.slice(0, 5)}-${c.slice(5, 8)}` : c)
+      }
+      if (end.logradouro) setEndereco(end.logradouro)
+      if (end.numero) setNumero(end.numero)
+      if (end.complemento) setComplemento(end.complemento)
+      if (end.bairro) setBairro(end.bairro)
+      if (end.municipio) setCidade(end.municipio)
+      if (end.uf) setEstado(end.uf)
+    }
+
+    // Referências de vínculos
+    if (data.vinculos?.length) {
+      const novosRefs = data.vinculos.slice(0, 3).map((v: any) => ({
+        nome: v.nome ?? '',
+        parentesco: v.tipo ?? v.parentesco ?? (tipoPessoa === 'fisica' ? 'Familiar' : 'Sócio'),
+        telefone: '',
+      }))
+      setReferencias([...novosRefs, ...Array(Math.max(0, 3 - novosRefs.length)).fill(emptyRef())])
+    }
+  }, [tipoPessoa])
+
+  const consultarAssertivaCnpj = useCallback(async (cnpjLimpo: string) => {
+    if (dadosAssertiva?.documento === cnpjLimpo) return
+    setBuscandoAssertiva(true)
+    setAssertivaErro(null)
+    try {
+      const { data, erro } = await buscarRelatorioAssertiva(cnpjLimpo, 'pj')
+      if (!data) {
+        setAssertivaConsultada(true)
+        setAssertivaErro(erro ?? 'Nenhum dado encontrado para este CNPJ.')
+        setBuscandoAssertiva(false)
+        return
+      }
+      setAssertivaConsultada(true)
+      setDadosAssertiva(data)
+      preencherCamposComAssertiva(data)
+      toast.success(`Assertiva: dados carregados para ${data.nome ?? 'a empresa'}`)
+    } catch {
+      setAssertivaConsultada(true)
+      setAssertivaErro('Erro ao conectar com a Assertiva. Verifique a conexão.')
+    } finally {
+      setBuscandoAssertiva(false)
+    }
+  }, [dadosAssertiva, preencherCamposComAssertiva])
+
+  const consultarAssertivaCpf = useCallback(async (cpfLimpo: string) => {
+    if (dadosAssertiva?.documento === cpfLimpo) return
+    setBuscandoAssertiva(true)
+    setAssertivaErro(null)
+    try {
+      const { data, erro } = await buscarRelatorioAssertiva(cpfLimpo, 'pf')
+      if (!data) {
+        setAssertivaConsultada(true)
+        setAssertivaErro(erro ?? 'Nenhum dado encontrado para este CPF.')
+        setBuscandoAssertiva(false)
+        return
+      }
+      setAssertivaConsultada(true)
+      setDadosAssertiva(data)
+      preencherCamposComAssertiva(data)
+      toast.success(`Assertiva: dados carregados para ${data.nome ?? 'o cliente'}`)
+    } catch (e) {
+      setAssertivaConsultada(true)
+      setAssertivaErro('Erro ao conectar com a Assertiva. Verifique a conexão.')
+    } finally {
+      setBuscandoAssertiva(false)
+    }
+  }, [dadosAssertiva, preencherCamposComAssertiva])
+
+  useEffect(() => {
+    const cpfLimpo = cpf.replace(/\D/g, '')
+    if (cpfLimpo.length === 11 && validarCPF(cpfLimpo)) {
+      consultarAssertivaCpf(cpfLimpo)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cpf])
+
+  // Auto-query para CNPJ
+  useEffect(() => {
+    const c = cnpj.replace(/\D/g, '')
+    if (c.length === 14 && validarCNPJ(c)) {
+      consultarAssertivaCnpj(c)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cnpj])
 
   const validarStep = (): boolean => {
     if (step === 1 && !nome.trim()) { toast.error('Nome é obrigatório'); return false }
@@ -281,17 +395,27 @@ export default function NovoClienteFactoringPage() {
           pix: pix || null,
           limite_credito: 0,
           credito_utilizado: 0,
-          score_interno: 50,
+          score_interno: dadosAssertiva?.score != null ? Math.round(dadosAssertiva.score / 10) : 50,
           total_emprestimos: 0,
           valor_total_emprestado: 0,
           documentos: [],
           status: 'ativo',
+          dados_assertiva: dadosAssertiva ?? null,
+          score_assertiva: dadosAssertiva?.score ?? null,
+          faixa_risco_assertiva: dadosAssertiva?.faixa_risco ?? null,
+          renda_estimada_assertiva: dadosAssertiva?.renda_estimada ?? null,
+          assertiva_consultado_em: dadosAssertiva ? new Date().toISOString() : null,
         })
         .select('id')
         .single()
 
       if (error) throw error
       if (!clienteData) throw new Error('Nenhum dado retornado após inserção')
+
+      // Recalcular o score interno com base nas regras ativas e dados cadastrados
+      await recalcularScoreCliente(clienteData.id, empresaAtual.id, supabase).catch((err) => {
+        console.error('Erro ao recalcular score inicial:', err)
+      })
 
       const refs = referencias.filter(r => r.nome.trim())
       if (refs.length > 0) {
@@ -384,6 +508,330 @@ export default function NovoClienteFactoringPage() {
                 <Banknote size={16} />
                 Criar Empréstimo
               </Button>
+            </div>
+          </div>
+        </div>
+      </AppShell>
+    )
+  }
+
+  // ── Step 0: Busca inicial por CPF/CNPJ ─────────────────────────────────────
+  if (step === 0) {
+    const docLimpo = tipoPessoa === 'fisica'
+      ? cpf.replace(/\D/g, '')
+      : cnpj.replace(/\D/g, '')
+    const docValido = tipoPessoa === 'fisica'
+      ? (docLimpo.length === 11 && validarCPF(docLimpo))
+      : (docLimpo.length === 14 && validarCNPJ(docLimpo))
+
+    return (
+      <AppShell empresa="factoring" titulo="Novo Cliente">
+        <div className="max-w-2xl mx-auto space-y-6">
+
+          {/* Header */}
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6">
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-10 h-10 rounded-xl bg-[#E8F0FE] flex items-center justify-center shrink-0">
+                <ShieldCheck size={20} className="text-[#1A73E8]" />
+              </div>
+              <div>
+                <h2 className="font-bold text-lg text-foreground">Consulta Prévia</h2>
+                <p className="text-xs text-muted-foreground">Informe o CPF ou CNPJ — dados serão preenchidos automaticamente via Assertiva</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Toggle PF/PJ */}
+          <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-6 space-y-5">
+            <div className="flex gap-1.5 p-1 bg-muted/60 rounded-full w-fit">
+              <button type="button"
+                onClick={() => { setTipoPessoa('fisica'); setCnpj(''); setCnpjConsultado(null); setDadosAssertiva(null) }}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-semibold transition-all ${tipoPessoa === 'fisica' ? 'bg-card shadow-sm text-[#1A73E8]' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <User size={14} /> Pessoa Física
+              </button>
+              <button type="button"
+                onClick={() => { setTipoPessoa('juridica'); setCpf(''); setDadosAssertiva(null) }}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-semibold transition-all ${tipoPessoa === 'juridica' ? 'bg-card shadow-sm text-[#1A73E8]' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <Building2 size={14} /> Pessoa Jurídica
+              </button>
+            </div>
+
+            {/* Input CPF ou CNPJ */}
+            {tipoPessoa === 'fisica' ? (
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">CPF</Label>
+                <div className="relative">
+                  <Input
+                    value={cpf}
+                    onChange={e => {
+                      setCpf(mascaraCPF(e.target.value))
+                      setCpfDuplicado(false)
+                      setAssertivaConsultada(false)
+                      setAssertivaErro(null)
+                      setDadosAssertiva(null)
+                      setExpandirRelatorio(false)
+                    }}
+                    placeholder="000.000.000-00"
+                    maxLength={14}
+                    className={`h-12 text-base px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-xl transition-all ${docLimpo.length === 11 ? (docValido ? 'border-[#34A853]' : 'border-[#EA4335]') : ''}`}
+                    autoFocus
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {buscandoAssertiva && <Loader2 size={18} className="animate-spin text-[#1A73E8]" />}
+                    {!buscandoAssertiva && docLimpo.length === 11 && (docValido
+                      ? <CheckCircle size={18} className="text-[#34A853]" />
+                      : <XCircle size={18} className="text-[#EA4335]" />
+                    )}
+                  </div>
+                </div>
+                {buscandoAssertiva && (
+                  <p className="text-xs text-[#1A73E8] flex items-center gap-1.5 font-medium animate-pulse">
+                    <Loader2 size={12} className="animate-spin" />
+                    Consultando Assertiva — buscando dados completos...
+                  </p>
+                )}
+                {!buscandoAssertiva && docValido && !assertivaConsultada && !dadosAssertiva && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1.5 font-medium">
+                    <AlertCircle size={12} />
+                    CPF válido — clique em "Consultar Assertiva" para buscar os dados
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">CNPJ</Label>
+                <div className="relative">
+                  <Input
+                    value={cnpj}
+                    onChange={e => {
+                      setCnpj(mascaraCNPJ(e.target.value))
+                      setCnpjConsultado(null)
+                      setAssertivaConsultada(false)
+                      setAssertivaErro(null)
+                      setDadosAssertiva(null)
+                      setExpandirRelatorio(false)
+                    }}
+                    placeholder="00.000.000/0001-00"
+                    maxLength={18}
+                    className={`h-12 text-base px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-xl transition-all ${cnpj.replace(/\D/g,'').length === 14 ? (docValido ? 'border-[#34A853]' : 'border-[#EA4335]') : ''}`}
+                    autoFocus
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {buscandoAssertiva && <Loader2 size={18} className="animate-spin text-[#1A73E8]" />}
+                    {!buscandoAssertiva && cnpj.replace(/\D/g,'').length === 14 && (docValido
+                      ? <CheckCircle size={18} className="text-[#34A853]" />
+                      : <XCircle size={18} className="text-[#EA4335]" />
+                    )}
+                  </div>
+                </div>
+                {buscandoAssertiva && (
+                  <p className="text-xs text-[#1A73E8] flex items-center gap-1.5 font-medium animate-pulse">
+                    <Loader2 size={12} className="animate-spin" />
+                    Consultando Assertiva — buscando dados completos...
+                  </p>
+                )}
+                {!buscandoAssertiva && docValido && !assertivaConsultada && !dadosAssertiva && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1.5 font-medium">
+                    <AlertCircle size={12} />
+                    CNPJ válido — consultando Assertiva automaticamente...
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Preview Assertiva — snapshot compacto */}
+            {dadosAssertiva && !buscandoAssertiva && (() => {
+              const r = dadosAssertiva
+              const scoreVal = r.score ?? null
+              const flags: { label: string; danger: boolean }[] = []
+              if (r.indicador_obito)            flags.push({ label: 'Óbito', danger: true })
+              if (r.pep)                        flags.push({ label: 'PEP', danger: true })
+              const negCount = r.total_negativacoes ?? 0
+              const protCount = r.total_protestos ?? 0
+              const ccfCount = r.total_ccf ?? 0
+              const acaoCount = r.total_acoes_judiciais ?? 0
+              if (negCount > 0)  flags.push({ label: `${negCount} negativaç${negCount > 1 ? 'ões' : 'ão'}`, danger: true })
+              if (protCount > 0) flags.push({ label: `${protCount} protesto${protCount > 1 ? 's' : ''}`, danger: true })
+              if (ccfCount > 0)  flags.push({ label: `CCF: ${ccfCount}`, danger: true })
+              if (acaoCount > 0) flags.push({ label: `${acaoCount} ação jud.`, danger: true })
+              const limpo = flags.length === 0
+              return (
+                <div className="border border-border/60 rounded-xl overflow-hidden">
+                  {/* Barra de status */}
+                  <div className={`h-1 w-full ${limpo ? 'bg-[#34A853]' : 'bg-[#EA4335]'}`} />
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-[#34A853]">
+                      <CheckCircle size={14} />
+                      Dados encontrados — revise e confirme para prosseguir
+                    </div>
+                    {/* Linha principal: score + dados básicos */}
+                    <div className="flex items-start gap-4">
+                      {scoreVal !== null && (
+                        <div className="flex flex-col items-center shrink-0">
+                          <div
+                            className="w-14 h-14 rounded-full border-4 flex items-center justify-center font-extrabold text-base"
+                            style={{ borderColor: scoreColor(scoreVal), color: scoreColor(scoreVal) }}
+                          >
+                            {scoreVal}
+                          </div>
+                          <span className="text-[10px] font-bold mt-0.5" style={{ color: scoreColor(scoreVal) }}>
+                            {scoreLabel(scoreVal)}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <p className="font-bold text-sm text-foreground truncate">{r.nome ?? '—'}</p>
+                        {r.data_nascimento && (
+                          <p className="text-xs text-muted-foreground">
+                            Nascimento: {new Date(r.data_nascimento).toLocaleDateString('pt-BR')}
+                          </p>
+                        )}
+                        {r.renda_estimada && (
+                          <p className="text-xs text-muted-foreground">
+                            Renda estimada: <span className="font-semibold text-foreground">
+                              {r.renda_estimada.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                          </p>
+                        )}
+                        {r.enderecos && r.enderecos.length > 0 && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {r.enderecos[0].municipio}/{r.enderecos[0].uf}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Flags de risco */}
+                    {flags.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {flags.map(f => (
+                          <span key={f.label} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#FEE2E2] text-[#DC2626]">
+                            <XCircle size={10} /> {f.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#34A853]">
+                        <CheckCircle size={12} /> Sem restrições encontradas
+                      </div>
+                    )}
+
+                    {/* Expandir relatório completo */}
+                    <button
+                      type="button"
+                      onClick={() => setExpandirRelatorio(v => !v)}
+                      className="text-[11px] font-semibold text-[#1A73E8] underline hover:no-underline flex items-center gap-1"
+                    >
+                      <BarChart3 size={11} />
+                      {expandirRelatorio ? 'Ocultar relatório completo' : 'Ver relatório completo'}
+                    </button>
+
+                    {expandirRelatorio && <RelatorioView relatorio={dadosAssertiva} />}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Aviso de CPF duplicado */}
+            {cpfDuplicado && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-[#FEF3C7] border border-[#F59E0B]/40 text-[#B45309] text-xs font-semibold">
+                <AlertCircle size={14} className="shrink-0" />
+                Este CPF já está cadastrado no sistema. Verifique a lista de clientes.
+              </div>
+            )}
+
+            {/* Erro Assertiva */}
+            {assertivaErro && !buscandoAssertiva && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-[#FEF3C7] border border-[#F59E0B]/40 text-[#B45309] text-xs font-semibold">
+                <AlertCircle size={14} className="shrink-0" />
+                {assertivaErro}
+              </div>
+            )}
+
+            {/* Botão principal de ação */}
+            <div className="flex flex-col gap-2 pt-2">
+              {/* Caso: CPF válido, ainda não consultou → botão primário é Consultar */}
+              {docValido && !dadosAssertiva && !buscandoAssertiva && (
+                <Button
+                  onClick={() => {
+                    setAssertivaErro(null)
+                    setAssertivaConsultada(false)
+                    if (tipoPessoa === 'fisica') consultarAssertivaCpf(docLimpo)
+                    else consultarAssertivaCnpj(docLimpo)
+                  }}
+                  className="w-full h-12 rounded-full gap-2 bg-[#1A73E8] hover:bg-[#1557B0] text-white text-sm font-semibold shadow-sm"
+                >
+                  <ShieldCheck size={18} />
+                  {assertivaConsultada ? 'Tentar novamente — Consultar Assertiva' : 'Consultar Assertiva'}
+                </Button>
+              )}
+
+              {/* Caso: consultando */}
+              {buscandoAssertiva && (
+                <Button disabled className="w-full h-12 rounded-full gap-2 bg-[#1A73E8] text-white text-sm font-semibold">
+                  <Loader2 size={18} className="animate-spin" />
+                  Consultando Assertiva...
+                </Button>
+              )}
+
+              {/* Caso: dados encontrados → iniciar cadastro */}
+              {dadosAssertiva && !buscandoAssertiva && (
+                <Button
+                  onClick={async () => {
+                    if (!empresaAtual) return
+                    if (tipoPessoa === 'fisica' && docLimpo.length === 11) {
+                      setVerificandoDuplicata(true)
+                      try {
+                        const { data: existe } = await supabase
+                          .from('clientes_factoring').select('id')
+                          .eq('empresa_id', empresaAtual.id).eq('cpf', docLimpo).maybeSingle()
+                        if (existe) { setCpfDuplicado(true); setVerificandoDuplicata(false); return }
+                      } catch { /* segue */ }
+                      setVerificandoDuplicata(false)
+                    }
+                    if (dadosAssertiva) {
+                      preencherCamposComAssertiva(dadosAssertiva)
+                    }
+                    setCpfDuplicado(false)
+                    setStep(1)
+                  }}
+                  disabled={verificandoDuplicata || cpfDuplicado}
+                  className="w-full h-12 rounded-full gap-2 bg-[#34A853] hover:bg-[#2D9249] text-white text-sm font-semibold shadow-sm"
+                >
+                  {verificandoDuplicata
+                    ? <><Loader2 size={16} className="animate-spin" /> Verificando...</>
+                    : <><CheckCircle size={18} /> Iniciar Cadastro com estes dados</>
+                  }
+                </Button>
+              )}
+
+              {/* Último recurso: continuar sem Assertiva (só após tentativa falha ou PJ sem dados) */}
+              {assertivaConsultada && !dadosAssertiva && !buscandoAssertiva && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!empresaAtual) return
+                    if (tipoPessoa === 'fisica' && docLimpo.length === 11) {
+                      setVerificandoDuplicata(true)
+                      try {
+                        const { data: existe } = await supabase
+                          .from('clientes_factoring').select('id')
+                          .eq('empresa_id', empresaAtual.id).eq('cpf', docLimpo).maybeSingle()
+                        if (existe) { setCpfDuplicado(true); setVerificandoDuplicata(false); return }
+                      } catch { /* segue */ }
+                      setVerificandoDuplicata(false)
+                    }
+                    setCpfDuplicado(false)
+                    setStep(1)
+                  }}
+                  disabled={verificandoDuplicata || cpfDuplicado}
+                  className="text-xs text-muted-foreground underline hover:text-foreground text-center py-1 transition-colors disabled:opacity-50"
+                >
+                  {verificandoDuplicata ? 'Verificando...' : 'Continuar sem dados da Assertiva'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -502,6 +950,65 @@ export default function NovoClienteFactoringPage() {
                       <CheckCircle size={13} /> CPF validado com sucesso
                     </p>
                   )}
+                  {/* Assertiva loading / resultado */}
+                  {cpfCompleto && cpfOk && buscandoAssertiva && (
+                    <div className="flex items-center gap-2 text-xs text-[#1A73E8] bg-[#E8F0FE] rounded-lg px-3 py-2 mt-1">
+                      <Loader2 size={13} className="animate-spin" />
+                      Consultando Assertiva — buscando dados cadastrais e financeiros...
+                    </div>
+                  )}
+                  {cpfCompleto && cpfOk && dadosAssertiva && !buscandoAssertiva && (() => {
+                    const sc = dadosAssertiva.score
+                    const color = scoreColor(sc)
+                    const label = scoreLabel(sc)
+                    const temNeg = (dadosAssertiva.total_negativacoes ?? 0) > 0
+                    const temProt = (dadosAssertiva.total_protestos ?? 0) > 0
+                    return (
+                      <div className="rounded-xl border border-border bg-card p-3 space-y-2 mt-1 shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                            <CheckCircle size={13} className="text-[#34A853]" /> Assertiva — Dados carregados
+                          </span>
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${color}20`, color }}>
+                            Score {sc ?? '—'} · {label}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 text-[10px]">
+                          {dadosAssertiva.renda_estimada && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 font-semibold">
+                              Renda est. R$ {dadosAssertiva.renda_estimada.toLocaleString('pt-BR')}
+                            </span>
+                          )}
+                          {temNeg && (
+                            <span className="px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 font-semibold">
+                              {dadosAssertiva.total_negativacoes} negativações
+                            </span>
+                          )}
+                          {temProt && (
+                            <span className="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 font-semibold">
+                              {dadosAssertiva.total_protestos} protestos
+                            </span>
+                          )}
+                          {!temNeg && !temProt && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 font-semibold">
+                              Sem restrições
+                            </span>
+                          )}
+                          {(dadosAssertiva.telefones?.length ?? 0) > 0 && (
+                            <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-semibold">
+                              {dadosAssertiva.telefones?.length} telefones
+                            </span>
+                          )}
+                          {(dadosAssertiva.enderecos?.length ?? 0) > 0 && (
+                            <span className="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 font-semibold">
+                              {dadosAssertiva.enderecos?.length} endereços
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">Formulário preenchido automaticamente com dados da Assertiva.</p>
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })()}
@@ -534,15 +1041,15 @@ export default function NovoClienteFactoringPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={buscarCNPJ}
-                        disabled={!cnpjOk || buscandoCnpj}
+                        onClick={() => { if (cnpjOk) consultarAssertivaCnpj(cnpjLimpo) }}
+                        disabled={!cnpjOk || buscandoAssertiva}
                         className="shrink-0 gap-1.5 h-11 rounded-lg border-border hover:bg-muted/50"
                       >
-                        {buscandoCnpj
+                        {buscandoAssertiva
                           ? <Loader2 size={16} className="animate-spin text-[#1A73E8]" />
-                          : <Search size={16} className="text-muted-foreground" />
+                          : <ShieldCheck size={16} className="text-muted-foreground" />
                         }
-                        Consultar Receita
+                        Consultar Assertiva
                       </Button>
                     </div>
                     {cnpjCompleto && !cnpjOk && (
@@ -550,32 +1057,14 @@ export default function NovoClienteFactoringPage() {
                         <AlertCircle size={13} /> CNPJ inválido — verifique a numeração
                       </p>
                     )}
-                  </div>
-
-                  {/* Card com resultado da consulta */}
-                  {cnpjConsultado && (() => {
-                    const d = cnpjConsultado as Record<string, string | null>
-                    return (
-                      <div className="rounded-xl border border-[#34A853]/20 bg-[#E6F4EA] p-4 space-y-2 text-sm transition-all duration-300 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 left-0 bottom-0 w-1 bg-[#34A853]" />
-                        <div className="flex items-center gap-2">
-                          <CheckCircle size={16} className="text-[#34A853] shrink-0" />
-                          <p className="font-bold text-[#15803d]">{d.razao_social ?? ''}</p>
-                        </div>
-                        {d.nome_fantasia && (
-                          <p className="text-xs text-[#15803d]/80 font-medium pl-6">Nome fantasia: {d.nome_fantasia}</p>
-                        )}
-                        <p className="text-xs text-[#15803d] pl-6 font-medium">
-                          Situação Cadastral: <strong className="uppercase">{d.descricao_situacao_cadastral ?? ''}</strong>
-                          {d.data_situacao_cadastral && ` desde ${d.data_situacao_cadastral.split('T')[0]}`}
-                        </p>
-                        {d.cnae_fiscal_descricao && (
-                          <p className="text-xs text-muted-foreground pl-6 font-medium line-clamp-1">Atividade: {d.cnae_fiscal_descricao}</p>
-                        )}
-                        <p className="text-[10px] text-muted-foreground/60 pl-6 mt-1 font-medium italic">Dados cadastrais, endereço e sócios foram preenchidos automaticamente.</p>
+                    {dadosAssertiva && dadosAssertiva.nome && (
+                      <div className="rounded-xl border border-[#34A853]/20 bg-[#E6F4EA] p-3 flex items-center gap-2 text-sm">
+                        <CheckCircle size={15} className="text-[#34A853] shrink-0" />
+                        <span className="font-bold text-[#15803d]">{dadosAssertiva.nome}</span>
+                        <span className="text-xs text-[#15803d]/70 ml-auto">Dados preenchidos via Assertiva</span>
                       </div>
-                    )
-                  })()}
+                    )}
+                  </div>
                 </div>
               )
             })()}

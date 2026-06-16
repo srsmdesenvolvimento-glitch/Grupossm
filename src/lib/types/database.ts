@@ -436,6 +436,8 @@ export type ConfigFactoring = {
   msg_cobranca: string | null
   msg_quitacao: string | null
   msg_boas_vindas: string | null
+  regras_score?: any
+  faixas_risco?: any
   updated_at: string
 }
 export type ConfigFactoringInsert = Omit<ConfigFactoring, 'id' | 'updated_at'> & { id?: string }

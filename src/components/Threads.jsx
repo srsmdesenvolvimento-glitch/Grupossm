@@ -118,7 +118,7 @@ void main() {
 }
 `;
 
-const Threads = ({ color = [1, 1, 1], amplitude = 1, distance = 0, enableMouseInteraction = false, ...rest }) => {
+const Threads = ({ color = [1, 1, 1], amplitude = 1, distance = 0, speed = 1, enableMouseInteraction = false, ...rest }) => {
   const containerRef = useRef(null);
   const animationFrameId = useRef();
 
@@ -188,7 +188,7 @@ const Threads = ({ color = [1, 1, 1], amplitude = 1, distance = 0, enableMouseIn
         program.uniforms.uMouse.value[0] = 0.5;
         program.uniforms.uMouse.value[1] = 0.5;
       }
-      program.uniforms.iTime.value = t * 0.001;
+      program.uniforms.iTime.value = t * 0.001 * speed;
       renderer.render({ scene: mesh });
       animationFrameId.current = requestAnimationFrame(update);
     }
@@ -204,7 +204,7 @@ const Threads = ({ color = [1, 1, 1], amplitude = 1, distance = 0, enableMouseIn
       if (container.contains(gl.canvas)) container.removeChild(gl.canvas);
       gl.getExtension('WEBGL_lose_context')?.loseContext();
     };
-  }, [color, amplitude, distance, enableMouseInteraction]);
+  }, [color, amplitude, distance, speed, enableMouseInteraction]);
 
   return <div ref={containerRef} className="threads-container" {...rest} />;
 };

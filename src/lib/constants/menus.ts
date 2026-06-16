@@ -110,6 +110,11 @@ export const MENU_FACTORING: MenuItem[] = [
     ],
   },
   {
+    label: 'Análise de Crédito',
+    href: '/factoring/analise-credito',
+    icon: 'ShieldCheck',
+  },
+  {
     label: 'Mensagens',
     href: '/mensagens',
     icon: 'MessageCircle',

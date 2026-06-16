@@ -19,9 +19,10 @@ import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
 import type { ConfigFactoring, PapelUsuario } from '@/lib/types/database'
-import { UserPlus, Trash2, Settings } from 'lucide-react'
+import { UserPlus, Trash2, Settings, Award } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { REGRAS_SCORE_PADRAO, type RegraScore } from '@/lib/utils/calculos'
 
 type UsuarioRow = {
   ue_id: string
@@ -44,6 +45,46 @@ export default function ConfiguracoesFactoringPage() {
   const [taxaJurosPadrao, setTaxaJurosPadrao] = useState('5')
   const [jurosMoraDiario, setJurosMoraDiario] = useState('0.033')
   const [saldoInicialCaixa, setSaldoInicialCaixa] = useState('0')
+
+  // Score Engine Configurations
+  const [regrasScore, setRegrasScore] = useState<RegraScore[]>([])
+  const [salvandoScore, setSalvandoScore] = useState(false)
+
+  const toggleRegraScore = (regraId: string) => {
+    setRegrasScore(prev => prev.map(r => r.id === regraId ? { ...r, ativo: !r.ativo } : r))
+  }
+
+  const changePesoScore = (regraId: string, peso: number) => {
+    setRegrasScore(prev => prev.map(r => r.id === regraId ? { ...r, peso } : r))
+  }
+
+  const changeMaxScore = (regraId: string, max: number) => {
+    setRegrasScore(prev => prev.map(r => r.id === regraId ? { ...r, limite_maximo_pontos: max } : r))
+  }
+
+  async function salvarScore() {
+    if (!empresaAtual) return
+    setSalvandoScore(true)
+    try {
+      const { error } = await supabase
+        .from('config_factoring')
+        .upsert({
+          empresa_id: empresaAtual.id,
+          regras_score: regrasScore,
+          taxa_juros_padrao: parseFloat(taxaJurosPadrao) || 5,
+          juros_mora_diario: parseFloat(jurosMoraDiario) || 0.033,
+          saldo_inicial_caixa: parseFloat(saldoInicialCaixa) || 0,
+        }, { onConflict: 'empresa_id' })
+
+      if (error) throw error
+      toast.success('Motor de Score atualizado com sucesso!')
+    } catch (err) {
+      console.error('Erro ao salvar score:', err)
+      toast.error('Erro ao salvar configurações do score')
+    } finally {
+      setSalvandoScore(false)
+    }
+  }
 
   // Empresa
   const [empresaNome, setEmpresaNome] = useState('')
@@ -84,11 +125,14 @@ export default function ConfiguracoesFactoringPage() {
       ])
 
       if (configRes.data) {
-        const c = configRes.data as ConfigFactoring
+        const c = configRes.data as any
         setConfig(c)
         setTaxaJurosPadrao(String(c.taxa_juros_padrao))
         setJurosMoraDiario(String(c.juros_mora_diario))
         setSaldoInicialCaixa(String(c.saldo_inicial_caixa ?? 0))
+        setRegrasScore(c.regras_score || REGRAS_SCORE_PADRAO)
+      } else {
+        setRegrasScore(REGRAS_SCORE_PADRAO)
       }
 
       if (usuariosRes.data) {
@@ -230,14 +274,44 @@ export default function ConfiguracoesFactoringPage() {
 
   async function convidarUsuario() {
     if (!empresaAtual) return
+
+    const nomeTrimmed = novoNome.trim()
+    const emailTrimmed = novoEmail.trim()
+
+    if (!nomeTrimmed) {
+      toast.error('O nome completo é obrigatório.')
+      return
+    }
+    if (nomeTrimmed.length < 2) {
+      toast.error('O nome completo deve conter pelo menos 2 caracteres.')
+      return
+    }
+    if (!emailTrimmed) {
+      toast.error('O e-mail é obrigatório.')
+      return
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(emailTrimmed)) {
+      toast.error('O e-mail informado é inválido.')
+      return
+    }
+    if (!novaSenha) {
+      toast.error('A senha temporária é obrigatória.')
+      return
+    }
+    if (novaSenha.length < 6) {
+      toast.error('A senha deve conter no mínimo 6 caracteres.')
+      return
+    }
+
     setCriandoUsuario(true)
     try {
       const res = await fetch('/api/auth/criar-usuario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          nome: novoNome.trim(),
-          email: novoEmail.trim(),
+          nome: nomeTrimmed,
+          email: emailTrimmed,
           senha: novaSenha,
           papel: novoPapel,
           empresa_id: empresaAtual.id,
@@ -342,6 +416,13 @@ export default function ConfiguracoesFactoringPage() {
               className="rounded-full px-5 py-2 font-bold text-xs tracking-tight transition-all duration-200 data-[state=active]:bg-[var(--gt-blue)] data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
               Usuários
+            </TabsTrigger>
+            <TabsTrigger 
+              value="score" 
+              className="rounded-full px-5 py-2 font-bold text-xs tracking-tight transition-all duration-200 data-[state=active]:bg-[var(--gt-blue)] data-[state=active]:text-white data-[state=active]:shadow-sm flex items-center gap-1.5"
+            >
+              <Award size={13} />
+              Motor de Score
             </TabsTrigger>
           </TabsList>
 
@@ -550,6 +631,146 @@ export default function ConfiguracoesFactoringPage() {
                   loading={loadingUsuarios}
                   emptyMessage="Nenhum usuário cadastrado nesta factoring."
                 />
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* ── Motor de Score ── */}
+          <TabsContent value="score">
+            <div className="bg-card rounded-2xl border border-border/50 shadow-m3-1 p-6 space-y-6 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-bold text-foreground tracking-tight">Parametrização do Score</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Ative, desative e ajuste os pesos de cada fator que compõe a análise de risco dos clientes.
+                  </p>
+                </div>
+                <Button 
+                  onClick={salvarScore} 
+                  disabled={salvandoScore} 
+                  className="h-10 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 rounded-full px-6 font-medium shadow-sm transition-all duration-200 shrink-0"
+                >
+                  {salvandoScore ? 'Salvando...' : 'Salvar Regras de Score'}
+                </Button>
+              </div>
+
+              <div className="border-t border-border/40 pt-5 space-y-8">
+                {/* Agrupa por Categoria */}
+                {['historico_pagamento', 'historico_contrato', 'relacionamento', 'cadastro', 'inadimplencia', 'bureau', 'compliance', 'status'].map(cat => {
+                  const regrasDaCat = regrasScore.filter(r => r.categoria === cat)
+                  if (regrasDaCat.length === 0) return null
+
+                  let catLabel = ''
+                  switch(cat) {
+                    case 'historico_pagamento': catLabel = 'Histórico de Pagamento'; break;
+                    case 'historico_contrato': catLabel = 'Histórico de Contrato'; break;
+                    case 'relacionamento': catLabel = 'Relacionamento Comercial'; break;
+                    case 'cadastro': catLabel = 'Ficha Cadastral'; break;
+                    case 'inadimplencia': catLabel = 'Inadimplência Interna'; break;
+                    case 'bureau': catLabel = 'Bureau de Crédito (Assertiva)'; break;
+                    case 'compliance': catLabel = 'Compliance e Restrições'; break;
+                    case 'status': catLabel = 'Status Administrativo'; break;
+                    default: catLabel = cat;
+                  }
+
+                  return (
+                    <div key={cat} className="space-y-3">
+                      <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-lg w-fit">
+                        {catLabel}
+                      </h3>
+                      
+                      <div className="space-y-2.5">
+                        {regrasDaCat.map(r => (
+                          <div 
+                            key={r.id} 
+                            className={cn(
+                              "flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border transition-all gap-4",
+                              r.ativo 
+                                ? "bg-card border-border/80" 
+                                : "bg-muted/15 border-border/30 opacity-60"
+                            )}
+                          >
+                            <div className="flex-1 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-sm text-foreground">{r.label}</span>
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase",
+                                  r.tipo === 'positivo' 
+                                    ? "bg-[var(--gt-green-light)] text-[var(--gt-green)]" 
+                                    : "bg-red-500/10 text-red-500"
+                                )}>
+                                  {r.tipo === 'positivo' ? 'Bônus (+)' : 'Penalidade (-)'}
+                                </span>
+                                {r.categoria.startsWith('bureau') || r.categoria.startsWith('compliance') ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-indigo-500/10 text-indigo-500">
+                                    Assertiva API
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase bg-emerald-500/10 text-emerald-600">
+                                    Interno
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground leading-normal">{r.descricao}</p>
+                            </div>
+
+                            <div className="flex items-center gap-3 justify-between sm:justify-end shrink-0">
+                              {/* Peso */}
+                              <div className="flex items-center gap-1.5">
+                                <Label htmlFor={`peso-${r.id}`} className="text-[10px] font-bold text-muted-foreground uppercase">Peso:</Label>
+                                <Input
+                                  id={`peso-${r.id}`}
+                                  type="number"
+                                  value={r.peso}
+                                  onChange={e => changePesoScore(r.id, parseInt(e.target.value) || 0)}
+                                  disabled={!r.ativo}
+                                  className="w-16 h-8 text-xs font-bold text-center rounded-lg bg-card focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                                />
+                              </div>
+
+                              {/* Limite Máximo */}
+                              <div className="flex items-center gap-1.5">
+                                <Label htmlFor={`max-${r.id}`} className="text-[10px] font-bold text-muted-foreground uppercase">Máx:</Label>
+                                <Input
+                                  id={`max-${r.id}`}
+                                  type="number"
+                                  value={r.limite_maximo_pontos}
+                                  onChange={e => changeMaxScore(r.id, Math.abs(parseInt(e.target.value)) || 0)}
+                                  disabled={!r.ativo}
+                                  className="w-16 h-8 text-xs font-bold text-center rounded-lg bg-card focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
+                                />
+                              </div>
+
+                              {/* Toggle Ativo */}
+                              <button
+                                type="button"
+                                onClick={() => toggleRegraScore(r.id)}
+                                className={cn(
+                                  "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all duration-200 border w-20",
+                                  r.ativo 
+                                    ? "bg-[var(--gt-green-light)] text-[var(--gt-green)] border-[var(--gt-green-light)] hover:bg-[var(--gt-green-light)]/85" 
+                                    : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                                )}
+                              >
+                                {r.ativo ? 'Ativo' : 'Inativo'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="flex justify-end border-t border-border/40 pt-5">
+                <Button 
+                  onClick={salvarScore} 
+                  disabled={salvandoScore} 
+                  className="h-10 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 rounded-full px-6 font-medium shadow-sm transition-all duration-200"
+                >
+                  {salvandoScore ? 'Salvando...' : 'Salvar Regras de Score'}
+                </Button>
               </div>
             </div>
           </TabsContent>

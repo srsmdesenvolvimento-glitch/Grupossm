@@ -234,16 +234,25 @@ export type FaixaRisco = {
 }
 
 export const REGRAS_SCORE_PADRAO: RegraScore[] = [
-  { id: 'pagamentos_em_dia', label: 'Pagamentos em dia', descricao: 'Bom histórico de pontualidade', tipo: 'positivo', peso: 25, ativo: true, categoria: 'historico_pagamento', limite_maximo_pontos: 25, ordem: 1 },
-  { id: 'pagamentos_antecipados', label: 'Pagamentos antecipados', descricao: 'Quitações antes do vencimento', tipo: 'positivo', peso: 10, ativo: true, categoria: 'historico_pagamento', limite_maximo_pontos: 10, ordem: 2 },
-  { id: 'emprestimos_quitados', label: 'Empréstimos quitados', descricao: 'Contratos encerrados com sucesso', tipo: 'positivo', peso: 15, ativo: true, categoria: 'historico_contrato', limite_maximo_pontos: 15, ordem: 3 },
-  { id: 'volume_pago', label: 'Volume total pago', descricao: 'Relacionamento financeiro consolidado', tipo: 'positivo', peso: 5, ativo: true, categoria: 'relacionamento', limite_maximo_pontos: 5, ordem: 4 },
-  { id: 'cadastro_completo', label: 'Cadastro completo', descricao: 'Todos os dados preenchidos', tipo: 'positivo', peso: 5, ativo: true, categoria: 'cadastro', limite_maximo_pontos: 5, ordem: 5 },
-  { id: 'atraso_atual', label: 'Parcelas atrasadas atuais', descricao: 'Parcelas com atraso no momento', tipo: 'negativo', peso: -25, ativo: true, categoria: 'inadimplencia', limite_maximo_pontos: 25, ordem: 6 },
-  { id: 'atraso_60dias', label: 'Atraso acima de 60 dias', descricao: 'Histórico de atraso severo', tipo: 'negativo', peso: -10, ativo: true, categoria: 'inadimplencia', limite_maximo_pontos: 10, ordem: 7 },
-  { id: 'atraso_90dias', label: 'Atraso acima de 90 dias', descricao: 'Histórico de inadimplência grave', tipo: 'negativo', peso: -20, ativo: true, categoria: 'inadimplencia', limite_maximo_pontos: 20, ordem: 8 },
-  { id: 'cliente_bloqueado', label: 'Cliente bloqueado', descricao: 'Status bloqueado no sistema', tipo: 'negativo', peso: -40, ativo: true, categoria: 'status', limite_maximo_pontos: 40, ordem: 9 },
-  { id: 'cadastro_incompleto', label: 'Cadastro incompleto', descricao: 'Dados cadastrais ausentes', tipo: 'negativo', peso: -5, ativo: true, categoria: 'cadastro', limite_maximo_pontos: 5, ordem: 10 },
+  // ── Comportamento interno ────────────────────────────────────────────────
+  { id: 'pagamentos_em_dia',        label: 'Pagamentos em dia',              descricao: 'Bom histórico de pontualidade',           tipo: 'positivo', peso: 20, ativo: true, categoria: 'historico_pagamento', limite_maximo_pontos: 20, ordem: 1 },
+  { id: 'pagamentos_antecipados',   label: 'Pagamentos antecipados',         descricao: 'Quitações antes do vencimento',           tipo: 'positivo', peso: 8,  ativo: true, categoria: 'historico_pagamento', limite_maximo_pontos: 8,  ordem: 2 },
+  { id: 'emprestimos_quitados',     label: 'Empréstimos quitados',           descricao: 'Contratos encerrados com sucesso',        tipo: 'positivo', peso: 10, ativo: true, categoria: 'historico_contrato',  limite_maximo_pontos: 10, ordem: 3 },
+  { id: 'volume_pago',              label: 'Volume total pago',              descricao: 'Relacionamento financeiro consolidado',   tipo: 'positivo', peso: 5,  ativo: true, categoria: 'relacionamento',      limite_maximo_pontos: 5,  ordem: 4 },
+  { id: 'cadastro_completo',        label: 'Cadastro completo',              descricao: 'Todos os dados preenchidos',              tipo: 'positivo', peso: 5,  ativo: true, categoria: 'cadastro',            limite_maximo_pontos: 5,  ordem: 5 },
+  { id: 'atraso_atual',             label: 'Parcelas atrasadas atuais',      descricao: 'Parcelas com atraso no momento',         tipo: 'negativo', peso: -20, ativo: true, categoria: 'inadimplencia',    limite_maximo_pontos: 20, ordem: 6 },
+  { id: 'atraso_60dias',            label: 'Atraso acima de 60 dias',        descricao: 'Histórico de atraso severo',             tipo: 'negativo', peso: -8,  ativo: true, categoria: 'inadimplencia',    limite_maximo_pontos: 8,  ordem: 7 },
+  { id: 'atraso_90dias',            label: 'Atraso acima de 90 dias',        descricao: 'Histórico de inadimplência grave',       tipo: 'negativo', peso: -15, ativo: true, categoria: 'inadimplencia',    limite_maximo_pontos: 15, ordem: 8 },
+  { id: 'cliente_bloqueado',        label: 'Cliente bloqueado',              descricao: 'Status bloqueado no sistema',            tipo: 'negativo', peso: -30, ativo: true, categoria: 'status',           limite_maximo_pontos: 30, ordem: 9 },
+  { id: 'cadastro_incompleto',      label: 'Cadastro incompleto',            descricao: 'Dados cadastrais ausentes',              tipo: 'negativo', peso: -5,  ativo: true, categoria: 'cadastro',         limite_maximo_pontos: 5,  ordem: 10 },
+  // ── Restrições Assertiva ─────────────────────────────────────────────────
+  { id: 'sem_restricoes_assertiva', label: 'Sem restrições no bureau',       descricao: 'Nenhuma negativação, protesto ou CCF',   tipo: 'positivo', peso: 10, ativo: true, categoria: 'bureau',            limite_maximo_pontos: 10, ordem: 11 },
+  { id: 'negativacoes_assertiva',   label: 'Negativações no bureau',         descricao: 'Registros de negativação SPC/Serasa',    tipo: 'negativo', peso: -15, ativo: true, categoria: 'bureau',           limite_maximo_pontos: 15, ordem: 12 },
+  { id: 'protestos_assertiva',      label: 'Protestos cartoriais',           descricao: 'Protestos em cartório registrados',      tipo: 'negativo', peso: -10, ativo: true, categoria: 'bureau',           limite_maximo_pontos: 10, ordem: 13 },
+  { id: 'ccf_assertiva',            label: 'CCF — Cheques sem fundo',        descricao: 'Histórico de cheques devolvidos',        tipo: 'negativo', peso: -10, ativo: true, categoria: 'bureau',           limite_maximo_pontos: 10, ordem: 14 },
+  { id: 'acoes_judiciais_assertiva',label: 'Ações judiciais',                descricao: 'Processos judiciais em andamento',       tipo: 'negativo', peso: -12, ativo: true, categoria: 'bureau',           limite_maximo_pontos: 12, ordem: 15 },
+  { id: 'pep_assertiva',            label: 'Pessoa Politicamente Exposta',   descricao: 'Cliente classificado como PEP',          tipo: 'negativo', peso: -8,  ativo: true, categoria: 'compliance',       limite_maximo_pontos: 8,  ordem: 16 },
+  { id: 'obito_assertiva',          label: 'Indicador de óbito',             descricao: 'Registro de óbito no bureau',            tipo: 'negativo', peso: -50, ativo: true, categoria: 'compliance',       limite_maximo_pontos: 50, ordem: 17 },
 ]
 
 export const FAIXAS_RISCO_PADRAO: FaixaRisco[] = [
@@ -263,6 +272,17 @@ export type DadosScore = {
   cliente_bloqueado?: boolean
   cadastro_completo?: boolean
   volume_total_pago?: number
+  // Assertiva: 0-1000, normalizado para base 0-100
+  assertiva_score?: number | null
+  // Dados de restrição da Assertiva para gerar fatores
+  assertiva_negativacoes?: number
+  assertiva_protestos?: number
+  assertiva_ccf?: number
+  assertiva_acoes_judiciais?: number
+  assertiva_pep?: boolean
+  assertiva_obito?: boolean
+  assertiva_renda_estimada?: number | null
+  assertiva_capacidade_pagamento?: number | null
 }
 
 export type FatorScore = {
@@ -295,8 +315,27 @@ export function calcularScore(
   const regras = (regrasCustom ?? REGRAS_SCORE_PADRAO).filter(r => r.ativo)
   const faixas = faixasCustom ?? FAIXAS_RISCO_PADRAO
 
-  let pontos = 50 // base
+  // Base: Assertiva score normalizado (0-1000 → 0-100) ou 50 se não disponível
+  const assertivaBase = dados.assertiva_score != null
+    ? Math.round(dados.assertiva_score / 10)
+    : 50
+
+  let pontos = assertivaBase
   const fatores: FatorScore[] = []
+
+  // Mostra o fator base da Assertiva se disponível
+  if (dados.assertiva_score != null) {
+    fatores.push({
+      id: 'assertiva_base',
+      tipo: assertivaBase >= 50 ? 'positivo' : 'negativo',
+      label: 'Score Assertiva (base)',
+      descricao: `Score externo ${dados.assertiva_score}/1000 → base ${assertivaBase}/100`,
+      pontos: assertivaBase - 50, // delta em relação a 50
+      peso: 0,
+      ativo: true,
+      categoria: 'externo',
+    })
+  }
 
   for (const regra of regras.sort((a, b) => a.ordem - b.ordem)) {
     let contribuicao = 0
@@ -336,6 +375,36 @@ export function calcularScore(
         break
       case 'cadastro_incompleto':
         contribuicao = dados.cadastro_completo ? 0 : regra.peso
+        break
+      // ── Fatores Assertiva ──────────────────────────────────────────────
+      case 'sem_restricoes_assertiva': {
+        const temRestricao = (dados.assertiva_negativacoes ?? 0) > 0
+          || (dados.assertiva_protestos ?? 0) > 0
+          || (dados.assertiva_ccf ?? 0) > 0
+          || (dados.assertiva_acoes_judiciais ?? 0) > 0
+        contribuicao = !temRestricao && dados.assertiva_score != null ? regra.peso : 0
+        break
+      }
+      case 'negativacoes_assertiva':
+        if ((dados.assertiva_negativacoes ?? 0) > 0) {
+          const qtd = dados.assertiva_negativacoes!
+          contribuicao = qtd >= 5 ? regra.peso : Math.round(regra.peso * (qtd / 5))
+        }
+        break
+      case 'protestos_assertiva':
+        contribuicao = (dados.assertiva_protestos ?? 0) > 0 ? regra.peso : 0
+        break
+      case 'ccf_assertiva':
+        contribuicao = (dados.assertiva_ccf ?? 0) > 0 ? regra.peso : 0
+        break
+      case 'acoes_judiciais_assertiva':
+        contribuicao = (dados.assertiva_acoes_judiciais ?? 0) > 0 ? regra.peso : 0
+        break
+      case 'pep_assertiva':
+        contribuicao = dados.assertiva_pep ? regra.peso : 0
+        break
+      case 'obito_assertiva':
+        contribuicao = dados.assertiva_obito ? regra.peso : 0
         break
       default:
         contribuicao = 0

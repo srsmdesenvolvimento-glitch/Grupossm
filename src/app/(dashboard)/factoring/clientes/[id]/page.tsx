@@ -27,6 +27,8 @@ import {
   REGRAS_SCORE_PADRAO,
   FAIXAS_RISCO_PADRAO,
   type DadosScore,
+  type RegraScore,
+  type FaixaRisco,
 } from '@/lib/utils/calculos'
 import { StatCard } from '@/components/shared/StatCard'
 import { DataTable, type Column } from '@/components/shared/DataTable'
@@ -53,6 +55,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
+import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
+import { buscarRelatorioAssertiva, scoreLabel, scoreColor } from '@/lib/assertiva/client'
+import type { RelatorioCompleto } from '@/lib/assertiva/types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -91,6 +96,11 @@ interface ClienteFactoring {
   ultima_operacao: string | null
   observacoes: string | null
   status: string
+  dados_assertiva: RelatorioCompleto | null
+  score_assertiva: number | null
+  faixa_risco_assertiva: string | null
+  renda_estimada_assertiva: number | null
+  assertiva_consultado_em: string | null
 }
 
 interface Emprestimo {
@@ -216,6 +226,123 @@ function FormField({
   )
 }
 
+// ─── Assertiva Tab Component ─────────────────────────────────────────────────
+
+function AssertivaTab({
+  cliente,
+  onAtualizar,
+}: {
+  cliente: ClienteFactoring
+  onAtualizar: (rel: RelatorioCompleto) => void
+}) {
+  const supabase = createClient()
+  const [relatorio, setRelatorio] = useState<RelatorioCompleto | null>(
+    cliente.dados_assertiva ?? null
+  )
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function consultar() {
+    const doc = (cliente.cpf ?? '').replace(/\D/g, '')
+    if (!doc || (doc.length !== 11 && doc.length !== 14)) {
+      setErro('Cliente não possui CPF/CNPJ cadastrado.')
+      return
+    }
+    const tipo = doc.length === 11 ? 'pf' : 'pj'
+    setLoading(true)
+    setErro(null)
+
+    const { data, erro: err } = await buscarRelatorioAssertiva(doc, tipo)
+    setLoading(false)
+
+    if (err) { setErro(err); return }
+    if (!data) return
+
+    setRelatorio(data)
+    onAtualizar(data)
+
+    await supabase.from('clientes_factoring').update({
+      dados_assertiva: data,
+      score_assertiva: data.score ?? null,
+      faixa_risco_assertiva: data.faixa_risco ?? null,
+      renda_estimada_assertiva: data.renda_estimada ?? null,
+      assertiva_consultado_em: new Date().toISOString(),
+    }).eq('id', cliente.id)
+  }
+
+  const consultadoEm = cliente.assertiva_consultado_em
+    ? new Date(cliente.assertiva_consultado_em)
+    : null
+  const horasDesdeConsulta = consultadoEm
+    ? (Date.now() - consultadoEm.getTime()) / (1000 * 60 * 60)
+    : null
+  const bloqueadoPorTempo = horasDesdeConsulta !== null && horasDesdeConsulta < 6
+  const horasRestantes = bloqueadoPorTempo ? Math.ceil(6 - horasDesdeConsulta!) : 0
+
+  return (
+    <div className="space-y-4">
+      {/* Header com botão de consulta */}
+      <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex-1">
+          <h3 className="font-bold text-foreground text-base">Análise de Crédito — Assertiva</h3>
+          {consultadoEm ? (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Última consulta: <span className="font-medium">{consultadoEm.toLocaleString('pt-BR')}</span>
+              {relatorio?.score != null && (
+                <> · Score: <span className="font-bold" style={{ color: scoreColor(relatorio.score) }}>{relatorio.score}</span> ({scoreLabel(relatorio.score)})</>
+              )}
+              {bloqueadoPorTempo && (
+                <span className="ml-1 text-amber-600 font-semibold"> · atualização disponível em {horasRestantes}h</span>
+              )}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-0.5">Nenhuma consulta realizada ainda.</p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <Button onClick={consultar} disabled={loading || bloqueadoPorTempo} size="sm">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+            {relatorio ? 'Atualizar Consulta' : 'Consultar Assertiva'}
+          </Button>
+          {bloqueadoPorTempo && !loading && (
+            <p className="text-[10px] text-amber-600 font-medium">aguarde {horasRestantes}h para nova consulta</p>
+          )}
+        </div>
+      </div>
+
+      {/* Erro */}
+      {erro && !loading && (
+        <div className="flex items-start gap-3 bg-red-500/5 border border-red-500/20 rounded-2xl p-4">
+          <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-500">{erro}</p>
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 bg-card rounded-2xl border border-border">
+          <Loader2 size={32} className="animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Consultando Assertiva...</p>
+        </div>
+      )}
+
+      {/* Relatório */}
+      {!loading && relatorio && <RelatorioView relatorio={relatorio} />}
+
+      {/* Empty */}
+      {!loading && !relatorio && !erro && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 bg-card rounded-2xl border border-border text-center">
+          <TrendingUp size={36} className="text-muted-foreground/30" />
+          <div>
+            <p className="font-semibold text-foreground">Sem dados de crédito</p>
+            <p className="text-sm text-muted-foreground mt-1">Clique em "Consultar Assertiva" para obter o relatório completo.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ClientePerfilPage() {
@@ -230,6 +357,8 @@ export default function ClientePerfilPage() {
   const [pagamentos, setPagamentos] = useState<Movimentacao[]>([])
   const [referencias, setReferencias] = useState<ReferenciaCliente[]>([])
   const [anotacoes, setAnotacoes] = useState<Anotacao[]>([])
+  const [regrasScore, setRegrasScore] = useState<RegraScore[] | null>(null)
+  const [faixasRisco, setFaixasRisco] = useState<FaixaRisco[] | null>(null)
 
   // UI state
   const [loading, setLoading] = useState(true)
@@ -286,6 +415,7 @@ export default function ClientePerfilPage() {
         { data: parcelasData },
         { data: referenciasData },
         { data: anotacoesData },
+        { data: configData },
       ] = await Promise.all([
         supabase
           .from('clientes_factoring')
@@ -316,6 +446,11 @@ export default function ClientePerfilPage() {
           .eq('referencia_id', id)
           .eq('empresa_id', empresaAtual.id)
           .order('created_at', { ascending: false }),
+        supabase
+          .from('config_factoring')
+          .select('regras_score, faixas_risco')
+          .eq('empresa_id', empresaAtual.id)
+          .maybeSingle(),
       ])
 
       if (clienteErr || !clienteData) {
@@ -329,6 +464,11 @@ export default function ClientePerfilPage() {
       setParcelas((parcelasData ?? []) as Parcela[])
       setReferencias((referenciasData ?? []) as ReferenciaCliente[])
       setAnotacoes((anotacoesData ?? []) as Anotacao[])
+      
+      if (configData) {
+        if (configData.regras_score) setRegrasScore(configData.regras_score)
+        if (configData.faixas_risco) setFaixasRisco(configData.faixas_risco)
+      }
       setDocumentos((clienteData?.documentos ?? []) as DocumentoMeta[])
 
       // Load payments using emprestimo IDs (stored with referencia_tipo: 'emprestimo')
@@ -382,12 +522,20 @@ export default function ClientePerfilPage() {
     cliente_bloqueado:        cliente?.status === 'bloqueado',
     cadastro_completo:        !!(cliente?.cpf && cliente?.telefone && cliente?.endereco && cliente?.renda_mensal),
     volume_total_pago:        totalPago,
+    assertiva_score:               cliente?.score_assertiva ?? null,
+    assertiva_negativacoes:        (cliente?.dados_assertiva as any)?.total_negativacoes ?? 0,
+    assertiva_protestos:           (cliente?.dados_assertiva as any)?.total_protestos ?? 0,
+    assertiva_ccf:                 (cliente?.dados_assertiva as any)?.total_ccf ?? 0,
+    assertiva_acoes_judiciais:     (cliente?.dados_assertiva as any)?.total_acoes_judiciais ?? 0,
+    assertiva_pep:                 (cliente?.dados_assertiva as any)?.pep ?? false,
+    assertiva_obito:               (cliente?.dados_assertiva as any)?.indicador_obito ?? false,
+    assertiva_renda_estimada:      cliente?.renda_estimada_assertiva ?? null,
   }
 
   const resultadoScore = calcularScore(
     dadosScore,
-    REGRAS_SCORE_PADRAO,
-    FAIXAS_RISCO_PADRAO,
+    regrasScore ?? undefined,
+    faixasRisco ?? undefined,
     cliente?.limite_credito ?? undefined,
   )
 
@@ -823,6 +971,9 @@ export default function ClientePerfilPage() {
             </TabsTrigger>
             <TabsTrigger value="score" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
               Risco & Score
+            </TabsTrigger>
+            <TabsTrigger value="credito" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+              Crédito Assertiva
             </TabsTrigger>
           </TabsList>
 
@@ -1804,7 +1955,59 @@ export default function ClientePerfilPage() {
                 })}
               </div>
 
-              <p className="text-xs text-muted-foreground/60 text-center font-medium">
+              {/* Contratos e Outros Documentos Avulsos */}
+              {documentos.filter(d => !CATEGORIAS_DOCUMENTO.some(c => c.id === d.categoria) || d.categoria === 'outro').length > 0 && (
+                <div className="mt-8 border-t border-border/40 pt-6 space-y-4">
+                  <h4 className="font-extrabold text-foreground text-xs uppercase tracking-wider text-muted-foreground">
+                    Contratos e Documentos Adicionais
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {documentos.filter(d => !CATEGORIAS_DOCUMENTO.some(c => c.id === d.categoria) || d.categoria === 'outro').map(doc => (
+                      <div key={doc.id} className="flex items-center justify-between p-3 rounded-xl border border-border/80 bg-card hover:bg-muted/5 transition-all">
+                        <div className="flex items-center gap-3 overflow-hidden mr-4">
+                          <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0 border border-indigo-500/10">
+                            <FileText className="text-indigo-600" size={18} />
+                          </div>
+                          <div className="overflow-hidden">
+                            <p className="text-xs font-bold text-foreground truncate">{doc.label || doc.nome_original}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 font-semibold">
+                              {formatarTamanho(doc.tamanho)} • {new Date(doc.criado_em).toLocaleDateString('pt-BR')}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-500/10 hover:bg-indigo-500/15 rounded-md px-2.5 py-1.5 transition-colors border border-indigo-500/10"
+                          >
+                            <Eye size={10} /> Ver
+                          </a>
+                          <a
+                            href={doc.url}
+                            download={doc.nome_original}
+                            className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1.5 transition-colors border border-border/60"
+                          >
+                            <Download size={10} /> Baixar
+                          </a>
+                          {doc.categoria !== 'contrato_assinado' && (
+                            <button
+                              type="button"
+                              onClick={() => deletarDocumento(doc)}
+                              className="text-[#EA4335]/70 hover:text-[#EA4335] bg-[#EA4335]/5 hover:bg-[#EA4335]/15 p-1.5 rounded-md transition-colors border border-[#EA4335]/10"
+                            >
+                              <X size={10} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground/60 text-center font-medium mt-4">
                 Selecione ou arraste qualquer documento para realizar upload de comprovação.
               </p>
             </div>
@@ -1813,6 +2016,44 @@ export default function ClientePerfilPage() {
           {/* TAB 7 — Score e Risco */}
           <TabsContent value="score" className="outline-none">
             <div className="space-y-6">
+
+              {/* Comparativo Assertiva vs Interno */}
+              {cliente.score_assertiva != null && (
+                <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-5">
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-4">Composição do Score</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Score Assertiva */}
+                    <div className="flex flex-col items-center gap-1 bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
+                      <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Score Assertiva</p>
+                      <p className="text-3xl font-black text-blue-600">{cliente.score_assertiva}</p>
+                      <p className="text-[10px] text-muted-foreground">escala 0–1000</p>
+                      <p className="text-xs font-semibold text-blue-600">{cliente.faixa_risco_assertiva ?? '—'}</p>
+                    </div>
+                    {/* Base normalizada */}
+                    <div className="flex flex-col items-center gap-1 bg-muted/30 border border-border rounded-xl p-4">
+                      <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Base Normalizada</p>
+                      <p className="text-3xl font-black text-foreground">{Math.round(cliente.score_assertiva / 10)}</p>
+                      <p className="text-[10px] text-muted-foreground">escala 0–100</p>
+                      <p className="text-xs text-muted-foreground font-medium">score ÷ 10</p>
+                    </div>
+                    {/* Score Interno atual */}
+                    <div className="flex flex-col items-center gap-1 border rounded-xl p-4"
+                      style={{
+                        backgroundColor: resultadoScore.score >= 70 ? '#E6F4EA' : resultadoScore.score >= 50 ? '#FEF7E0' : '#FCE8E6',
+                        borderColor: resultadoScore.score >= 70 ? '#34A85340' : resultadoScore.score >= 50 ? '#FBBC0440' : '#EA433540',
+                      }}>
+                      <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Score Interno</p>
+                      <p className="text-3xl font-black" style={{ color: resultadoScore.faixa.cor }}>{resultadoScore.score}</p>
+                      <p className="text-[10px] text-muted-foreground">atualizado pelo comportamento</p>
+                      <p className="text-xs font-semibold" style={{ color: resultadoScore.faixa.cor }}>{resultadoScore.faixa.nome}</p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-3 text-center">
+                    Score interno = base Assertiva + ajustes de comportamento (pagamentos, atrasos, histórico)
+                  </p>
+                </div>
+              )}
+
               {/* Score principal */}
               <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
                 <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
@@ -1852,11 +2093,28 @@ export default function ClientePerfilPage() {
                     {/* Limit & rate */}
                     <div className="grid grid-cols-2 gap-4">
                       {resultadoScore.limiteSugerido != null && (
-                        <div className="bg-muted/20 rounded-xl p-4 border border-border/60 shadow-sm">
-                          <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Crédito Proposto</p>
+                        <div className="bg-muted/20 rounded-xl p-4 border border-border/60 shadow-sm space-y-2">
+                          <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider">Crédito Proposto</p>
                           <p className="font-black text-[#1A73E8] text-lg">
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resultadoScore.limiteSugerido)}
                           </p>
+                          <button
+                            onClick={async () => {
+                              const supabase = createClient()
+                              const { error } = await supabase.from('clientes_factoring')
+                                .update({ limite_credito: resultadoScore.limiteSugerido })
+                                .eq('id', id).eq('empresa_id', empresaAtual!.id)
+                              if (!error) {
+                                setCliente(c => c ? { ...c, limite_credito: resultadoScore.limiteSugerido! } : c)
+                                toast.success('Limite de crédito atualizado!')
+                              } else {
+                                toast.error('Erro ao atualizar limite')
+                              }
+                            }}
+                            className="text-[10px] font-bold text-[#1A73E8] underline hover:no-underline"
+                          >
+                            Aplicar este limite
+                          </button>
                         </div>
                       )}
                       {resultadoScore.taxaSugerida != null && (
@@ -1912,6 +2170,11 @@ export default function ClientePerfilPage() {
                 </div>
               </div>
             </div>
+          </TabsContent>
+
+          {/* TAB — Crédito Assertiva */}
+          <TabsContent value="credito" className="outline-none">
+            <AssertivaTab cliente={cliente} onAtualizar={(rel) => setCliente(c => c ? { ...c, dados_assertiva: rel, score_assertiva: rel.score ?? null, faixa_risco_assertiva: rel.faixa_risco ?? null, renda_estimada_assertiva: rel.renda_estimada ?? null, assertiva_consultado_em: new Date().toISOString() } : c)} />
           </TabsContent>
         </Tabs>
       </div>
