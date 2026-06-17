@@ -174,7 +174,10 @@ export function Header({ empresa, titulo, onMenuClick }: HeaderProps) {
               <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{user?.email}</p>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2.5 rounded-lg mx-1">
+            <DropdownMenuItem 
+              onClick={() => router.push('/perfil')}
+              className="gap-2.5 rounded-lg mx-1 cursor-pointer"
+            >
               <User size={15} />
               Meu Perfil
             </DropdownMenuItem>

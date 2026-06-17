@@ -1227,6 +1227,162 @@ export async function gerarContratoComAssinaturaPDF(
   doc.setTextColor(180, 180, 180)
   doc.text('CERTIFICADO DE ASSINATURA DIGITAL E INTEGRIDADE OPERACIONAL SRS M FACTORING', W / 2, 282, { align: 'center' })
 
+  // ── PÁGINA 3: AVALIAÇÃO DE CRÉDITO E ANÁLISE DE RISCO (BACK-OFFICE) ──
+  // Somente se houver dados da Assertiva para resguardo
+  const cli = params.cliente as any
+  if (cli && (cli.assertiva_consultado_em || cli.score_assertiva != null)) {
+    doc.addPage()
+    // Page Border Box
+    doc.setDrawColor(0, 0, 0)
+    doc.setLineWidth(0.25)
+    doc.rect(10, 10, 190, 277)
+    
+    // Header
+    doc.setFillColor(240, 240, 240)
+    doc.rect(10, 10, 190, 15, 'F')
+    doc.rect(10, 10, 190, 15)
+    
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(0, 0, 0)
+    doc.text('ANEXO: FICHA DE ANÁLISE DE CRÉDITO E RISCO OPERACIONAL', 15, 19)
+    
+    // Description text
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(80, 80, 80)
+    doc.text('Dados de consulta cadastral e restrições financeiras vinculadas ao CPF/CNPJ do tomador.', 12, 30)
+    
+    // Score & Risk Table
+    doc.rect(10, 34, 190, 25)
+    doc.line(70, 34, 70, 59)
+    doc.line(130, 34, 130, 59)
+    doc.line(10, 46.5, 200, 46.5)
+    
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.text('Score Assertiva', 12, 38)
+    doc.text('Score Interno', 72, 38)
+    doc.text('Faixa de Risco', 132, 38)
+    doc.text('Pessoa Politicamente Exposta (PEP)', 12, 50.5)
+    doc.text('Provável Óbito', 72, 50.5)
+    doc.text('Data de Consulta', 132, 50.5)
+    
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text(String(cli.score_assertiva ?? 'N/A'), 12, 43)
+    doc.text(String(cli.score_interno ?? '50'), 72, 43)
+    doc.text(String(cli.faixa_risco_assertiva || 'Risco Não Avaliado'), 132, 43)
+    doc.text(cli.pep_assertiva ? 'SIM' : 'NÃO', 12, 55.5)
+    doc.text(cli.indicador_obito_assertiva ? 'SIM (CRÍTICO)' : 'NÃO', 72, 55.5)
+    doc.text(cli.assertiva_consultado_em ? fmtData(cli.assertiva_consultado_em.split('T')[0]) : 'Não consultado', 132, 55.5)
+    
+    // Debts & Protestos Section
+    drawSectionHeaderBox(doc, 'RESTRIÇÕES FINANCEIRAS COLETADAS (ASSERTIVA)', 10, 66, 190)
+    
+    doc.rect(10, 66, 190, 45)
+    doc.line(10, 81, 200, 81)
+    doc.line(10, 96, 200, 96)
+    doc.line(75, 66, 75, 111)
+    doc.line(135, 66, 135, 111)
+    
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.setTextColor(80, 80, 80)
+    doc.text('Quantidade de Negativações', 12, 70.5)
+    doc.text('Valor Total Negativado', 77, 70.5)
+    doc.text('Quantidade de Protestos', 137, 70.5)
+    
+    doc.text('Valor Total Protestado', 12, 85.5)
+    doc.text('Ações Judiciais', 77, 85.5)
+    doc.text('Valor Total em Ações', 137, 85.5)
+    
+    doc.text('Cheques Sem Fundo (CCF)', 12, 100.5)
+    doc.text('Total Consolidado de Restrições', 77, 100.5)
+    doc.text('Valor Consolidado das Restrições', 137, 100.5)
+    
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.setTextColor(0, 0, 0)
+    doc.text(String(cli.total_negativacoes_assertiva ?? 0), 12, 76.5)
+    doc.text(fmt(cli.valor_total_negativacoes_assertiva ?? 0), 77, 76.5)
+    doc.text(String(cli.total_protestos_assertiva ?? 0), 137, 76.5)
+    
+    doc.text(fmt(cli.valor_total_protestos_assertiva ?? 0), 12, 91.5)
+    doc.text(String(cli.total_acoes_judiciais_assertiva ?? 0), 77, 91.5)
+    doc.text(fmt(cli.valor_total_acoes_assertiva ?? 0), 137, 91.5)
+    
+    doc.text(String(cli.total_ccf_assertiva ?? 0), 12, 106.5)
+    doc.text(String(cli.total_dividas_assertiva ?? 0), 77, 106.5)
+    doc.text(fmt(cli.valor_total_dividas_assertiva ?? 0), 137, 106.5)
+
+    // Detailed lists of negative items if they exist
+    let currentY = 118
+    const r = cli.dados_assertiva as any
+    if (r && (r.negativacoes?.length || r.protestos?.length || r.acoes_judiciais?.length)) {
+      drawSectionHeaderBox(doc, 'DETALHAMENTO DE DÉBITOS E ANOTAÇÕES', 10, currentY, 190)
+      currentY += 8
+      
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7)
+      
+      let linesPrinted = 0
+      const limitLines = 10
+      
+      if (r.negativacoes?.length) {
+        doc.setFont('helvetica', 'bold')
+        doc.text('NEGATIVACÕES / DÉBITOS ATIVOS:', 12, currentY)
+        doc.setFont('helvetica', 'normal')
+        currentY += 4
+        for (const n of r.negativacoes) {
+          if (linesPrinted >= limitLines) break
+          doc.text(`* Credor: ${n.credor} - Valor: ${fmt(n.valor)} - Data: ${n.data ? fmtData(n.data) : 'N/A'}`, 14, currentY)
+          currentY += 3.5
+          linesPrinted++
+        }
+      }
+      
+      if (r.protestos?.length && linesPrinted < limitLines) {
+        doc.setFont('helvetica', 'bold')
+        if (linesPrinted > 0) currentY += 2
+        doc.text('PROTESTOS REGISTRADOS:', 12, currentY)
+        doc.setFont('helvetica', 'normal')
+        currentY += 4
+        for (const p of r.protestos) {
+          if (linesPrinted >= limitLines) break
+          doc.text(`* Cartório: ${p.cartorio} - Valor: ${fmt(p.valor)} - Data: ${p.data ? fmtData(p.data) : 'N/A'}`, 14, currentY)
+          currentY += 3.5
+          linesPrinted++
+        }
+      }
+      
+      if (r.acoes_judiciais?.length && linesPrinted < limitLines) {
+        doc.setFont('helvetica', 'bold')
+        if (linesPrinted > 0) currentY += 2
+        doc.text('AÇÕES JUDICIAIS ATIVAS:', 12, currentY)
+        doc.setFont('helvetica', 'normal')
+        currentY += 4
+        for (const a of r.acoes_judiciais) {
+          if (linesPrinted >= limitLines) break
+          doc.text(`* Vara/Fórum: ${a.vara || 'N/A'} / ${a.tribunal || 'N/A'} - Valor: ${fmt(a.valor)} - Tipo: ${a.tipo || 'N/A'}`, 14, currentY)
+          currentY += 3.5
+          linesPrinted++
+        }
+      }
+      
+      if (linesPrinted >= limitLines) {
+        doc.setFont('helvetica', 'italic')
+        doc.text('[...] Histórico resumido devido ao limite de linhas do anexo.', 12, currentY)
+      }
+    }
+    
+    // Footer watermark
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(180, 180, 180)
+    doc.text('ANEXO DE RESGUARDO OPERACIONAL — CONFIDENCIAL E EXCLUSIVO DO CREDOR SRS M FACTORING', W / 2, 282, { align: 'center' })
+  }
+
   if (options?.output === 'blob') {
     return doc.output('blob')
   }

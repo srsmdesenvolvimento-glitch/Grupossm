@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Search, User, Settings, Calculator, CheckCircle2, ChevronRight, ChevronLeft,
-  X, Percent, UserPlus, ArrowRight
+  X, Percent, UserPlus, ArrowRight, AlertTriangle
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
@@ -19,7 +19,21 @@ import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { toast } from 'sonner'
 import type { ClienteFactoring } from '@/lib/types/database'
 
-type ClienteSumario = Pick<ClienteFactoring, 'id' | 'nome' | 'cpf' | 'telefone' | 'limite_credito' | 'credito_disponivel' | 'score_interno'>
+type ClienteSumario = {
+  id: string
+  nome: string
+  cpf: string | null
+  telefone: string
+  limite_credito: number
+  credito_disponivel: number
+  score_interno: number
+  total_dividas_assertiva?: number | null
+  valor_total_dividas_assertiva?: number | null
+  score_assertiva?: number | null
+  faixa_risco_assertiva?: string | null
+  pep_assertiva?: boolean | null
+  indicador_obito_assertiva?: boolean | null
+}
 
 type TabelaLinha = {
   numero: number
@@ -120,7 +134,7 @@ export default function NovoEmprestimoPage() {
     try {
       const { data } = await supabase
         .from('clientes_factoring')
-        .select('id, nome, cpf, telefone, limite_credito, credito_disponivel, score_interno')
+        .select('id, nome, cpf, telefone, limite_credito, credito_disponivel, score_interno, total_dividas_assertiva, valor_total_dividas_assertiva, score_assertiva, faixa_risco_assertiva, pep_assertiva, indicador_obito_assertiva')
         .eq('empresa_id', empresaAtual.id)
         .eq('status', 'ativo')
         .or(`nome.ilike.%${q}%,cpf.ilike.%${q}%,telefone.ilike.%${q}%`)
@@ -181,7 +195,7 @@ export default function NovoEmprestimoPage() {
     if (!clienteId || !empresaAtual || cliente) return
     supabase
       .from('clientes_factoring')
-      .select('id, nome, cpf, telefone, limite_credito, credito_disponivel, score_interno')
+      .select('id, nome, cpf, telefone, limite_credito, credito_disponivel, score_interno, total_dividas_assertiva, valor_total_dividas_assertiva, score_assertiva, faixa_risco_assertiva, pep_assertiva, indicador_obito_assertiva')
       .eq('id', clienteId)
       .single()
       .then(({ data }) => {
@@ -390,25 +404,46 @@ export default function NovoEmprestimoPage() {
               
               const publicUrl = urlData.publicUrl
 
-              const template = `Olá, {{nome}}! O seu contrato {{numero_contrato}} foi emitido com sucesso no valor de {{valor_principal}} em {{prazo_meses}} parcelas de {{valor_parcela}}. Segue em anexo o documento oficial para sua conferência.\n\n${publicUrl}`
-              const msgTexto = template
-                .replace('{{nome}}', fullCliente.nome)
-                .replace('{{numero_contrato}}', numero_contrato)
-                .replace('{{valor_principal}}', formatarMoeda(valorNum))
-                .replace('{{prazo_meses}}', String(parcelasNum))
-                .replace('{{valor_parcela}}', formatarMoeda(resultado.parcela))
+              // ── Enviar Contrato Automático via WhatsApp (Template Personalizado) ──
+              const { data: configFact } = await supabase
+                .from('config_factoring')
+                .select('whatsapp_settings')
+                .eq('empresa_id', empresaAtual.id)
+                .maybeSingle()
 
-              const { error: notifError } = await supabase.from('notificacoes_log').insert({
-                empresa_id: empresaAtual.id,
-                canal: 'whatsapp',
-                destinatario: fullCliente.telefone,
-                assunto: `Contrato de Empréstimo ${numero_contrato}`,
-                mensagem: msgTexto,
-                referencia_tipo: 'emprestimo',
-                referencia_id: empId,
-                status: 'pendente',
-              })
-              if (notifError) console.error('Falha ao enfileirar notificação:', notifError.message)
+              const wSettings = configFact?.whatsapp_settings as any
+              const trigger = wSettings?.contrato_criado ?? {
+                ativo: true,
+                template: "Olá, {{nome}}! O seu contrato de empréstimo {{numero_contrato}} no valor de {{valor_principal}} foi criado e está pronto para assinatura. Por favor, acesse o link a seguir para assinar digitalmente: {{link_assinatura}}"
+              }
+
+              if (trigger.ativo) {
+                const linkAssinatura = `${window.location.origin}/assinar/${empId}`
+                const msgTexto = trigger.template
+                  .replace(/\{\{\s*nome\s*\}\}/g, fullCliente.nome)
+                  .replace(/\{\{\s*numero_contrato\s*\}\}/g, numero_contrato)
+                  .replace(/\{\{\s*valor_principal\s*\}\}/g, formatarMoeda(valorNum))
+                  .replace(/\{\{\s*link_assinatura\s*\}\}/g, linkAssinatura)
+
+                // Envia a mensagem imediatamente por chamada de API
+                try {
+                  const sendRes = await fetch('/api/whatsapp/enviar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      empresa_id: empresaAtual.id,
+                      destinatario: fullCliente.telefone,
+                      mensagem: msgTexto,
+                    })
+                  })
+                  if (!sendRes.ok) {
+                    const sendErr = await sendRes.json()
+                    console.error('Falha no envio imediato do link de assinatura:', sendErr.erro)
+                  }
+                } catch (sendErr) {
+                  console.error('Erro de rede ao enviar link de assinatura imediato:', sendErr)
+                }
+              }
             }
           }
         }
@@ -534,17 +569,89 @@ export default function NovoEmprestimoPage() {
 
             {/* Selected tomador card */}
             {cliente && (
-              <div className="rounded-2xl border border-border/60 bg-card p-4.5 flex items-center gap-3.5 shadow-sm relative overflow-hidden transition-all duration-300">
-                <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-[#1A73E8]" />
-                {renderAvatar(cliente.nome, 'md')}
-                <div className="min-w-0 flex-1">
-                  <p className="font-bold text-foreground truncate text-sm leading-none mb-1">{cliente.nome}</p>
-                  <p className="text-xs text-muted-foreground font-semibold">{cliente.cpf ? formatarCPF(cliente.cpf) : ''} · {formatarTelefone(cliente.telefone)}</p>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-border/60 bg-card p-4.5 flex items-center gap-3.5 shadow-sm relative overflow-hidden transition-all duration-300">
+                  <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-[#1A73E8]" />
+                  {renderAvatar(cliente.nome, 'md')}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-foreground truncate text-sm leading-none mb-1">{cliente.nome}</p>
+                    <p className="text-xs text-muted-foreground font-semibold">{cliente.cpf ? formatarCPF(cliente.cpf) : ''} · {formatarTelefone(cliente.telefone)}</p>
+                  </div>
+                  <div className="ml-auto text-right shrink-0 bg-muted/30 border border-border/30 rounded-xl px-3 py-1 shadow-inner">
+                    <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider">Score</p>
+                    <p className="text-lg font-black text-[#1A73E8] tracking-tight">{cliente.score_interno}</p>
+                  </div>
                 </div>
-                <div className="ml-auto text-right shrink-0 bg-muted/30 border border-border/30 rounded-xl px-3 py-1 shadow-inner">
-                  <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider">Score</p>
-                  <p className="text-lg font-black text-[#1A73E8] tracking-tight">{cliente.score_interno}</p>
-                </div>
+
+                {/* Assertiva Credit and Debt Warning Banner */}
+                {(() => {
+                  const temDividas = (cliente.total_dividas_assertiva ?? 0) > 0 || (cliente.valor_total_dividas_assertiva ?? 0) > 0
+                  const hasPep = !!cliente.pep_assertiva
+                  const hasObito = !!cliente.indicador_obito_assertiva
+                  
+                  if (temDividas || hasPep || hasObito) {
+                    return (
+                      <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-4 space-y-2.5 animate-fade-in text-red-750">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="text-red-600 shrink-0" size={16} />
+                          <span className="font-extrabold text-xs uppercase tracking-wider">Alertas de Crédito & Restrições</span>
+                        </div>
+                        <div className="text-[11px] font-semibold space-y-1 text-slate-700">
+                          {temDividas && (
+                            <p>
+                              * O tomador possui <span className="font-bold text-red-650">{cliente.total_dividas_assertiva}</span> restrições registradas (negativações, protestos, ações ou CCF), totalizando <span className="font-bold text-red-650">{formatarMoeda(cliente.valor_total_dividas_assertiva ?? 0)}</span> no relatório Assertiva.
+                            </p>
+                          )}
+                          {hasPep && (
+                            <p className="text-orange-655 font-bold">
+                              * ATENÇÃO: Tomador identificado como Pessoa Politicamente Exposta (PEP).
+                            </p>
+                          )}
+                          {hasObito && (
+                            <p className="text-red-655 font-extrabold bg-red-100 p-1 px-2 rounded-lg border border-red-200">
+                              * ALERTA CRÍTICO: Indica óbito provável na base de dados da Receita Federal.
+                            </p>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground font-medium pt-1 border-t border-border/30">
+                          Verifique a Ficha de Crédito completa no perfil do cliente para maiores detalhes antes de prosseguir.
+                        </p>
+                      </div>
+                    )
+                  }
+                  
+                  // If no active debts and has consult data
+                  if (cliente.score_assertiva != null) {
+                    return (
+                      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 flex gap-3 text-xs leading-relaxed text-emerald-750 animate-fade-in">
+                        <CheckCircle2 className="text-emerald-600 shrink-0 mt-0.5" size={16} />
+                        <div>
+                          <p className="font-extrabold text-[11px] uppercase tracking-wider text-emerald-800">Crédito Validado (Ficha Limpa)</p>
+                          <p className="text-[11px] text-slate-655 font-semibold mt-0.5">
+                            Nenhuma restrição financeira (negativação, protesto ou ação) foi encontrada na base de dados da Assertiva.
+                          </p>
+                          <div className="flex gap-4 mt-2 text-[10px] text-emerald-600/80 font-bold">
+                            <span>Score Assertiva: {cliente.score_assertiva}</span>
+                            <span>Faixa: {cliente.faixa_risco_assertiva || 'Não informada'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  // If no Assertiva profile query at all
+                  return (
+                    <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 flex gap-3 text-xs leading-relaxed text-muted-foreground">
+                      <AlertTriangle className="text-muted-foreground/60 shrink-0 mt-0.5" size={16} />
+                      <div>
+                        <p className="font-bold">Análise de Crédito Não Realizada</p>
+                        <p className="text-[10px] text-muted-foreground/85 mt-0.5">
+                          Este tomador ainda não possui consulta de crédito cadastrada no perfil.
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )}
           </div>

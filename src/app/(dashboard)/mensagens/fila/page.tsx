@@ -21,13 +21,12 @@ type FilaMensagem = {
   empresa_id: string
   canal: 'whatsapp' | 'sms' | 'email' | 'sistema'
   destinatario: string
-  tipo: string
   mensagem: string
   assunto: string | null
-  agendar_para: string | null
+  referencia_tipo: string | null
+  referencia_id: string | null
   enviado_em: string | null
   status: 'pendente' | 'enviado' | 'erro' | 'cancelado'
-  tentativas: number
   erro: string | null
   created_at: string
 }
@@ -79,7 +78,7 @@ export default function FilaMensagensPage() {
     setLoading(true)
     try {
       let query = supabase
-        .from('fila_mensagens')
+        .from('notificacoes_log')
         .select('*')
         .eq('empresa_id', empresaAtual.id)
         .order('created_at', { ascending: false })
@@ -115,15 +114,15 @@ export default function FilaMensagensPage() {
   const filtered = items.filter(i => {
     if (!search) return true
     const q = search.toLowerCase()
-    return i.destinatario.toLowerCase().includes(q) || i.tipo.toLowerCase().includes(q)
+    return i.destinatario.toLowerCase().includes(q) || (i.assunto ?? '').toLowerCase().includes(q) || i.mensagem.toLowerCase().includes(q)
   })
 
   async function reenviar(item: FilaMensagem) {
     setActionLoading(item.id)
     try {
       const { error } = await supabase
-        .from('fila_mensagens')
-        .update({ status: 'pendente', erro: null, tentativas: 0 })
+        .from('notificacoes_log')
+        .update({ status: 'pendente', erro: null })
         .eq('id', item.id)
         .eq('empresa_id', empresaAtual!.id)
       if (error) throw error
@@ -140,7 +139,7 @@ export default function FilaMensagensPage() {
     setActionLoading(item.id)
     try {
       const { error } = await supabase
-        .from('fila_mensagens')
+        .from('notificacoes_log')
         .update({ status: 'cancelado' })
         .eq('id', item.id)
         .eq('empresa_id', empresaAtual!.id)
@@ -174,6 +173,15 @@ export default function FilaMensagensPage() {
       ),
     },
     {
+      key: 'assunto',
+      header: 'Assunto',
+      render: (row) => (
+        <span className="text-sm font-medium text-slate-700 block max-w-[180px] truncate" title={row.assunto ?? ''}>
+          {row.assunto ?? 'Sem assunto'}
+        </span>
+      ),
+    },
+    {
       key: 'mensagem',
       header: 'Mensagem',
       render: (row) => (
@@ -186,11 +194,11 @@ export default function FilaMensagensPage() {
       ),
     },
     {
-      key: 'agendar_para',
-      header: 'Agendado para',
+      key: 'created_at',
+      header: 'Registrado em',
       render: (row) => (
         <span className="text-sm text-slate-600">
-          {row.agendar_para ? formatarData(row.agendar_para) : 'Imediato'}
+          {formatarData(row.created_at)}
         </span>
       ),
     },
@@ -201,13 +209,6 @@ export default function FilaMensagensPage() {
         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[row.status]}`}>
           {STATUS_LABEL[row.status]}
         </span>
-      ),
-    },
-    {
-      key: 'tentativas',
-      header: 'Tentativas',
-      render: (row) => (
-        <span className="text-sm text-slate-600 tabular-nums">{row.tentativas}</span>
       ),
     },
     {
@@ -379,16 +380,6 @@ export default function FilaMensagensPage() {
                     {STATUS_LABEL[viewItem.status]}
                   </span>
                 </div>
-                <div>
-                  <p className="text-xs text-slate-400 mb-1">Tentativas</p>
-                  <p className="font-medium text-slate-800">{viewItem.tentativas}</p>
-                </div>
-                {viewItem.agendar_para && (
-                  <div>
-                    <p className="text-xs text-slate-400 mb-1">Agendado para</p>
-                    <p className="font-medium text-slate-800">{formatarData(viewItem.agendar_para)}</p>
-                  </div>
-                )}
                 {viewItem.enviado_em && (
                   <div>
                     <p className="text-xs text-slate-400 mb-1">Enviado em</p>

@@ -855,7 +855,8 @@ export default function NovoClienteFactoringPage() {
 
   return (
     <AppShell empresa="factoring" titulo="Novo Cliente">
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className={dadosAssertiva ? "max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6" : "max-w-2xl mx-auto space-y-6"}>
+        <div className={dadosAssertiva ? "lg:col-span-2 space-y-6" : "space-y-6"}>
         {redirectParam && (
           <div className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm bg-[#E8F0FE] text-[#1A73E8] border border-[#1A73E8]/20 font-medium">
             <CheckCircle2 size={18} className="shrink-0" />
@@ -1619,6 +1620,17 @@ export default function NovoClienteFactoringPage() {
             </Button>
           )}
         </div>
+      </div>
+
+        {/* Sidebar with Assertiva report summary */}
+        {dadosAssertiva && (
+          <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-6 h-fit max-h-[85vh] overflow-y-auto bg-card border border-border p-5 rounded-2xl shadow-m3-1">
+            <h3 className="font-bold text-foreground text-sm border-b border-border/60 pb-3 flex items-center gap-2">
+              <ShieldCheck size={16} className="text-[#1A73E8]" /> Relatório de Crédito Assertiva
+            </h3>
+            <RelatorioView relatorio={dadosAssertiva} />
+          </div>
+        )}
       </div>
     </AppShell>
   )

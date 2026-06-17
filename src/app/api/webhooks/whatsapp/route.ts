@@ -5,15 +5,61 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const supabase = createAdminClient()
+
+    // 1. Grava o log bruto na webhook_logs para fins de auditoria/segurança
     const { error: logError } = await supabase.from('webhook_logs').insert({
       tipo: 'whatsapp',
       payload: body,
       created_at: new Date().toISOString(),
     })
     if (logError) console.error('Falha ao gravar webhook log:', logError.message)
+
+    // 2. Processa atualização de status de envio da Evolution API
+    // Formato da Evolution API para atualização de mensagens: messages.update
+    const event = body.event || body.type
+    const data = body.data
+
+    if (event === 'messages.update' && Array.isArray(data)) {
+      for (const item of data) {
+        const messageId = item.key?.id
+        const updateStatus = item.update?.status
+
+        if (messageId && updateStatus !== undefined) {
+          // Mapeamento de Status Baileys/Evolution:
+          // 2 = DELIVERY_ACK (Entregue - dois checks cinzas) -> 'entregue'
+          // 3, 4, 5 = READ/PLAYED (Lido - checks azuis) -> 'lido'
+          let statusText: 'entregue' | 'lido' | null = null
+
+          if (updateStatus === 2) {
+            statusText = 'entregue'
+          } else if (updateStatus === 3 || updateStatus === 4 || updateStatus === 5) {
+            statusText = 'lido'
+          }
+
+          if (statusText) {
+            // Atualiza o registro correspondente no banco
+            const { error: updateErr } = await supabase
+              .from('notificacoes_log')
+              .update({ 
+                status: statusText, 
+                enviado_em: new Date().toISOString() 
+              })
+              .eq('whatsapp_message_id', messageId)
+
+            if (updateErr) {
+              console.error(`[Webhook WhatsApp] Falha ao atualizar notificacao_log para id ${messageId}:`, updateErr.message)
+            } else {
+              console.log(`[Webhook WhatsApp] Mensagem ${messageId} atualizada com sucesso para status: ${statusText}`)
+            }
+          }
+        }
+      }
+    }
+
     return NextResponse.json({ ok: true })
-  } catch {
-    return NextResponse.json({ error: 'Erro' }, { status: 500 })
+  } catch (err: any) {
+    console.error('[Webhook WhatsApp Route] Erro:', err.message)
+    return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
   }
 }
 

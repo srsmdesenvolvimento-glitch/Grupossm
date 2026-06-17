@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { 
   FileText, ShieldCheck, Camera, Upload, Trash2, CheckCircle2, 
-  Loader2, Smartphone, MapPin, Award, ArrowRight, UserCheck, AlertTriangle 
+  Loader2, Smartphone, MapPin, Award, ArrowRight, UserCheck, AlertTriangle, RefreshCw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -22,6 +22,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   const [selfie, setSelfie] = useState<string | null>(null)
   const [documento, setDocumento] = useState<string | null>(null)
   const [geolocation, setGeolocation] = useState<string | null>(null)
+  const [geolocationStatus, setGeolocationStatus] = useState<'idle' | 'requesting' | 'success' | 'error'>('idle')
   const [enviando, setEnviando] = useState(false)
   const [resultadoUrl, setResultadoUrl] = useState<string | null>(null)
 
@@ -44,20 +45,70 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   const lastX = useRef(0)
   const lastY = useRef(0)
 
-  // Capture user geolocation on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setGeolocation(`Lat: ${pos.coords.latitude.toFixed(4)}, Long: ${pos.coords.longitude.toFixed(4)} (precisão: ${pos.coords.accuracy.toFixed(0)}m)`)
-        },
-        () => {
-          setGeolocation('Permissão de geolocalização negada')
-        },
-        { enableHighAccuracy: true, timeout: 5000 }
-      )
+  // Explicit geolocation capture logic
+  const obterLocalizacao = useCallback(async (silencioso = false) => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setGeolocation('Geolocalização não suportada no navegador')
+      setGeolocationStatus('error')
+      return
     }
+
+    if (!silencioso) {
+      setGeolocationStatus('requesting')
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude
+        const lon = pos.coords.longitude
+        const coordStr = `Lat: ${lat.toFixed(4)}, Long: ${lon.toFixed(4)}`
+
+        try {
+          // OpenStreetMap Nominatim reverse geocode api (pt-BR locale)
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`, {
+            headers: {
+              'Accept-Language': 'pt-BR',
+              'User-Agent': 'Grupo-SRSM-Factoring-Signature/1.0'
+            }
+          })
+          
+          if (res.ok) {
+            const data = await res.json()
+            const addr = data.address || {}
+            const city = addr.city || addr.town || addr.suburb || addr.village || addr.municipality || 'Localidade'
+            const state = addr.state || addr.region || ''
+            const fullLocation = `${city} - ${state} (${coordStr})`
+            setGeolocation(fullLocation)
+            setGeolocationStatus('success')
+            if (!silencioso) {
+              toast.success(`Localização registrada: ${city} - ${state}`)
+            }
+          } else {
+            setGeolocation(coordStr)
+            setGeolocationStatus('success')
+          }
+        } catch (err) {
+          console.error('Erro de reverse geocoding:', err)
+          setGeolocation(coordStr)
+          setGeolocationStatus('success')
+        }
+      },
+      (err) => {
+        console.error('Erro de geolocalização:', err)
+        setGeolocation('Permissão de geolocalização negada')
+        setGeolocationStatus('error')
+        if (!silencioso) {
+          toast.error('Não foi possível obter sua localização. Por favor, autorize no navegador.')
+        }
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    )
   }, [])
+
+  // Auto request on mount silently
+  useEffect(() => {
+    obterLocalizacao(true)
+  }, [obterLocalizacao])
 
   // Control camera session on Step 3
   const iniciarCamera = async () => {
@@ -80,7 +131,6 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       setCameraStream(stream)
       setCameraAtiva(true)
       
-      // Allow DOM rendering of video element
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream
@@ -114,7 +164,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       const ctx = canvas.getContext('2d')
       
       if (ctx) {
-        // Mirror the image horizontally to match what the user sees in the selfie mirror view
+        // Mirror the image horizontally
         ctx.translate(canvas.width, 0)
         ctx.scale(-1, 1)
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
@@ -123,7 +173,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
         const base64 = canvas.toDataURL('image/jpeg', 0.85)
         setSelfie(base64)
         pararCamera()
-        toast.success('Selfie de biometria capturada com sucesso!')
+        toast.success('Selfie capturada com sucesso!')
       }
     } catch (err) {
       console.error('Erro ao capturar frame:', err)
@@ -173,15 +223,11 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       const ctx = canvas.getContext('2d')
       if (!ctx) return
 
-      // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-      // Draw background placeholder
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-      // Draw thin grey signature guideline at bottom
-      ctx.strokeStyle = '#e2e8f0' // slate-200
+      ctx.strokeStyle = '#cbd5e1'
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.moveTo(30, canvas.height - 40)
@@ -189,17 +235,15 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       ctx.stroke()
 
       if (!typedName.trim()) {
-        // Draw placeholder text if empty
-        ctx.fillStyle = '#cbd5e1' // slate-300
+        ctx.fillStyle = '#94a3b8'
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.font = "italic 16px sans-serif"
-        ctx.fillText('A assinatura aparecerá aqui...', canvas.width / 2, canvas.height / 2 - 10)
+        ctx.font = "italic 15px sans-serif"
+        ctx.fillText('Sua assinatura aparecerá aqui...', canvas.width / 2, canvas.height / 2 - 10)
         return
       }
 
-      // Draw calligraphic text
-      ctx.fillStyle = '#0f172a' // slate-900 (ink color)
+      ctx.fillStyle = '#0f172a'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       
@@ -212,30 +256,36 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     }
   }, [typedName, selectedFont, sigType])
 
-  // Canvas Drawing Logic
+  // Canvas Drawing Logic with Coordinate Scaling mapping for perfect mobile signatures
   const getCoordinates = (e: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent): { x: number, y: number } | null => {
     const canvas = canvasRef.current
     if (!canvas) return null
     const rect = canvas.getBoundingClientRect()
     
-    // Check if touch event
+    let clientX = 0
+    let clientY = 0
+
     if ('touches' in e && e.touches.length > 0) {
-      return {
-        x: e.touches[0].clientX - rect.left,
-        y: e.touches[0].clientY - rect.top
-      }
+      clientX = e.touches[0].clientX
+      clientY = e.touches[0].clientY
     } else if ('clientX' in e) {
-      return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      }
+      clientX = e.clientX
+      clientY = e.clientY
+    } else {
+      return null
     }
-    return null
+
+    // Map coordinates scaling appropriately to the internal coordinate space
+    const x = clientX - rect.left
+    const y = clientY - rect.top
+    return {
+      x: x * (canvas.width / rect.width),
+      y: y * (canvas.height / rect.height)
+    }
   }
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (sigType === 'type') return // Disable drawing when typing
-    // Prevent touch scrolling on mobile
+    if (sigType === 'type') return
     if (e.cancelable) e.preventDefault()
     
     const coords = getCoordinates(e.nativeEvent)
@@ -247,7 +297,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   }
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (sigType === 'type') return // Disable drawing when typing
+    if (sigType === 'type') return
     if (!isDrawing.current) return
     if (e.cancelable) e.preventDefault()
 
@@ -258,10 +308,10 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    ctx.strokeStyle = '#000000'
+    ctx.strokeStyle = '#0f172a'
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
-    ctx.lineWidth = 2.5
+    ctx.lineWidth = 3
 
     ctx.beginPath()
     ctx.moveTo(lastX.current, lastY.current)
@@ -293,7 +343,6 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     }
   }
 
-  // Camera file capture handlers
   const processImageFile = (file: File, callback: (base64: string) => void) => {
     if (!file.type.startsWith('image/')) {
       toast.error('O arquivo selecionado precisa ser uma imagem.')
@@ -317,18 +366,15 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     if (file) {
       processImageFile(file, (base64) => {
         setDocumento(base64)
-        toast.success('Foto do documento anexada com sucesso!')
+        toast.success('Documento digitalizado com sucesso!')
       })
     }
   }
 
-
-  // Submit Signature
   const handleSubmitSignature = async () => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    // Verify if signature is provided
     if (sigType === 'draw' && !hasDrawn) {
       toast.warning('Por favor, desenhe sua assinatura no quadro antes de continuar.')
       return
@@ -353,7 +399,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
           selfie,
           documento,
           assinatura: signatureBase64,
-          geolocation,
+          geolocation: geolocation || 'Não informada',
         }),
       })
 
@@ -367,119 +413,139 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     } catch (err: any) {
       console.error('Erro de assinatura:', err)
       toast.error(err.message || 'Erro ao processar assinatura eletrônica no servidor.')
-      setPasso(4) // Fallback to drawing if failed
+      setPasso(4)
     } finally {
       setEnviando(false)
     }
   }
 
   return (
-    <div className="flex-1 flex flex-col max-w-lg w-full mx-auto p-4 md:py-8 justify-center">
+    <div className="flex-1 flex flex-col max-w-lg w-full mx-auto p-4 md:py-8 justify-center min-h-[90vh]">
       
+      {/* Styles block for scan overlays and premium keyframes */}
+      <style>{`
+        @keyframes scan {
+          0% { transform: translateY(0); }
+          50% { transform: translateY(180px); }
+          100% { transform: translateY(0); }
+        }
+        @keyframes pulse-ring {
+          0% { transform: scale(0.95); opacity: 0.3; }
+          50% { transform: scale(1.05); opacity: 0.8; }
+          100% { transform: scale(0.95); opacity: 0.3; }
+        }
+        .scanner-line {
+          animation: scan 3s ease-in-out infinite;
+        }
+        .pulsing-ring {
+          animation: pulse-ring 2s ease-in-out infinite;
+        }
+      `}</style>
+
       {/* Wizard Header Status Bar */}
       {passo < 5 && (
         <div className="mb-6 space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
             <span>Passo {passo} de 4</span>
-            <span>
+            <span className="text-indigo-400 font-extrabold">
               {passo === 1 && 'Dados do Contrato'}
-              {passo === 2 && 'Comprovação Documento'}
-              {passo === 3 && 'Selfie de Segurança'}
+              {passo === 2 && 'Captura do Documento'}
+              {passo === 3 && 'Selfie Biométrica'}
               {passo === 4 && 'Assinatura Digital'}
             </span>
           </div>
-          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden flex gap-0.5">
-            <div className={`h-full transition-all duration-300 ${passo >= 1 ? 'bg-indigo-500' : 'bg-slate-800'} flex-1`} />
-            <div className={`h-full transition-all duration-300 ${passo >= 2 ? 'bg-indigo-500' : 'bg-slate-800'} flex-1`} />
-            <div className={`h-full transition-all duration-300 ${passo >= 3 ? 'bg-indigo-500' : 'bg-slate-800'} flex-1`} />
-            <div className={`h-full transition-all duration-300 ${passo >= 4 ? 'bg-indigo-500' : 'bg-slate-800'} flex-1`} />
+          <div className="h-2 w-full bg-slate-900/90 rounded-full overflow-hidden flex gap-0.5 border border-white/5">
+            <div className={`h-full transition-all duration-300 ${passo >= 1 ? 'bg-indigo-500 shadow-[0_0_8px_#6366f1]' : 'bg-slate-800'} flex-1`} />
+            <div className={`h-full transition-all duration-300 ${passo >= 2 ? 'bg-indigo-500 shadow-[0_0_8px_#6366f1]' : 'bg-slate-800'} flex-1`} />
+            <div className={`h-full transition-all duration-300 ${passo >= 3 ? 'bg-indigo-500 shadow-[0_0_8px_#6366f1]' : 'bg-slate-800'} flex-1`} />
+            <div className={`h-full transition-all duration-300 ${passo >= 4 ? 'bg-indigo-500 shadow-[0_0_8px_#6366f1]' : 'bg-slate-800'} flex-1`} />
           </div>
         </div>
       )}
 
       {/* STEP 1: CONTRACT DETAILS */}
       {passo === 1 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
+        <div className="bg-slate-950/75 backdrop-blur-xl border border-white/10 rounded-3xl p-6 space-y-6 shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-fade-in-up">
           <div className="text-center space-y-1">
-            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
-              <FileText size={24} />
+            <div className="w-14 h-14 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400 border border-indigo-500/20">
+              <FileText size={28} />
             </div>
-            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Assinatura Eletrônica</h2>
-            <p className="text-xs text-slate-400">Revise com atenção as condições do seu contrato de empréstimo.</p>
+            <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Assinatura do Contrato</h2>
+            <p className="text-xs text-slate-400">Revise com atenção as condições do seu empréstimo.</p>
           </div>
 
-          <div className="bg-slate-950 rounded-2xl border border-slate-800 p-4 space-y-3.5">
-            <div className="border-b border-slate-900 pb-2 flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-400">Identificação</span>
-              <span className="font-mono font-bold text-indigo-400">{contrato.numero_contrato}</span>
+          <div className="bg-slate-900/60 rounded-2xl border border-white/5 p-4 space-y-3.5">
+            <div className="border-b border-white/5 pb-2.5 flex items-center justify-between text-xs">
+              <span className="font-semibold text-slate-400">Nº do Contrato</span>
+              <span className="font-mono font-bold text-indigo-400 text-sm tracking-wider">{contrato.numero_contrato}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-xs">
               <div>
-                <p className="text-slate-400 mb-0.5">Valor Financiado</p>
-                <p className="font-extrabold text-sm text-slate-200">{formatarMoeda(contrato.valor_principal)}</p>
+                <p className="text-slate-400 mb-0.5">Valor do Mútuo</p>
+                <p className="font-extrabold text-base text-slate-100">{formatarMoeda(contrato.valor_principal)}</p>
               </div>
               <div>
                 <p className="text-slate-400 mb-0.5">Valor da Parcela</p>
-                <p className="font-extrabold text-sm text-slate-200">{formatarMoeda(contrato.valor_parcela)}</p>
+                <p className="font-extrabold text-base text-slate-100">{formatarMoeda(contrato.valor_parcela)}</p>
               </div>
               <div>
                 <p className="text-slate-400 mb-0.5">Parcelamento</p>
-                <p className="font-bold text-slate-200">{contrato.prazo_meses}x parcelas fixas</p>
+                <p className="font-bold text-slate-200">{contrato.prazo_meses} Parcelas Mensais</p>
               </div>
               <div>
-                <p className="text-slate-400 mb-0.5">Taxa de Juros</p>
-                <p className="font-bold text-slate-200">{contrato.taxa_juros}% a.m.</p>
+                <p className="text-slate-400 mb-0.5">Taxa Pactuada</p>
+                <p className="font-bold text-slate-200">{contrato.taxa_juros}% a.m. (Tabela Price)</p>
               </div>
             </div>
 
-            <div className="border-t border-slate-900 pt-3 text-xs space-y-1.5">
+            <div className="border-t border-white/5 pt-3.5 text-xs space-y-2">
               <div className="flex justify-between">
-                <span className="text-slate-400">Nome do Tomador:</span>
-                <span className="font-bold text-slate-200 text-right truncate max-w-[180px]">{cliente.nome}</span>
+                <span className="text-slate-400">Beneficiário / Tomador:</span>
+                <span className="font-bold text-slate-100 text-right truncate max-w-[200px]">{cliente.nome}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">CPF do Tomador:</span>
-                <span className="font-bold font-mono text-slate-200">{formatarCPF(cliente.cpf)}</span>
+                <span className="text-slate-400">Inscrição CPF:</span>
+                <span className="font-bold font-mono text-slate-100">{formatarCPF(cliente.cpf)}</span>
               </div>
               {contrato.garantias && (
-                <div className="flex flex-col gap-0.5 pt-1.5 border-t border-slate-900/60">
-                  <span className="text-slate-400">Garantias Vinculadas:</span>
-                  <span className="font-semibold text-slate-300 italic">{contrato.garantias}</span>
+                <div className="flex flex-col gap-0.5 pt-2 border-t border-white/5">
+                  <span className="text-slate-400">Garantia Prestada:</span>
+                  <span className="font-semibold text-indigo-300 italic">{contrato.garantias}</span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="bg-amber-500/5 border border-amber-500/10 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-amber-300/90">
-            <ShieldCheck size={18} className="text-amber-500 shrink-0 mt-0.5" />
+          <div className="bg-amber-500/5 border border-amber-500/10 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-amber-300/95">
+            <ShieldCheck size={20} className="text-amber-500 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold mb-0.5">Autenticação por Biometria Facial</p>
+              <p className="font-bold mb-0.5 text-amber-400">Autenticidade e Evidência Digital</p>
               <p className="text-[11px] text-slate-400">
-                Para prosseguir com a assinatura válida, você precisará capturar a foto do seu documento de identidade e uma selfie do seu rosto para resguardo operacional.
+                Este processo coletará coordenadas de geolocalização e fotos comprobatórias para fins de registro e validade legal (Medida Provisória nº 2.200-2/2001).
               </p>
             </div>
           </div>
 
           <div className="space-y-4 pt-2">
-            <label className="flex items-start gap-3 cursor-pointer select-none">
+            <label className="flex items-start gap-3 cursor-pointer select-none group">
               <input
                 type="checkbox"
                 checked={termosAceitos}
                 onChange={(e) => setTermosAceitos(e.target.checked)}
-                className="mt-0.5 w-4 h-4 text-indigo-600 bg-slate-950 border-slate-800 rounded focus:ring-indigo-500 focus:ring-offset-slate-900"
+                className="mt-1 w-4.5 h-4.5 text-indigo-600 bg-slate-900 border-white/10 rounded focus:ring-indigo-500 focus:ring-offset-slate-955 transition-colors cursor-pointer"
               />
-              <span className="text-xs text-slate-400 leading-relaxed font-semibold">
-                Li, compreendo perfeitamente e estou de acordo com as condições estipuladas do empréstimo e termos deste documento.
+              <span className="text-xs text-slate-450 leading-relaxed font-semibold group-hover:text-slate-300 transition-colors">
+                Confirmo que revisei todos os valores e aceito integralmente os termos deste instrumento eletrônico de mútuo financeiro.
               </span>
             </label>
 
             <Button
-              className="w-full h-11 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-950/50 disabled:opacity-50 transition-all duration-150 gap-2"
+              className="w-full h-12 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-950/50 disabled:opacity-40 transition-all duration-150 gap-2 cursor-pointer"
               disabled={!termosAceitos}
               onClick={() => setPasso(2)}
             >
-              <span>Prosseguir para Comprovação</span>
+              <span>Ir para Captura de Documento</span>
               <ArrowRight size={16} />
             </Button>
           </div>
@@ -488,42 +554,52 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
 
       {/* STEP 2: DOCUMENT CAPTURE */}
       {passo === 2 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
+        <div className="bg-slate-950/75 backdrop-blur-xl border border-white/10 rounded-3xl p-6 space-y-6 shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-fade-in-up">
           <div className="text-center space-y-1">
-            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
-              <Upload size={24} />
+            <div className="w-14 h-14 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400 border border-indigo-500/20">
+              <Camera size={28} />
             </div>
-            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Foto do Documento</h2>
-            <p className="text-xs text-slate-400">Anexe ou tire uma foto legível da frente/verso do seu documento de identidade (RG ou CNH).</p>
+            <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Foto do Documento</h2>
+            <p className="text-xs text-slate-400">Posicione seu documento (RG ou CNH) dentro do visor e envie a foto.</p>
           </div>
 
           <div className="flex flex-col items-center justify-center">
             {documento ? (
-              <div className="relative w-full rounded-2xl border border-slate-800 overflow-hidden bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-inner">
+              <div className="relative w-full rounded-2xl border border-white/10 overflow-hidden bg-slate-900 aspect-[4/3] flex items-center justify-center shadow-inner">
                 <img 
                   src={documento} 
-                  alt="Pré-visualização do Documento" 
+                  alt="Documento Digitalizado" 
                   className="max-h-full max-w-full object-contain"
                 />
                 <button
                   onClick={() => setDocumento(null)}
-                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
+                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-655 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
                 >
                   <Trash2 size={16} />
                 </button>
               </div>
             ) : (
-              <label className="w-full rounded-2xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 bg-slate-950 aspect-[4/3] flex flex-col items-center justify-center gap-3 cursor-pointer transition-all p-4 text-center">
-                <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-indigo-400 transition-colors shadow-sm">
-                  <Camera size={26} />
+              <label className="w-full rounded-2xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 bg-slate-900/60 aspect-[4/3] flex flex-col items-center justify-center gap-3 cursor-pointer transition-all p-4 text-center relative overflow-hidden group">
+                
+                {/* Scanner Guides - Corners (Premium Frame design) */}
+                <div className="absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 border-indigo-500/80 rounded-tl-md group-hover:border-indigo-400 transition-colors" />
+                <div className="absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 border-indigo-500/80 rounded-tr-md group-hover:border-indigo-400 transition-colors" />
+                <div className="absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 border-indigo-500/80 rounded-bl-md group-hover:border-indigo-400 transition-colors" />
+                <div className="absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 border-indigo-500/80 rounded-br-md group-hover:border-indigo-400 transition-colors" />
+                
+                {/* Animated Scanner laser line */}
+                <div className="absolute left-0 right-0 h-0.5 bg-indigo-500/40 shadow-[0_0_10px_2px_rgba(99,102,241,0.5)] scanner-line pointer-events-none" style={{ top: '10%' }} />
+
+                <div className="w-16 h-16 rounded-full bg-slate-950 border border-white/5 flex items-center justify-center text-slate-400 group-hover:text-indigo-400 transition-colors shadow-lg">
+                  <Camera size={28} />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-300">Tirar Foto do Documento</p>
-                  <p className="text-[10px] text-slate-500 mt-1 max-w-[200px] mx-auto">
-                    Use a câmera traseira em local bem iluminado ou selecione um arquivo.
+                  <p className="text-xs font-bold text-slate-200">Digitalizar Documento</p>
+                  <p className="text-[10px] text-slate-500 mt-1.5 max-w-[220px] mx-auto leading-relaxed">
+                    Fotografe a CNH ou RG aberto, com as informações legíveis e sem reflexos.
                   </p>
                 </div>
-                {/* Mobile capture support environment = rear camera */}
+                
                 <input
                   type="file"
                   accept="image/*"
@@ -535,14 +611,14 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
             )}
           </div>
 
-          <div className="bg-slate-950/60 border border-slate-800/40 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-slate-400">
+          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-slate-400">
             <AlertTriangle size={18} className="text-indigo-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-slate-300 mb-0.5">Dicas de Captura</p>
-              <ul className="list-disc pl-4 space-y-1 text-[11px]">
-                <li>Remova o documento do plástico de proteção.</li>
-                <li>Evite reflexos diretos de lâmpadas ou flash.</li>
-                <li>Certifique-se de que os dados e fotos estejam totalmente nítidos.</li>
+              <p className="font-bold text-slate-200 mb-0.5">Dicas para melhor leitura</p>
+              <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-400">
+                <li>Remova o plástico do documento.</li>
+                <li>Certifique-se de que a foto e o texto estão focados e nítidos.</li>
+                <li>Evite ambientes escuros ou com sombras excessivas.</li>
               </ul>
             </div>
           </div>
@@ -550,13 +626,13 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
           <div className="flex gap-3 pt-2">
             <Button
               variant="outline"
-              className="flex-1 h-11 rounded-full font-bold border-slate-800 hover:bg-slate-850 text-slate-400"
+              className="flex-1 h-12 rounded-full font-bold border-white/10 hover:bg-slate-900 text-slate-400 hover:text-slate-200 cursor-pointer"
               onClick={() => setPasso(1)}
             >
               Voltar
             </Button>
             <Button
-              className="flex-1 h-11 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 shadow-lg shadow-indigo-950/50 transition-all gap-1"
+              className="flex-1 h-12 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 shadow-lg shadow-indigo-950/50 transition-all gap-1.5 cursor-pointer"
               disabled={!documento}
               onClick={() => setPasso(3)}
             >
@@ -569,55 +645,54 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
 
       {/* STEP 3: SELFIE CAPTURE */}
       {passo === 3 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
+        <div className="bg-slate-950/75 backdrop-blur-xl border border-white/10 rounded-3xl p-6 space-y-6 shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-fade-in-up">
           <div className="text-center space-y-1">
-            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
-              <UserCheck size={24} />
+            <div className="w-14 h-14 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400 border border-indigo-500/20">
+              <UserCheck size={28} />
             </div>
-            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Selfie de Segurança</h2>
-            <p className="text-xs text-slate-400">Enquadre seu rosto perfeitamente e tire uma foto de frente para validação biométrica facial.</p>
+            <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Selfie de Reconhecimento</h2>
+            <p className="text-xs text-slate-400">Enquadre seu rosto no marcador oval e capture a imagem.</p>
           </div>
 
           <div className="flex flex-col items-center justify-center w-full">
             {selfie ? (
-              <div className="relative w-full rounded-2xl border border-slate-800 overflow-hidden bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-inner">
+              <div className="relative w-full rounded-2xl border border-white/10 overflow-hidden bg-slate-900 aspect-[4/3] flex items-center justify-center shadow-inner">
                 <img 
                   src={selfie} 
-                  alt="Pré-visualização da Selfie" 
+                  alt="Selfie Biométrica" 
                   className="max-h-full max-w-full object-contain"
                 />
                 <button
                   onClick={() => setSelfie(null)}
-                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
+                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-655 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
                 >
                   <Trash2 size={16} />
                 </button>
               </div>
             ) : permissaoNegada ? (
-              <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/5 aspect-[4/3] flex flex-col items-center justify-center gap-4 p-6 text-center">
+              <div className="w-full rounded-2xl border border-red-500/15 bg-red-500/5 aspect-[4/3] flex flex-col items-center justify-center gap-4 p-6 text-center">
                 <AlertTriangle size={36} className="text-red-500 animate-bounce" />
                 <div className="space-y-1">
                   <p className="text-xs font-bold text-red-400">Acesso à câmera bloqueado</p>
                   <p className="text-[10px] text-slate-400 max-w-[240px] mx-auto leading-normal">
-                    Para garantir a legitimidade e segurança deste contrato, a selfie deve ser capturada em tempo real. Favor autorizar a câmera em seu navegador.
+                    Precisamos de acesso temporário à câmera para registrar a biometria. Favor autorizar o acesso em seu navegador.
                   </p>
                 </div>
                 <Button
                   onClick={iniciarCamera}
                   size="sm"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-9 px-4 rounded-full text-xs shadow-md"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-10 px-5 rounded-full text-xs shadow-md"
                 >
-                  Permitir Câmera e Tentar Novamente
+                  Permitir Câmera e Reiniciar
                 </Button>
               </div>
             ) : carregandoCamera ? (
-              <div className="w-full rounded-2xl border border-slate-800 bg-slate-950 aspect-[4/3] flex flex-col items-center justify-center gap-3 p-4 text-center">
-                <Loader2 size={32} className="animate-spin text-indigo-500" />
-                <p className="text-xs font-bold text-slate-400">Iniciando câmera de segurança...</p>
+              <div className="w-full rounded-2xl border border-white/10 bg-slate-900 aspect-[4/3] flex flex-col items-center justify-center gap-3 p-4 text-center">
+                <Loader2 size={36} className="animate-spin text-indigo-500" />
+                <p className="text-xs font-bold text-slate-400">Ativando câmera biométrica...</p>
               </div>
             ) : (
-              <div className="relative w-full rounded-2xl border border-slate-800 overflow-hidden bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-inner">
-                {/* Elemento de Vídeo com espelhamento horizontal para parecer espelho */}
+              <div className="relative w-full rounded-2xl border border-white/10 overflow-hidden bg-slate-900 aspect-[4/3] flex items-center justify-center shadow-inner group">
                 <video
                   ref={videoRef}
                   autoPlay
@@ -626,57 +701,56 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
                   className="w-full h-full object-cover scale-x-[-1]"
                 />
                 
-                {/* Máscara de foco oval profissional para o rosto */}
-                <div className="absolute inset-0 border-[3px] border-dashed border-indigo-500/20 rounded-2xl pointer-events-none flex items-center justify-center overflow-hidden">
-                  <div className="w-[170px] h-[220px] border-2 border-indigo-400/80 rounded-full bg-transparent shadow-[0_0_0_9999px_rgba(15,23,42,0.65)]" />
+                {/* Oval shape scanner guide */}
+                <div className="absolute inset-0 border border-white/5 pointer-events-none flex items-center justify-center overflow-hidden">
+                  {/* Glowing pulsing scan ring */}
+                  <div className="w-[180px] h-[230px] border-2 border-indigo-500/80 rounded-full bg-transparent shadow-[0_0_0_9999px_rgba(15,23,42,0.7)] relative flex items-center justify-center">
+                    <div className="absolute -inset-1 border border-indigo-400/30 rounded-full pulsing-ring" />
+                  </div>
                 </div>
 
-                {/* Guia de enquadramento translúcido em texto */}
-                <div className="absolute top-3 left-0 right-0 text-center pointer-events-none z-10">
-                  <span className="px-3 py-1 bg-slate-950/80 border border-slate-800 text-[10px] font-bold tracking-wider uppercase text-slate-300 rounded-full">
-                    Enquadre seu rosto no centro
+                {/* Laser scan line overlay */}
+                <div className="absolute left-0 right-0 h-0.5 bg-indigo-500/30 shadow-[0_0_8px_1.5px_rgba(99,102,241,0.5)] scanner-line pointer-events-none" />
+
+                <div className="absolute top-4 left-0 right-0 text-center pointer-events-none z-10">
+                  <span className="px-3 py-1 bg-slate-950/85 border border-white/5 text-[9px] font-bold tracking-wider uppercase text-slate-350 rounded-full shadow-lg">
+                    Posicione o rosto no centro do oval
                   </span>
                 </div>
 
-                {/* Botão circular vermelho estilo obturador para disparar */}
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
+                {/* Capturing shutter button */}
+                <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-20">
                   <button
                     type="button"
                     onClick={capturarFoto}
-                    className="w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg border-4 border-white transition-all active:scale-90 duration-75"
-                    title="Tirar Selfie"
+                    className="w-14 h-14 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-2xl border-4 border-slate-950 transition-all active:scale-90 duration-75 cursor-pointer"
+                    title="Tirar Foto"
                   >
-                    <div className="w-4.5 h-4.5 bg-white rounded-full animate-pulse" />
+                    <Camera size={20} />
                   </button>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="bg-slate-950/60 border border-slate-800/40 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-slate-400">
-            <AlertTriangle size={18} className="text-indigo-400 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-slate-300 mb-0.5">Aviso Importante</p>
-              <ul className="list-disc pl-4 space-y-1 text-[11px]">
-                <li>Evite usar óculos escuros, bonés ou chapéu.</li>
-                <li>Mantenha uma expressão facial neutra e natural.</li>
-                <li>Fique em um local com iluminação frontal adequada.</li>
-              </ul>
-            </div>
-          </div>
-
           <div className="flex gap-3 pt-2">
             <Button
               variant="outline"
-              className="flex-1 h-11 rounded-full font-bold border-slate-800 hover:bg-slate-850 text-slate-400"
-              onClick={() => setPasso(2)}
+              className="flex-1 h-12 rounded-full font-bold border-white/10 hover:bg-slate-900 text-slate-400 hover:text-slate-200 cursor-pointer"
+              onClick={() => {
+                pararCamera()
+                setPasso(2)
+              }}
             >
               Voltar
             </Button>
             <Button
-              className="flex-1 h-11 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 shadow-lg shadow-indigo-950/50 transition-all gap-1"
+              className="flex-1 h-12 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 shadow-lg shadow-indigo-950/50 transition-all gap-1.5 cursor-pointer"
               disabled={!selfie}
-              onClick={() => setPasso(4)}
+              onClick={() => {
+                pararCamera()
+                setPasso(4)
+              }}
             >
               <span>Avançar</span>
               <ArrowRight size={16} />
@@ -685,32 +759,32 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
         </div>
       )}
 
-      {/* STEP 4: DRAW OR TYPE DIGITAL SIGNATURE */}
+      {/* STEP 4: DIGITAL SIGNATURE */}
       {passo === 4 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-2xl animate-fade-in-up">
+        <div className="bg-slate-950/75 backdrop-blur-xl border border-white/10 rounded-3xl p-6 space-y-6 shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-fade-in-up">
           <div className="text-center space-y-1">
-            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
-              <Award size={24} />
+            <div className="w-14 h-14 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400 border border-indigo-500/20">
+              <Award size={28} />
             </div>
-            <h2 className="text-lg font-black tracking-tight mt-3 text-slate-100">Assinatura Eletrônica</h2>
-            <p className="text-xs text-slate-400">Escolha desenhar sua assinatura ou simplesmente digite seu nome completo.</p>
+            <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Assinatura Digital</h2>
+            <p className="text-xs text-slate-400">Desenhe sua rubrica na tela ou digite seu nome.</p>
           </div>
 
           {/* Tab Selector between Draw and Type */}
-          <div className="flex bg-slate-950 p-1.5 rounded-full border border-slate-800 gap-1">
+          <div className="flex bg-slate-900/80 p-1 rounded-full border border-white/5 gap-1">
             <button
               type="button"
               onClick={() => {
                 setSigType('draw')
                 clearCanvas()
               }}
-              className={`flex-1 py-2 px-3 rounded-full text-[11px] font-black tracking-tight uppercase transition-all ${
+              className={`flex-1 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
                 sigType === 'draw' 
                   ? 'bg-indigo-600 text-white shadow-md' 
-                  : 'text-slate-500 hover:text-slate-350'
+                  : 'text-slate-500 hover:text-slate-300'
               }`}
             >
-              Desenhar
+              Desenhar Rubrica
             </button>
             <button
               type="button"
@@ -718,10 +792,10 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
                 setSigType('type')
                 clearCanvas()
               }}
-              className={`flex-1 py-2 px-3 rounded-full text-[11px] font-black tracking-tight uppercase transition-all ${
+              className={`flex-1 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
                 sigType === 'type' 
                   ? 'bg-indigo-600 text-white shadow-md' 
-                  : 'text-slate-500 hover:text-slate-350'
+                  : 'text-slate-500 hover:text-slate-300'
               }`}
             >
               Escrever / Digitar
@@ -732,33 +806,33 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
           {sigType === 'type' && (
             <div className="w-full space-y-4 animate-fade-in">
               <div className="space-y-1">
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Seu Nome Completo</label>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Nome do Signatário</label>
                 <input
                   type="text"
                   value={typedName}
                   onChange={(e) => setTypedName(e.target.value)}
-                  placeholder="Digite seu nome para assinar..."
-                  className="w-full h-11 px-4 rounded-xl bg-slate-950 border border-slate-850 focus:border-indigo-500 text-slate-100 text-sm font-semibold placeholder:text-slate-700 transition-colors focus:outline-none"
+                  placeholder="Nome completo para assinatura..."
+                  className="w-full h-11 px-4 rounded-xl bg-slate-900 border border-white/5 focus:border-[#6366f1] focus:ring-1 focus:ring-[#6366f1]/20 text-slate-100 text-sm font-semibold placeholder:text-slate-655 focus:outline-none transition-colors"
                 />
               </div>
               
               {/* Font Options Selector */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Estilo de Caligrafia</label>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Caligrafia Sugerida</label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['Great Vibes', 'Dancing Script', 'Alex Brush'] as const).map((font) => (
                     <button
                       key={font}
                       type="button"
                       onClick={() => setSelectedFont(font)}
-                      className={`py-2 px-1 rounded-lg border text-xs font-bold transition-all ${
+                      className={`py-2 px-1 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                         selectedFont === font
                           ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400'
-                          : 'border-slate-800 bg-slate-950 hover:bg-slate-900 text-slate-500 hover:text-slate-400'
+                          : 'border-slate-800 bg-slate-900 hover:bg-slate-850 text-slate-500 hover:text-slate-355'
                       }`}
                       style={{ fontFamily: font }}
                     >
-                      {font === 'Great Vibes' ? 'Elegante' : font === 'Dancing Script' ? 'Moderna' : 'Artística'}
+                      {font === 'Great Vibes' ? 'Formal' : font === 'Dancing Script' ? 'Moderna' : 'Artística'}
                     </button>
                   ))}
                 </div>
@@ -767,7 +841,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
           )}
 
           <div className="flex flex-col items-center justify-center space-y-3">
-            <div className="w-full relative border border-slate-800 rounded-2xl overflow-hidden bg-white shadow-inner">
+            <div className="w-full relative border border-white/10 rounded-2xl overflow-hidden bg-white shadow-2xl">
               <canvas
                 ref={canvasRef}
                 width={400}
@@ -779,35 +853,70 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
                 onTouchStart={startDrawing}
                 onTouchMove={draw}
                 onTouchEnd={stopDrawing}
-                className="w-full block touch-none cursor-crosshair"
+                className="w-full block touch-none cursor-crosshair bg-white"
               />
               {sigType === 'draw' && (
                 <button
                   onClick={clearCanvas}
-                  className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wider px-3.5 py-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:text-indigo-400 text-slate-400 rounded-full transition-colors active:scale-95 shadow-lg"
+                  className="absolute top-3 right-3 text-[9px] font-bold uppercase tracking-wider px-3.5 py-1.5 bg-slate-950/90 hover:bg-slate-900 border border-white/5 hover:text-indigo-400 text-slate-350 rounded-full transition-colors active:scale-95 shadow-md cursor-pointer"
                 >
-                  Limpar Quadro
+                  Limpar
                 </button>
               )}
             </div>
-            <p className="text-[10px] text-slate-500 font-semibold italic text-center w-full">
-              Sua assinatura digital registrada será vinculada à sua selfie, documento e endereço IP.
+            <p className="text-[9px] text-slate-500 font-semibold italic text-center w-full leading-normal">
+              Esta assinatura será vinculada e impressa no termo com integridade criptográfica.
             </p>
           </div>
 
-          <div className="bg-slate-950/60 border border-slate-800/40 rounded-2xl p-3.5 space-y-2 text-[11px] text-slate-400 leading-relaxed">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
-              <Smartphone size={14} className="text-indigo-400" />
-              <span>Metadados de Resguardo Jurídico</span>
-            </div>
-            <div className="space-y-1 font-semibold">
-              <div className="flex items-center gap-1.5">
-                <MapPin size={12} className="text-slate-500" />
-                <span>Geolocalização:</span>
-                <span className="text-slate-300 truncate max-w-[280px]">{geolocation || 'Buscando coordenadas...'}</span>
+          {/* Explicit Geolocation prompt / status details card */}
+          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-350">
+                <MapPin size={14} className="text-indigo-400 shrink-0" />
+                <span>Consentimento de Geolocalização</span>
               </div>
-              <p className="text-[10px] text-slate-500 leading-normal">
-                Nos moldes da MP 2.200-2/2001, registramos a assinatura digital integrada a IP e biometria para segurança operacional mútua.
+              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                geolocationStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
+                geolocationStatus === 'requesting' ? 'bg-indigo-500/10 text-indigo-400' :
+                'bg-red-500/10 text-red-400'
+              }`}>
+                {geolocationStatus === 'success' && 'Evidência Coletada'}
+                {geolocationStatus === 'requesting' && 'Buscando GPS...'}
+                {geolocationStatus === 'idle' && 'Aguardando'}
+                {geolocationStatus === 'error' && 'Necessita Autorização'}
+              </span>
+            </div>
+
+            <div className="space-y-2 text-[11px] text-slate-400 leading-normal font-semibold">
+              {geolocationStatus === 'success' ? (
+                <p className="text-slate-300 bg-slate-950/45 p-2 rounded-xl border border-white/5 select-all font-mono text-[10px] break-all leading-normal">
+                  {geolocation}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2 bg-slate-950/45 p-3 rounded-xl border border-white/5">
+                  <p className="text-[10px] text-slate-400 font-normal">
+                    Para assinar este termo digital com pleno resguardo de autenticidade, sua localização geográfica é necessária. Favor autorizar o compartilhamento.
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={() => obterLocalizacao(false)}
+                    variant="outline"
+                    size="sm"
+                    className="border-indigo-500/30 hover:bg-indigo-500/10 text-indigo-400 text-xs font-bold h-8.5 rounded-lg gap-1.5 self-start cursor-pointer"
+                  >
+                    {geolocationStatus === 'requesting' ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={13} />
+                    )}
+                    <span>Compartilhar Localização GPS</span>
+                  </Button>
+                </div>
+              )}
+              
+              <p className="text-[9px] text-slate-500 leading-normal font-normal">
+                Conforme ICP-Brasil e MP 2.200-2, vinculamos metadados de IP, coordenadas geográficas e navegador para segurança jurídica mútua.
               </p>
             </div>
           </div>
@@ -815,13 +924,14 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
           <div className="flex gap-3 pt-2">
             <Button
               variant="outline"
-              className="flex-1 h-11 rounded-full font-bold border-slate-800 hover:bg-slate-850 text-slate-400"
+              className="flex-1 h-12 rounded-full font-bold border-white/10 hover:bg-slate-900 text-slate-400 hover:text-slate-200 cursor-pointer"
               onClick={() => setPasso(3)}
             >
               Voltar
             </Button>
             <Button
-              className="flex-1 h-11 rounded-full font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-950/50 transition-all gap-1.5"
+              className="flex-1 h-12 rounded-full font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40 shadow-lg shadow-emerald-950/50 transition-all gap-1.5 cursor-pointer"
+              disabled={geolocationStatus !== 'success' && !geolocation}
               onClick={handleSubmitSignature}
             >
               <CheckCircle2 size={16} />
@@ -833,7 +943,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
 
       {/* STEP 5: LOADING / SUCCESS PAGE */}
       {passo === 5 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-6 shadow-2xl relative overflow-hidden animate-fade-in-up">
+        <div className="bg-slate-950/75 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center space-y-6 shadow-[0_0_50px_rgba(99,102,241,0.15)] relative overflow-hidden animate-fade-in-up">
           {enviando ? (
             <div className="py-8 space-y-6">
               <div className="w-16 h-16 rounded-full border border-indigo-500/10 flex items-center justify-center mx-auto text-indigo-500 relative">
@@ -841,48 +951,48 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
                 <div className="absolute inset-0 rounded-full border border-indigo-500/20 animate-ping opacity-60" />
               </div>
               <div>
-                <h2 className="text-lg font-black tracking-tight text-slate-100">Processando Assinatura...</h2>
-                <p className="text-xs text-slate-400 mt-2 max-w-xs mx-auto leading-relaxed">
-                  Estamos fazendo o upload seguro das fotos, gerando seu Termo de Autenticidade Digital e assinando o seu contrato oficial. Aguarde alguns segundos.
+                <h2 className="text-xl font-black tracking-tight text-slate-100">Registrando Mútuo...</h2>
+                <p className="text-xs text-slate-450 mt-2 max-w-xs mx-auto leading-relaxed font-semibold">
+                  Estamos salvando com segurança as comprovações biométricas e compilando o seu contrato digital assinado. Por favor, aguarde.
                 </p>
               </div>
             </div>
           ) : (
             <div className="py-6 space-y-6 animate-scale-up">
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-500" />
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-500 shadow-[0_1px_10px_#10b981]" />
               
-              <div className="w-18 h-18 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto text-emerald-500 relative">
-                <CheckCircle2 size={40} className="relative z-10" />
+              <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto text-emerald-500 relative border border-emerald-500/20 shadow-lg">
+                <CheckCircle2 size={44} className="relative z-10" />
                 <div className="absolute inset-0 rounded-full border border-emerald-500/10 animate-ping opacity-40" />
               </div>
               
               <div className="space-y-2">
-                <h2 className="text-xl font-black text-slate-100 tracking-tight">Contrato Assinado com Sucesso!</h2>
+                <h2 className="text-2xl font-black text-slate-100 tracking-tight">Mútuo Assinado com Sucesso!</h2>
                 <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
-                  Parabéns! O processo de assinatura digital do contrato **{contrato.numero_contrato}** foi concluído com sucesso e está 100% verificado.
+                  A assinatura do contrato **{contrato.numero_contrato}** foi finalizada. O arquivo PDF já está resguardado no sistema.
                 </p>
               </div>
 
-              <div className="bg-slate-950 rounded-2xl border border-slate-800 p-4 text-left text-[11px] font-semibold text-slate-400 space-y-1.5 max-w-xs mx-auto">
-                <p className="text-center font-bold text-slate-300 uppercase tracking-wider text-[9px] mb-1">Registro de Autenticidade</p>
+              <div className="bg-slate-900/70 rounded-2xl border border-white/5 p-4.5 text-left text-[11px] font-semibold text-slate-400 space-y-2 max-w-xs mx-auto">
+                <p className="text-center font-bold text-slate-300 uppercase tracking-wider text-[9px] mb-1.5">Metadados da Evidência</p>
                 <div className="flex justify-between">
-                  <span>Tomador:</span>
+                  <span>Signatário:</span>
                   <span className="text-slate-200">{cliente.nome}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Horário:</span>
+                  <span>Data e Hora:</span>
                   <span className="text-slate-200 font-mono">{new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Validação:</span>
-                  <span className="text-emerald-500 font-bold">Biometria e Evidências Salvas</span>
+                  <span>Status:</span>
+                  <span className="text-emerald-400 font-extrabold">Autenticidade Verificada</span>
                 </div>
               </div>
 
               {resultadoUrl && (
                 <div className="pt-2 max-w-xs mx-auto">
                   <a href={resultadoUrl} target="_blank" rel="noopener noreferrer" 
-                    className="flex items-center justify-center w-full h-11 rounded-full font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-950/40 transition-all text-sm active:scale-[0.98]">
+                    className="flex items-center justify-center w-full h-12 rounded-full font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-950/40 transition-all text-sm hover:scale-[1.02] active:scale-[0.98] cursor-pointer">
                     Visualizar Contrato Assinado
                   </a>
                 </div>

@@ -1005,46 +1005,46 @@ export default function ClientePerfilPage() {
           />
         </div>
 
-        {/* ── Tabs ────────────────────────────────────────────────────── */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="w-full justify-start h-auto flex-wrap gap-1.5 bg-muted/50 p-1.5 rounded-full border border-border/30">
-            <TabsTrigger value="historico" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
-              <History size={13} />
-              Linha do Tempo
-            </TabsTrigger>
-            <TabsTrigger value="emprestimos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
-              Títulos Ativos
-              {emprestimos.length > 0 && (
-                <Badge variant="outline" className="ml-0.5 text-[10px] font-bold h-5 min-w-5 rounded-full p-0 flex items-center justify-center bg-[#E8F0FE] text-[#1A73E8] border-[#1A73E8]/20">
-                  {emprestimos.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="pagamentos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
-              Recibos
-            </TabsTrigger>
-            <TabsTrigger value="dados" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
-              Dados Cadastrais
-            </TabsTrigger>
-            <TabsTrigger value="anotacoes" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
-              Anotações
-            </TabsTrigger>
-            <TabsTrigger value="documentos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
-              <FileText size={13} />
-              Documentos
-              {documentos.length > 0 && (
-                <Badge variant="outline" className="ml-0.5 text-[10px] font-bold h-5 min-w-5 rounded-full p-0 flex items-center justify-center bg-[#E8F0FE] text-[#1A73E8] border-[#1A73E8]/20">
-                  {documentos.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="score" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
-              Risco & Score
-            </TabsTrigger>
-            <TabsTrigger value="credito" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
-              Crédito Assertiva
-            </TabsTrigger>
-          </TabsList>
+        {/* ── Two Column Grid Layout ────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          {/* Main Content Column */}
+          <div className="lg:col-span-2 space-y-6">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+              <TabsList className="w-full justify-start h-auto flex-wrap gap-1.5 bg-muted/50 p-1.5 rounded-full border border-border/30">
+                <TabsTrigger value="historico" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+                  <History size={13} />
+                  Linha do Tempo
+                </TabsTrigger>
+                <TabsTrigger value="emprestimos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+                  Títulos Ativos
+                  {emprestimos.length > 0 && (
+                    <Badge variant="outline" className="ml-0.5 text-[10px] font-bold h-5 min-w-5 rounded-full p-0 flex items-center justify-center bg-[#E8F0FE] text-[#1A73E8] border-[#1A73E8]/20">
+                      {emprestimos.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="pagamentos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+                  Recibos
+                </TabsTrigger>
+                <TabsTrigger value="dados" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+                  Dados Cadastrais
+                </TabsTrigger>
+                <TabsTrigger value="anotacoes" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+                  Anotações
+                </TabsTrigger>
+                <TabsTrigger value="documentos" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+                  <FileText size={13} />
+                  Documentos
+                  {documentos.length > 0 && (
+                    <Badge variant="outline" className="ml-0.5 text-[10px] font-bold h-5 min-w-5 rounded-full p-0 flex items-center justify-center bg-[#E8F0FE] text-[#1A73E8] border-[#1A73E8]/20">
+                      {documentos.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="score" className="text-xs font-semibold px-4 py-2 rounded-full gap-1.5 data-[state=active]:bg-card data-[state=active]:text-[#1A73E8] data-[state=active]:shadow-sm">
+                  Risco & Score
+                </TabsTrigger>
+              </TabsList>
 
           {/* TAB 0 — Histórico unificado */}
           <TabsContent value="historico" className="outline-none">
@@ -2240,13 +2240,43 @@ export default function ClientePerfilPage() {
               </div>
             </div>
           </TabsContent>
-
-          {/* TAB — Crédito Assertiva */}
-          <TabsContent value="credito" className="outline-none">
-            <AssertivaTab cliente={cliente} onAtualizar={(rel) => setCliente(c => c ? { ...c, dados_assertiva: rel, score_assertiva: rel.score ?? null, faixa_risco_assertiva: rel.faixa_risco ?? null, renda_estimada_assertiva: rel.renda_estimada ?? null, assertiva_consultado_em: new Date().toISOString() } : c)} />
-          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Right Column: Permanent Credit Risk Sidebar */}
+      <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-6 h-fit max-h-[85vh] overflow-y-auto bg-card border border-border p-5 rounded-2xl shadow-m3-1">
+        <AssertivaTab
+          cliente={cliente}
+          onAtualizar={(rel) =>
+            setCliente((c) =>
+              c
+                ? {
+                    ...c,
+                    dados_assertiva: rel,
+                    score_assertiva: rel.score ?? null,
+                    faixa_risco_assertiva: rel.faixa_risco ?? null,
+                    renda_estimada_assertiva: rel.renda_estimada ?? null,
+                    assertiva_consultado_em: new Date().toISOString(),
+                    total_negativacoes_assertiva: rel.total_negativacoes ?? 0,
+                    valor_total_negativacoes_assertiva: rel.valor_total_negativacoes ?? 0.00,
+                    total_protestos_assertiva: rel.total_protestos ?? 0,
+                    valor_total_protestos_assertiva: rel.valor_total_protestos ?? 0.00,
+                    total_acoes_judiciais_assertiva: rel.total_acoes_judiciais ?? 0,
+                    valor_total_acoes_assertiva: rel.valor_total_acoes ?? 0.00,
+                    total_ccf_assertiva: rel.total_ccf ?? 0,
+                    total_dividas_assertiva: rel.total_dividas ?? 0,
+                    valor_total_dividas_assertiva: rel.valor_total_dividas ?? 0.00,
+                    pep_assertiva: rel.pep ?? false,
+                    indicador_obito_assertiva: rel.indicador_obito ?? false,
+                    situacao_documento_assertiva: rel.tipo === 'pf' ? (rel.situacao_cpf ?? null) : (rel.situacao_cnpj ?? null),
+                    faturamento_presumido_assertiva: rel.faturamento_presumido ? (typeof rel.faturamento_presumido === 'number' ? rel.faturamento_presumido : parseFloat(rel.faturamento_presumido as string)) : null,
+                  }
+                : c
+            )
+          }
+        />
+      </div>
+    </div>
 
       {/* ── Dialogs ────────────────────────────────────────────────────── */}
 
@@ -2330,6 +2360,7 @@ export default function ClientePerfilPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </AppShell>
   )
 }

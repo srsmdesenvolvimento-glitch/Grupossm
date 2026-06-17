@@ -1,26 +1,24 @@
+import { createAdminClient } from '@/lib/supabase/admin'
+
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
 const WHATSAPP_VERSION = process.env.WHATSAPP_VERSION ?? 'v20.0'
 
-const EVOLUTION_URL = process.env.EVOLUTION_API_URL
-const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_API_INSTANCE ?? 'default'
-
 /**
  * Envia uma mensagem via WhatsApp.
- * Suporta a API Oficial da Meta (WhatsApp Cloud API) com prioridade,
- * e possui fallback automático para Evolution API ou simulação em desenvolvimento.
- */
-export async function enviarMensagem(
+ * Prioriza credenciais dinâmicas da empresa cadastradas no banco de dados (Evolution API),
+ * com fallback para a API Oficial da Meta (se configurada em env) ou Evolution API global.
+ */export async function enviarMensagem(
   telefone: string,
   mensagem: string,
-): Promise<{ ok: boolean; erro?: string }> {
+  empresaId?: string,
+  imediato?: boolean,
+): Promise<{ ok: boolean; messageId?: string; erro?: string }> {
   const numero = telefone.replace(/\D/g, '')
   // Garante o DDI 55 se o número for brasileiro e sem DDI
   const numeroFormatado = numero.startsWith('55') ? numero : `55${numero}`
 
   // 1. Extração dinâmica de anexos PDF no corpo da mensagem
-  // Busca por links públicos terminados em .pdf
   const pdfRegex = /(https?:\/\/[^\s]+\.pdf[^\s]*)/i
   const match = mensagem.match(pdfRegex)
   
@@ -33,14 +31,42 @@ export async function enviarMensagem(
     textoFinal = mensagem.replace(pdfRegex, '').trim()
   }
 
-  // ── MODO 1: API Oficial do WhatsApp Cloud (Meta) ──────────────────────────
-  if (WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID) {
+  // ── 2. Resolução das Credenciais (Banco vs Env) ──────────────────────────
+  let apiUrl = process.env.EVOLUTION_API_URL
+  let apiKey = process.env.EVOLUTION_API_KEY
+  let instanceName = process.env.EVOLUTION_API_INSTANCE ?? 'default'
+  let useMeta = !!(WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID)
+  let delayMs = 1200
+
+  if (empresaId) {
+    try {
+      const supabase = createAdminClient()
+      const { data: config } = await supabase
+        .from('config_whatsapp')
+        .select('*')
+        .eq('empresa_id', empresaId)
+        .eq('ativo', true)
+        .maybeSingle()
+
+      if (config) {
+        apiUrl = config.api_url
+        apiKey = config.api_key
+        instanceName = config.instance_name
+        useMeta = false // Prioriza a Evolution API da empresa cadastrada no banco
+        delayMs = config.delay_ms ?? 1200
+      }
+    } catch (dbErr) {
+      console.error('[WhatsApp] Erro ao buscar config da empresa no banco:', dbErr)
+    }
+  }
+
+  // ── MODO A: API Oficial do WhatsApp Cloud (Meta) ──────────────────────────
+  if (useMeta && WHATSAPP_TOKEN && WHATSAPP_PHONE_NUMBER_ID) {
     const url = `https://graph.facebook.com/${WHATSAPP_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`
     
     let body: Record<string, any>
 
     if (linkPdf) {
-      // Determina o nome do arquivo amigável baseado no tipo de anexo
       let filename = 'documento.pdf'
       if (linkPdf.includes('contrato')) filename = 'contrato.pdf'
       else if (linkPdf.includes('recibo')) filename = 'recibo.pdf'
@@ -83,36 +109,41 @@ export async function enviarMensagem(
         return { ok: false, erro: `Meta API HTTP ${res.status}: ${errorText}` }
       }
 
-      return { ok: true }
+      const resData = await res.json()
+      const messageId = resData?.messages?.[0]?.id
+
+      return { ok: true, messageId }
     } catch (err) {
       return { ok: false, erro: `Erro ao conectar na Meta API: ${err instanceof Error ? err.message : String(err)}` }
     }
   }
 
-  // ── MODO 2: Fallback para Evolution API (Antigo) ──────────────────────────
-  if (EVOLUTION_URL && EVOLUTION_KEY) {
+  // ── MODO B: Evolution API (Empresa ou Global) ─────────────────────────────
+  if (apiUrl && apiKey) {
     try {
-      let endpoint = `${EVOLUTION_URL}/message/sendText/${EVOLUTION_INSTANCE}`
-      let body: Record<string, any> = {
-        number: numeroFormatado,
-        options: { delay: 1200 },
-      }
+      let endpoint = `${apiUrl}/message/sendText/${instanceName}`
+      let body: Record<string, any>
 
       if (linkPdf) {
-        endpoint = `${EVOLUTION_URL}/message/sendMedia/${EVOLUTION_INSTANCE}`
+        endpoint = `${apiUrl}/message/sendMedia/${instanceName}`
         body = {
-          ...body,
-          mediaMessage: {
-            mediatype: 'document',
-            fileName: linkPdf.includes('contrato') ? 'contrato.pdf' : 'recibo.pdf',
-            caption: textoFinal,
-            media: linkPdf,
+          number: numeroFormatado,
+          mediatype: 'document',
+          mimetype: 'application/pdf',
+          fileName: linkPdf.includes('contrato') ? 'contrato.pdf' : 'recibo.pdf',
+          caption: textoFinal,
+          media: linkPdf,
+          options: {
+            delay: imediato ? 0 : delayMs
           }
         }
       } else {
         body = {
-          ...body,
-          textMessage: { text: textoFinal },
+          number: numeroFormatado,
+          text: textoFinal,
+          options: {
+            delay: imediato ? 0 : delayMs
+          }
         }
       }
 
@@ -120,7 +151,7 @@ export async function enviarMensagem(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          apikey: EVOLUTION_KEY,
+          apikey: apiKey,
         },
         body: JSON.stringify(body),
       })
@@ -130,15 +161,21 @@ export async function enviarMensagem(
         return { ok: false, erro: `Evolution API HTTP ${res.status}: ${errorText}` }
       }
 
-      return { ok: true }
+      const resData = await res.json()
+      // A Evolution API retorna a chave com ID em resData.key?.id ou resData.message?.key?.id
+      const messageId = resData?.key?.id || resData?.message?.key?.id || resData?.instance?.message?.key?.id
+
+      return { ok: true, messageId }
     } catch (err) {
       return { ok: false, erro: `Erro ao conectar na Evolution API: ${err instanceof Error ? err.message : String(err)}` }
     }
   }
 
-  // ── MODO 3: Simulação de Desenvolvimento (Dry-run) ──────────────────────
+  // ── MODO C: Simulação de Desenvolvimento (Dry-run) ──────────────────────
   console.log('--- WhatsApp Dry-run Log ---')
   console.log(`Para: ${numeroFormatado}`)
+  console.log(`Empresa ID: ${empresaId ?? 'global'}`)
+  console.log(`Bypass Delay (Imediato): ${imediato ? 'Sim' : 'Não'}`)
   if (linkPdf) {
     console.log(`Documento Anexo: ${linkPdf}`)
     console.log(`Legenda: ${textoFinal}`)
@@ -147,5 +184,5 @@ export async function enviarMensagem(
   }
   console.log('-----------------------------')
   
-  return { ok: true }
+  return { ok: true, messageId: `mock_${Math.random().toString(36).substr(2, 9)}` }
 }

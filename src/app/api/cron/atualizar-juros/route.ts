@@ -9,9 +9,7 @@ function formatarDataBR(dataStr: string): string {
   if (!dataStr) return '—'
   const partes = dataStr.split('-')
   return partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : dataStr
-}
-
-export async function GET(request: NextRequest) {
+}export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization')
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -23,9 +21,13 @@ export async function GET(request: NextRequest) {
   hoje.setUTCHours(0, 0, 0, 0)
   const hojeStr = hoje.toISOString().split('T')[0]
 
-  // Cálculo da data para lembrete de 3 dias
-  const dataTresDias = new Date(hoje.getTime() + 3 * 86_400_000)
-  const dataTresDiasStr = dataTresDias.toISOString().split('T')[0]
+  // Obter hora atual em Brasília (America/Sao_Paulo)
+  const formatter = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: 'numeric',
+    hour12: false
+  })
+  const horaBrasilia = parseInt(formatter.format(new Date()))
 
   try {
     // 1. Carregar Configurações de todas as empresas
@@ -36,17 +38,37 @@ export async function GET(request: NextRequest) {
     if (cfgError) throw cfgError
 
     const configMap = new Map(
-      (configs ?? []).map(c => [
-        c.empresa_id,
-        {
-          multa_atraso: Number(c.multa_atraso ?? 2),
-          juros_mora_diario: Number(c.juros_mora_diario ?? 0.033),
-          whatsapp_padrao: c.whatsapp_padrao ?? 'Financeiro',
-          msg_vencimento: c.msg_vencimento,
-          msg_cobranca: c.msg_cobranca,
-        },
-      ]),
+      (configs ?? []).map(c => {
+        const settings = c.whatsapp_settings || {}
+        const horaEnvioStr = settings.hora_envio || '09:00'
+        const horaEnvioNum = parseInt(horaEnvioStr.split(':')[0]) || 9
+        return [
+          c.empresa_id,
+          {
+            multa_atraso: Number(c.multa_atraso ?? 2),
+            juros_mora_diario: Number(c.juros_mora_diario ?? 0.033),
+            whatsapp_padrao: c.whatsapp_padrao ?? 'Financeiro',
+            contrato_criado: settings.contrato_criado ?? { ativo: true },
+            contrato_assinado: settings.contrato_assinado ?? { ativo: true },
+            lembrete_pre_vencimento: settings.lembrete_pre_vencimento ?? { ativo: true, dias_antes: 3 },
+            lembrete_vencimento: settings.lembrete_vencimento ?? { ativo: true },
+            cobranca_pos_vencimento: settings.cobranca_pos_vencimento ?? { ativo: true },
+            hora_envio: horaEnvioStr,
+            hora_envio_num: horaEnvioNum,
+          }
+        ]
+      }),
     )
+
+    // 2. Carregar Cache de Idempotência: Notificações de parcelas já criadas/enviadas hoje
+    const { data: notificacoesHoje, error: notifErr } = await supabase
+      .from('notificacoes_log')
+      .select('referencia_id')
+      .eq('referencia_tipo', 'parcela')
+      .gte('created_at', hojeStr)
+
+    if (notifErr) throw notifErr
+    const idsEnviadosHoje = new Set((notificacoesHoje ?? []).map(n => n.referencia_id))
 
     // ── PARTE A: Atualização de Parcelas Atrasadas (Juros e Multa Diários) ──
     const { data: parcelasAtrasadas, error: pError } = await supabase
@@ -65,8 +87,13 @@ export async function GET(request: NextRequest) {
           multa_atraso: 2.0,
           juros_mora_diario: 0.033,
           whatsapp_padrao: 'Financeiro',
-          msg_vencimento: null,
-          msg_cobranca: null,
+          contrato_criado: { ativo: true },
+          contrato_assinado: { ativo: true },
+          lembrete_pre_vencimento: { ativo: true, dias_antes: 3 },
+          lembrete_vencimento: { ativo: true },
+          cobranca_pos_vencimento: { ativo: true },
+          hora_envio: '09:00',
+          hora_envio_num: 9,
         }
 
         const venc = new Date(p.data_vencimento + 'T00:00:00Z')
@@ -101,25 +128,31 @@ export async function GET(request: NextRequest) {
           return
         }
 
-        // Fila de cobrança de atraso via WhatsApp
+        // Fila de cobrança de atraso via WhatsApp (respeita hora_envio e idempotência)
         const cliente = p.clientes_factoring
         const emprestimo = p.emprestimos
+        const cobranca = cfg.cobranca_pos_vencimento
 
-        if (cliente && cliente.telefone) {
-          const defaultCobranca = `Prezado(a) {{nome}}, consta em nosso sistema que a sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} está em atraso há {{dias_atraso}} dias. O valor original de {{valor}} foi atualizado para {{valor_total}} (com acréscimo de multa de {{multa}} e juros de mora acumulados de {{juros_mora}}). Solicitamos a regularização via Chave PIX: {{whatsapp_padrao}}.`
-          const template = cfg.msg_cobranca || defaultCobranca
+        const deveEnviarMensagem = 
+          cobranca.ativo && 
+          horaBrasilia === cfg.hora_envio_num && 
+          !idsEnviadosHoje.has(p.id)
+
+        if (deveEnviarMensagem && cliente && cliente.telefone) {
+          const defaultCobranca = `Prezado(a) {{nome}}, consta em nosso sistema que a sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} está em atraso há {{dias_atraso}} dias. O valor de {{valor}} foi atualizado para {{valor_total}} (multa de {{multa}} e juros de {{juros_mora}}). Favor regularizar via PIX: {{whatsapp_padrao}}.`
+          const template = cobranca.template || defaultCobranca
           
           const msgTexto = template
-            .replace(/\{\{nome\}\}/g, cliente.nome)
-            .replace(/\{\{numero_parcela\}\}/g, String(p.numero_parcela))
-            .replace(/\{\{total_parcelas\}\}/g, String(p.total_parcelas))
-            .replace(/\{\{numero_contrato\}\}/g, emprestimo?.numero_contrato ?? '')
-            .replace(/\{\{dias_atraso\}\}/g, String(dias))
-            .replace(/\{\{valor\}\}/g, formatarMoeda(Number(p.valor)))
-            .replace(/\{\{multa\}\}/g, formatarMoeda(novaMulta))
-            .replace(/\{\{juros_mora\}\}/g, formatarMoeda(novosJuros))
-            .replace(/\{\{valor_total\}\}/g, formatarMoeda(valorTotalComEncargos))
-            .replace(/\{\{whatsapp_padrao\}\}/g, cfg.whatsapp_padrao)
+            .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
+            .replace(/\{\{\s*numero_parcela\s*\}\}/g, String(p.numero_parcela))
+            .replace(/\{\{\s*total_parcelas\s*\}\}/g, String(p.total_parcelas))
+            .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo?.numero_contrato ?? '')
+            .replace(/\{\{\s*dias_atraso\s*\}\}/g, String(dias))
+            .replace(/\{\{\s*valor\s*\}\}/g, formatarMoeda(Number(p.valor)))
+            .replace(/\{\{\s*multa\s*\}\}/g, formatarMoeda(novaMulta))
+            .replace(/\{\{\s*juros_mora\s*\}\}/g, formatarMoeda(novosJuros))
+            .replace(/\{\{\s*valor_total\s*\}\}/g, formatarMoeda(valorTotalComEncargos))
+            .replace(/\{\{\s*whatsapp_padrao\s*\}\}/g, cfg.whatsapp_padrao)
 
           const { error: notifCobrancaError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
@@ -127,11 +160,15 @@ export async function GET(request: NextRequest) {
             destinatario: cliente.telefone,
             assunto: `Cobrança de Atraso - Contrato ${emprestimo?.numero_contrato ?? ''}`,
             mensagem: msgTexto,
-            referencia_tipo: 'emprestimo',
-            referencia_id: p.emprestimo_id,
+            referencia_tipo: 'parcela',
+            referencia_id: p.id,
             status: 'pendente',
           })
-          if (notifCobrancaError) console.error('Falha ao enfileirar notificação de cobrança:', notifCobrancaError.message)
+          if (notifCobrancaError) {
+            console.error('Falha ao enfileirar notificação de cobrança:', notifCobrancaError.message)
+          } else {
+            idsEnviadosHoje.add(p.id) // Registra no cache local
+          }
         }
       })
 
@@ -154,24 +191,32 @@ export async function GET(request: NextRequest) {
       const updatesHoje = parcelasHoje.map(async p => {
         const cfg = configMap.get(p.empresa_id) ?? {
           whatsapp_padrao: 'Financeiro',
-          msg_vencimento: null,
+          lembrete_vencimento: { ativo: true },
+          hora_envio: '09:00',
+          hora_envio_num: 9,
         }
 
         const cliente = p.clientes_factoring
         const emprestimo = p.emprestimos
+        const venc = cfg.lembrete_vencimento
 
-        if (cliente && cliente.telefone) {
-          const defaultVencHoje = `Atenção, {{nome}}! Lembramos que sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} vence HOJE ({{data_vencimento}}) no valor de {{valor}}. Chave PIX de pagamento: {{whatsapp_padrao}}. Favor desconsiderar caso já tenha efetuado a liquidação.`
-          const template = cfg.msg_vencimento || defaultVencHoje
+        const deveEnviarMensagem = 
+          venc.ativo && 
+          horaBrasilia === cfg.hora_envio_num && 
+          !idsEnviadosHoje.has(p.id)
+
+        if (deveEnviarMensagem && cliente && cliente.telefone) {
+          const defaultVencHoje = `Atenção, {{nome}}! Sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} vence HOJE ({{data_vencimento}}) no valor de {{valor}}. Chave PIX de pagamento: {{whatsapp_padrao}}. Favor desconsiderar caso já pago.`
+          const template = venc.template || defaultVencHoje
 
           const msgTexto = template
-            .replace(/\{\{nome\}\}/g, cliente.nome)
-            .replace(/\{\{numero_parcela\}\}/g, String(p.numero_parcela))
-            .replace(/\{\{total_parcelas\}\}/g, String(p.total_parcelas))
-            .replace(/\{\{numero_contrato\}\}/g, emprestimo?.numero_contrato ?? '')
-            .replace(/\{\{data_vencimento\}\}/g, formatarDataBR(p.data_vencimento))
-            .replace(/\{\{valor\}\}/g, formatarMoeda(Number(p.valor)))
-            .replace(/\{\{whatsapp_padrao\}\}/g, cfg.whatsapp_padrao)
+            .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
+            .replace(/\{\{\s*numero_parcela\s*\}\}/g, String(p.numero_parcela))
+            .replace(/\{\{\s*total_parcelas\s*\}\}/g, String(p.total_parcelas))
+            .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo?.numero_contrato ?? '')
+            .replace(/\{\{\s*data_vencimento\s*\}\}/g, formatarDataBR(p.data_vencimento))
+            .replace(/\{\{\s*valor\s*\}\}/g, formatarMoeda(Number(p.valor)))
+            .replace(/\{\{\s*whatsapp_padrao\s*\}\}/g, cfg.whatsapp_padrao)
 
           const { error: notifHojeError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
@@ -179,11 +224,15 @@ export async function GET(request: NextRequest) {
             destinatario: cliente.telefone,
             assunto: `Aviso de Vencimento Hoje - Parcela ${p.numero_parcela}`,
             mensagem: msgTexto,
-            referencia_tipo: 'emprestimo',
-            referencia_id: p.emprestimo_id,
+            referencia_tipo: 'parcela',
+            referencia_id: p.id,
             status: 'pendente',
           })
-          if (notifHojeError) console.error('Falha ao enfileirar notificação de vencimento hoje:', notifHojeError.message)
+          if (notifHojeError) {
+            console.error('Falha ao enfileirar notificação de vencimento hoje:', notifHojeError.message)
+          } else {
+            idsEnviadosHoje.add(p.id)
+          }
         }
       })
 
@@ -191,45 +240,80 @@ export async function GET(request: NextRequest) {
       alertasHoje = parcelasHoje.length
     }
 
-    // ── PARTE C: Lembrete de Parcelas com Vencimento em 3 Dias ──
-    const { data: parcelasTresDias, error: tdError } = await supabase
-      .from('parcelas_emprestimo')
-      .select('*, clientes_factoring(*), emprestimos(*)')
-      .eq('status', 'pendente')
-      .eq('data_vencimento', dataTresDiasStr)
-
-    if (tdError) throw tdError
+    // ── PARTE C: Lembrete de Parcelas Pré-Vencimento (Dias Dinâmicos por Empresa) ──
+    const companiesByPreVencDays = new Map<number, string[]>()
+    for (const [empresaId, cfg] of configMap.entries()) {
+      // Apenas enfileira se o horário atual de Brasília coincidir com a hora configurada para a empresa
+      if (cfg.lembrete_pre_vencimento.ativo && horaBrasilia === cfg.hora_envio_num) {
+        const days = Number(cfg.lembrete_pre_vencimento.dias_antes ?? 3)
+        const currentList = companiesByPreVencDays.get(days) || []
+        companiesByPreVencDays.set(days, [...currentList, empresaId])
+      }
+    }
 
     let alertasTresDias = 0
 
-    if (parcelasTresDias && parcelasTresDias.length > 0) {
-      const updatesTresDias = parcelasTresDias.map(async p => {
-        const cfg = configMap.get(p.empresa_id) ?? {
-          whatsapp_padrao: 'Financeiro',
-        }
+    for (const [days, companyIds] of companiesByPreVencDays.entries()) {
+      const dataTresDias = new Date(hoje.getTime() + days * 86_400_000)
+      const dataTresDiasStr = dataTresDias.toISOString().split('T')[0]
 
-        const cliente = p.clientes_factoring
-        const emprestimo = p.emprestimos
+      const { data: parcelasPre, error: tdError } = await supabase
+        .from('parcelas_emprestimo')
+        .select('*, clientes_factoring(*), emprestimos(*)')
+        .eq('status', 'pendente')
+        .eq('data_vencimento', dataTresDiasStr)
+        .in('empresa_id', companyIds)
 
-        if (cliente && cliente.telefone) {
-          const msgTexto = `Olá, ${cliente.nome}! Passando para lembrar que sua parcela ${p.numero_parcela}/${p.total_parcelas} do contrato ${emprestimo?.numero_contrato ?? ''} vence em 3 dias (${formatarDataBR(p.data_vencimento)}) no valor de ${formatarMoeda(Number(p.valor))}. Evite multas pagando em dia! Chave PIX: ${cfg.whatsapp_padrao}.`
+      if (tdError) throw tdError
 
-          const { error: notifTresDiasError } = await supabase.from('notificacoes_log').insert({
-            empresa_id: p.empresa_id,
-            canal: 'whatsapp',
-            destinatario: cliente.telefone,
-            assunto: `Aviso de Vencimento em 3 Dias - Parcela ${p.numero_parcela}`,
-            mensagem: msgTexto,
-            referencia_tipo: 'emprestimo',
-            referencia_id: p.emprestimo_id,
-            status: 'pendente',
-          })
-          if (notifTresDiasError) console.error('Falha ao enfileirar notificação de 3 dias:', notifTresDiasError.message)
-        }
-      })
+      if (parcelasPre && parcelasPre.length > 0) {
+        const updatesPre = parcelasPre.map(async p => {
+          const cfg = configMap.get(p.empresa_id) ?? {
+            whatsapp_padrao: 'Financeiro',
+            lembrete_pre_vencimento: { ativo: true, template: '', dias_antes: 3 },
+          }
 
-      await Promise.all(updatesTresDias)
-      alertasTresDias = parcelasTresDias.length
+          const cliente = p.clientes_factoring
+          const emprestimo = p.emprestimos
+          const preVenc = cfg.lembrete_pre_vencimento
+
+          const deveEnviarMensagem = !idsEnviadosHoje.has(p.id)
+
+          if (deveEnviarMensagem && cliente && cliente.telefone) {
+            const defaultPreVenc = `Olá, {{nome}}! Passando para lembrar que sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} vence em {{dias_antes}} dias ({{data_vencimento}}) no valor de {{valor}}. Chave PIX: {{whatsapp_padrao}}.`
+            const template = preVenc.template || defaultPreVenc
+
+            const msgTexto = template
+              .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
+              .replace(/\{\{\s*numero_parcela\s*\}\}/g, String(p.numero_parcela))
+              .replace(/\{\{\s*total_parcelas\s*\}\}/g, String(p.total_parcelas))
+              .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo?.numero_contrato ?? '')
+              .replace(/\{\{\s*dias_antes\s*\}\}/g, String(days))
+              .replace(/\{\{\s*data_vencimento\s*\}\}/g, formatarDataBR(p.data_vencimento))
+              .replace(/\{\{\s*valor\s*\}\}/g, formatarMoeda(Number(p.valor)))
+              .replace(/\{\{\s*whatsapp_padrao\s*\}\}/g, cfg.whatsapp_padrao)
+
+            const { error: notifTresDiasError } = await supabase.from('notificacoes_log').insert({
+              empresa_id: p.empresa_id,
+              canal: 'whatsapp',
+              destinatario: cliente.telefone,
+              assunto: `Aviso de Vencimento em ${days} Dias - Parcela ${p.numero_parcela}`,
+              mensagem: msgTexto,
+              referencia_tipo: 'parcela',
+              referencia_id: p.id,
+              status: 'pendente',
+            })
+            if (notifTresDiasError) {
+              console.error('Falha ao enfileirar notificação de pré-vencimento:', notifTresDiasError.message)
+            } else {
+              idsEnviadosHoje.add(p.id)
+            }
+          }
+        })
+
+        await Promise.all(updatesPre)
+        alertasTresDias += parcelasPre.length
+      }
     }
 
     return NextResponse.json({

@@ -6,7 +6,7 @@ import {
   MapPin, Phone, Mail, Car, Building2, Users, Scale, CreditCard,
   TrendingDown, TrendingUp, Banknote, ShieldAlert, Briefcase,
   Heart, Globe, Baby, GraduationCap, Activity, BarChart3,
-  Receipt, FileWarning, Landmark, BadgeAlert,
+  Receipt, FileWarning, Landmark, BadgeAlert, History as HistoryIcon,
 } from 'lucide-react'
 import { SectionCard } from '@/components/shared/SectionCard'
 import { ScoreGauge } from './ScoreGauge'
@@ -169,6 +169,12 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
                   <p className="text-sm font-bold text-red-600">{formatarMoeda(relatorio.total_dividas!)}</p>
                 </div>
               )}
+              {relatorio.valor_total_dividas != null && relatorio.valor_total_dividas > 0 && (
+                <div className="bg-red-500/8 rounded-xl p-3">
+                  <p className="text-[10px] text-muted-foreground">Val. Total Dívidas</p>
+                  <p className="text-sm font-bold text-red-700">{formatarMoeda(relatorio.valor_total_dividas)}</p>
+                </div>
+              )}
               {(relatorio.valor_total_negativacoes ?? 0) > 0 && (
                 <div className="bg-red-500/5 rounded-xl p-3">
                   <p className="text-[10px] text-muted-foreground">Val. Negativações</p>
@@ -202,6 +208,8 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
         {isPf && (relatorio.data_nascimento || relatorio.nome_mae || relatorio.ocupacao) && (
           <Section title="Dados Pessoais" icon={Activity} severity="info" defaultOpen>
             <Row label="Data de Nascimento" value={formatarData(relatorio.data_nascimento)} />
+            <Row label="Idade" value={relatorio.idade ? `${relatorio.idade} anos` : null} />
+            <Row label="Signo" value={relatorio.signo} />
             <Row label="Sexo" value={relatorio.sexo} />
             <Row label="Estado Civil" value={relatorio.estado_civil_api} />
             <Row label="Ocupação / Profissão" value={relatorio.ocupacao} />
@@ -229,6 +237,9 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
             <Row label="Capital Social" value={relatorio.capital_social != null ? formatarMoeda(relatorio.capital_social) : null} />
             <Row label="Porte" value={relatorio.porte} />
             <Row label="Data de Abertura" value={formatarData(relatorio.data_abertura)} />
+            <Row label="Idade da Empresa" value={relatorio.idade_empresa ? `${relatorio.idade_empresa} anos` : null} />
+            <Row label="Qtd. Funcionários" value={relatorio.qtd_funcionarios} />
+            <Row label="Faturamento Presumido" value={relatorio.faturamento_presumido != null ? (typeof relatorio.faturamento_presumido === 'number' ? formatarMoeda(relatorio.faturamento_presumido) : relatorio.faturamento_presumido) : null} />
             <Row label="Matriz" value={relatorio.matriz !== undefined ? (relatorio.matriz ? 'Sim' : 'Filial') : null} />
             <Row label="Qtd. Filiais" value={relatorio.filiais_count} />
           </Section>
@@ -463,6 +474,46 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
                 {s.documento && <p className="text-muted-foreground font-mono text-[10px]">{formatCpf(s.documento)}</p>}
                 {s.data_entrada && <p className="text-muted-foreground text-[10px]">Desde {formatarData(s.data_entrada)}</p>}
                 {s.qualificacao && <p className="text-muted-foreground text-[10px]">{s.qualificacao}</p>}
+              </div>
+            ))}
+          </Section>
+        )}
+
+        {/* Score Detalhado & Cadastro Positivo */}
+        {relatorio.score_detalhado && (
+          <Section title="Score Detalhado & Cadastro Positivo" icon={ShieldAlert} severity="info">
+            <Row label="Classe de Risco" value={relatorio.score_detalhado.classe} />
+            <Row label="Faixa de Risco" value={relatorio.score_detalhado.faixa_titulo} />
+            <Row label="Descrição da Faixa" value={relatorio.score_detalhado.faixa_descricao} />
+            <Row label="Probabilidade" value={relatorio.score_detalhado.probabilidade} />
+            {relatorio.score_detalhado.cadastro_positivo && (
+              <div className="mt-3 pt-3 border-t border-current/10 space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Cadastro Positivo</h4>
+                <Row label="Suspenso" value={relatorio.score_detalhado.cadastro_positivo.suspenso ? 'Sim' : 'Não'} highlight={relatorio.score_detalhado.cadastro_positivo.suspenso ? 'orange' : undefined} />
+                {relatorio.score_detalhado.cadastro_positivo.atrasoConsumo && (
+                  <Row label="Atraso Consumo" value={`${relatorio.score_detalhado.cadastro_positivo.atrasoConsumo.descricao ?? ''} ${relatorio.score_detalhado.cadastro_positivo.atrasoConsumo.valor != null ? `(R$ ${relatorio.score_detalhado.cadastro_positivo.atrasoConsumo.valor})` : ''} - Risco: ${relatorio.score_detalhado.cadastro_positivo.atrasoConsumo.risco ?? 'N/A'}`} />
+                )}
+                {relatorio.score_detalhado.cadastro_positivo.atrasoRecente && (
+                  <Row label="Atraso Recente" value={`${relatorio.score_detalhado.cadastro_positivo.atrasoRecente.descricao ?? ''} ${relatorio.score_detalhado.cadastro_positivo.atrasoRecente.valor != null ? `(R$ ${relatorio.score_detalhado.cadastro_positivo.atrasoRecente.valor})` : ''} - Risco: ${relatorio.score_detalhado.cadastro_positivo.atrasoRecente.risco ?? 'N/A'}`} />
+                )}
+                {relatorio.score_detalhado.cadastro_positivo.relacionamentoCC && (
+                  <Row label="Relacionamento CC" value={`${relatorio.score_detalhado.cadastro_positivo.relacionamentoCC.descricao ?? ''} - Risco: ${relatorio.score_detalhado.cadastro_positivo.relacionamentoCC.risco ?? 'N/A'}`} />
+                )}
+                {relatorio.score_detalhado.cadastro_positivo.comprometimentoRenda && (
+                  <Row label="Comprometimento de Renda" value={`${relatorio.score_detalhado.cadastro_positivo.comprometimentoRenda.descricao ?? ''} ${relatorio.score_detalhado.cadastro_positivo.comprometimentoRenda.valor != null ? `(${relatorio.score_detalhado.cadastro_positivo.comprometimentoRenda.valor}%)` : ''} - Risco: ${relatorio.score_detalhado.cadastro_positivo.comprometimentoRenda.risco ?? 'N/A'}`} />
+                )}
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* Consultas Anteriores */}
+        {((relatorio.consultas_anteriores?.length ?? 0) > 0 || (relatorio.total_consultas_anteriores ?? 0) > 0) && (
+          <Section title="Consultas Anteriores" icon={HistoryIcon} count={relatorio.total_consultas_anteriores ?? relatorio.consultas_anteriores?.length} severity="info">
+            {relatorio.consultas_anteriores?.map((c, i) => (
+              <div key={i} className="flex justify-between items-center text-xs py-1.5 border-b border-border/30 last:border-0">
+                <span className="font-medium">{c.consultante ?? 'Consultante Não Informado'}</span>
+                <span className="text-muted-foreground shrink-0">{c.data ? formatarData(c.data) : '—'}</span>
               </div>
             ))}
           </Section>

@@ -55,6 +55,7 @@ export const MENU_EMPORIO: MenuItem[] = [
     href: '/mensagens',
     icon: 'MessageCircle',
     subitems: [
+      { label: 'Conexão WhatsApp', href: '/mensagens/conexao', icon: 'Link' },
       { label: 'Fila de Envio', href: '/mensagens/fila', icon: 'List' },
       { label: 'Histórico', href: '/mensagens/historico', icon: 'History' },
       { label: 'Templates', href: '/mensagens/templates', icon: 'FileText' },
@@ -119,6 +120,7 @@ export const MENU_FACTORING: MenuItem[] = [
     href: '/mensagens',
     icon: 'MessageCircle',
     subitems: [
+      { label: 'Conexão WhatsApp', href: '/mensagens/conexao', icon: 'Link' },
       { label: 'Fila de Envio', href: '/mensagens/fila', icon: 'List' },
       { label: 'Histórico', href: '/mensagens/historico', icon: 'History' },
       { label: 'Templates', href: '/mensagens/templates', icon: 'FileText' },

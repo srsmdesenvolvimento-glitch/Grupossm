@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { gerarContratoComAssinaturaPDF } from '@/lib/utils/documentos'
+import { enviarMensagem } from '@/lib/utils/whatsapp'
 
 export async function POST(
   request: NextRequest,
@@ -206,22 +207,45 @@ export async function POST(
       console.error('Erro ao atualizar cliente com documentos da assinatura:', clientUpdateError)
     }
 
-    // 11. Enqueue WhatsApp Notification
+    // 11. Enqueue WhatsApp Notification (Template Personalizado)
     try {
-      const msgTexto = `Parabéns, ${cliente.nome}! O seu contrato de empréstimo ${emprestimo.numero_contrato} foi assinado digitalmente com sucesso!\n\nVocê pode baixar a sua via oficial com o registro de autenticidade (selfie, documento e assinatura) no link abaixo:\n\n${finalPdfUrl}`
-      
-      const { error: notifError } = await supabase.from('notificacoes_log').insert({
-        empresa_id: emprestimo.empresa_id,
-        canal: 'whatsapp',
-        destinatario: cliente.telefone,
-        assunto: `Contrato ${emprestimo.numero_contrato} Assinado Digitalmente`,
-        mensagem: msgTexto,
-        referencia_tipo: 'emprestimo',
-        referencia_id: id,
-        status: 'pendente',
-      })
+      const { data: configFact } = await supabase
+        .from('config_factoring')
+        .select('whatsapp_settings')
+        .eq('empresa_id', emprestimo.empresa_id)
+        .maybeSingle()
 
-      if (notifError) console.error('Erro ao enfileirar notificação de assinatura:', notifError.message)
+      const wSettings = configFact?.whatsapp_settings as any
+      const trigger = wSettings?.contrato_assinado ?? {
+        ativo: true,
+        template: "Olá, {{nome}}! Seu contrato {{numero_contrato}} foi assinado digitalmente com sucesso. Segue em anexo a sua via do documento oficial com validade jurídica: {{link_contrato}}"
+      }
+
+      if (trigger.ativo) {
+        const msgTexto = trigger.template
+          .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
+          .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo.numero_contrato)
+          .replace(/\{\{\s*link_contrato\s*\}\}/g, finalPdfUrl)
+
+        // Envia a mensagem imediatamente e registra o log com o status de retorno
+        const result = await enviarMensagem(cliente.telefone, msgTexto, emprestimo.empresa_id, true)
+
+        const { error: notifError } = await supabase.from('notificacoes_log').insert({
+          empresa_id: emprestimo.empresa_id,
+          canal: 'whatsapp',
+          destinatario: cliente.telefone,
+          assunto: `Contrato ${emprestimo.numero_contrato} Assinado Digitalmente`,
+          mensagem: msgTexto,
+          referencia_tipo: 'emprestimo',
+          referencia_id: id,
+          status: result.ok ? 'enviado' : 'erro',
+          erro: result.ok ? null : (result.erro || 'Falha ao enviar mensagem imediatamente após assinatura.'),
+          whatsapp_message_id: result.ok ? (result.messageId || null) : null,
+          enviado_em: result.ok ? new Date().toISOString() : null,
+        })
+
+        if (notifError) console.error('Erro ao registrar log de notificação de assinatura:', notifError.message)
+      }
     } catch (notifErr) {
       console.error('Erro ao criar notificação:', notifErr)
     }

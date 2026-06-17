@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   await Promise.all(
     pendentes.map(async msg => {
-      const resultado = await enviarMensagem(msg.destinatario, msg.mensagem)
+      const resultado = await enviarMensagem(msg.destinatario, msg.mensagem, msg.empresa_id)
 
       if (resultado.ok) {
         enviadas++

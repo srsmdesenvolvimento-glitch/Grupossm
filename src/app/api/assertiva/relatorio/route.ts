@@ -32,38 +32,36 @@ async function getToken(): Promise<string | null> {
   const clientSecret = process.env.ASSERTIVA_CLIENT_SECRET
   if (!clientId || !clientSecret) return null
 
-  try {
-    const res = await fetch(AUTH_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-      },
-      body: 'grant_type=client_credentials',
-      cache: 'no-store',
-    })
+  const res = await fetch(AUTH_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+    },
+    body: 'grant_type=client_credentials',
+    cache: 'no-store',
+  })
 
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '')
-      console.error('[Assertiva] Auth failed:', res.status, errBody)
-      if (res.status === 403) {
-        throw new Error('PAGAMENTO_PENDENTE')
-      }
-      return null
-    }
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    console.error('[Assertiva] Auth failed:', res.status, errBody)
+    
+    let errorDescription = ''
+    try {
+      const parsed = JSON.parse(errBody)
+      errorDescription = parsed.error_description || parsed.message || ''
+    } catch {}
 
-    const data = await res.json()
-    const token = data.access_token ?? data.accessToken ?? data.token
-    if (!token) return null
-
-    _tokenCache = { token, expiresAt: Date.now() + TOKEN_TTL_MS }
-    return token
-  } catch (e: any) {
-    if (e?.message === 'PAGAMENTO_PENDENTE') throw e
-    console.error('[Assertiva] Auth error:', e)
-    return null
+    throw new Error(errorDescription || `HTTP ${res.status}`)
   }
+
+  const data = await res.json()
+  const token = data.access_token ?? data.accessToken ?? data.token
+  if (!token) return null
+
+  _tokenCache = { token, expiresAt: Date.now() + TOKEN_TTL_MS }
+  return token
 }
 
 // ─── Chamada genérica à API ───────────────────────────────────────────────────
@@ -1214,12 +1212,17 @@ export async function POST(request: NextRequest) {
     try {
       token = await getToken()
     } catch (e: any) {
-      if (e?.message === 'PAGAMENTO_PENDENTE') {
+      const msg = e?.message || ''
+      if (msg.includes('horario') || msg.includes('horário') || msg.includes('horario') || msg.includes('grupo') || msg.includes('permissao')) {
         return NextResponse.json(
-          { erro: 'Conta Assertiva bloqueada — pagamento pendente. Acesse o portal Assertiva e regularize o boleto.' },
-          { status: 402 }
+          { erro: `Acesso negado pela Assertiva neste horário: ${msg}` },
+          { status: 403 }
         )
       }
+      return NextResponse.json(
+        { erro: `Falha na Assertiva: ${msg || 'Erro de credenciais ou pagamento pendente.'}` },
+        { status: 402 }
+      )
     }
     if (!token) {
       return NextResponse.json(
@@ -1302,25 +1305,6 @@ export async function POST(request: NextRequest) {
     const isSandbox = process.env.ASSERTIVA_SANDBOX === 'true'
 
     if (!localizeRaw && !mixRaw) {
-      if (isSandbox) {
-        const relatorio = generateSandboxReport(doc, tipo)
-        relatorio._erros = ['Modo Sandbox Ativo — Credenciais Assertiva inválidas ou sem saldo. Dados simulados.']
-        
-        try {
-          await supabase.from('assertiva_cache_factoring').upsert(
-            {
-              chave: cacheChave,
-              resultado: relatorio,
-              consultado_em: new Date().toISOString(),
-              expira_em: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
-            },
-            { onConflict: 'chave' }
-          )
-        } catch { /* ignora */ }
-
-        return NextResponse.json(relatorio)
-      }
-
       return NextResponse.json(
         { erro: 'Nenhuma resposta válida da Assertiva', detalhes: erros },
         { status: 502 }
@@ -1336,16 +1320,7 @@ export async function POST(request: NextRequest) {
       ? parseMixPf(mixRaw)
       : parseMixPj(mixRaw)
 
-    const merged = mergeData(localizeParsed, mixParsed)
-    
-    // Injeta fallback de sandbox se estiver habilitado ou se o Crédito Mix falhou
-    const mixFailed = !mixRaw
-    const enriched = injectSandboxFallback(tipo, merged, isSandbox, mixFailed)
-    
-    // Se enriquecemos com dados de sandbox e o Crédito Mix falhou, registra o aviso
-    if (mixFailed && (isSandbox || mixFailed)) {
-      erros.push('Crédito Mix indisponível. Dados financeiros/score simulados.')
-    }
+    const enriched = mergeData(localizeParsed, mixParsed)
     
     const totais = calcularTotais(enriched as Partial<RelatorioCompleto>)
 
