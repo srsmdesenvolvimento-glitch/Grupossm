@@ -405,6 +405,19 @@ export default function NovoClienteFactoringPage() {
           faixa_risco_assertiva: dadosAssertiva?.faixa_risco ?? null,
           renda_estimada_assertiva: dadosAssertiva?.renda_estimada ?? null,
           assertiva_consultado_em: dadosAssertiva ? new Date().toISOString() : null,
+          total_negativacoes_assertiva: dadosAssertiva?.total_negativacoes ?? 0,
+          valor_total_negativacoes_assertiva: dadosAssertiva?.valor_total_negativacoes ?? 0.00,
+          total_protestos_assertiva: dadosAssertiva?.total_protestos ?? 0,
+          valor_total_protestos_assertiva: dadosAssertiva?.valor_total_protestos ?? 0.00,
+          total_acoes_judiciais_assertiva: dadosAssertiva?.total_acoes_judiciais ?? 0,
+          valor_total_acoes_assertiva: dadosAssertiva?.valor_total_acoes ?? 0.00,
+          total_ccf_assertiva: dadosAssertiva?.total_ccf ?? 0,
+          total_dividas_assertiva: dadosAssertiva?.total_dividas ?? 0,
+          valor_total_dividas_assertiva: dadosAssertiva?.valor_total_dividas ?? 0.00,
+          pep_assertiva: dadosAssertiva?.pep ?? false,
+          indicador_obito_assertiva: dadosAssertiva?.indicador_obito ?? false,
+          situacao_documento_assertiva: tipoPessoa === 'fisica' ? (dadosAssertiva?.situacao_cpf ?? null) : (dadosAssertiva?.situacao_cnpj ?? null),
+          faturamento_presumido_assertiva: dadosAssertiva?.faturamento_presumido ? (typeof dadosAssertiva.faturamento_presumido === 'number' ? dadosAssertiva.faturamento_presumido : parseFloat(dadosAssertiva.faturamento_presumido as string)) : null,
         })
         .select('id')
         .single()

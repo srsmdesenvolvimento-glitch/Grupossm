@@ -267,6 +267,19 @@ function AssertivaTab({
       faixa_risco_assertiva: data.faixa_risco ?? null,
       renda_estimada_assertiva: data.renda_estimada ?? null,
       assertiva_consultado_em: new Date().toISOString(),
+      total_negativacoes_assertiva: data.total_negativacoes ?? 0,
+      valor_total_negativacoes_assertiva: data.valor_total_negativacoes ?? 0.00,
+      total_protestos_assertiva: data.total_protestos ?? 0,
+      valor_total_protestos_assertiva: data.valor_total_protestos ?? 0.00,
+      total_acoes_judiciais_assertiva: data.total_acoes_judiciais ?? 0,
+      valor_total_acoes_assertiva: data.valor_total_acoes ?? 0.00,
+      total_ccf_assertiva: data.total_ccf ?? 0,
+      total_dividas_assertiva: data.total_dividas ?? 0,
+      valor_total_dividas_assertiva: data.valor_total_dividas ?? 0.00,
+      pep_assertiva: data.pep ?? false,
+      indicador_obito_assertiva: data.indicador_obito ?? false,
+      situacao_documento_assertiva: data.tipo === 'pf' ? (data.situacao_cpf ?? null) : (data.situacao_cnpj ?? null),
+      faturamento_presumido_assertiva: data.faturamento_presumido ? (typeof data.faturamento_presumido === 'number' ? data.faturamento_presumido : parseFloat(data.faturamento_presumido as string)) : null,
     }).eq('id', cliente.id)
   }
 

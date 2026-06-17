@@ -30,6 +30,8 @@ import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { toast } from 'sonner'
 import { formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
+import { buscarRelatorioAssertiva } from '@/lib/assertiva/client'
+import type { RelatorioCompleto } from '@/lib/assertiva/types'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -108,6 +110,15 @@ function maskCEP(v: string) {
   return d.replace(/(\d{5})(\d{3})/, '$1-$2')
 }
 
+function maskCNPJ(v: string) {
+  const d = v.replace(/\D/g, '').slice(0, 14)
+  return d
+    .replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')
+    .replace(/(\d{2})(\d{3})(\d{3})(\d{4})/, '$1.$2.$3/$4')
+    .replace(/(\d{2})(\d{3})(\d{3})/, '$1.$2.$3')
+    .replace(/(\d{2})(\d{3})/, '$1.$2')
+}
+
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 const clienteSchema = z.object({
@@ -147,6 +158,72 @@ export default function ClientesPage() {
   const [clienteSelecionado, setClienteSelecionado] = useState<ClienteEmporio | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [buscandoCEP, setBuscandoCEP] = useState(false)
+  const [buscandoAssertiva, setBuscandoAssertiva] = useState(false)
+  const [dadosAssertiva, setDadosAssertiva] = useState<RelatorioCompleto | null>(null)
+
+  const consultarAssertiva = async (docRaw: string) => {
+    const doc = (docRaw ?? '').replace(/\D/g, '')
+    if (doc.length !== 11 && doc.length !== 14) {
+      toast.error('Informe um CPF ou CNPJ válido de 11 ou 14 dígitos')
+      return
+    }
+    setBuscandoAssertiva(true)
+    try {
+      const tipo = doc.length === 11 ? 'pf' : 'pj'
+      const { data, erro } = await buscarRelatorioAssertiva(doc, tipo)
+      if (erro || !data) {
+        toast.error(erro ?? 'Nenhum dado retornado da Assertiva')
+        return
+      }
+      setDadosAssertiva(data)
+      
+      // Preenche dados cadastrais no form
+      if (data.nome) setValue('nome', data.nome)
+      
+      if (data.data_nascimento) {
+        let dt = data.data_nascimento
+        if (dt.includes('T')) dt = dt.split('T')[0]
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(dt)) {
+          const [d, m, y] = dt.split('/')
+          dt = `${y}-${m}-${d}`
+        }
+        setValue('data_nascimento', dt)
+      } else if (data.data_abertura) {
+        let dt = data.data_abertura
+        if (dt.includes('T')) dt = dt.split('T')[0]
+        setValue('data_nascimento', dt)
+      }
+
+      if (data.telefones?.length) {
+        const t = data.telefones.find((x: any) => x.tipo?.toLowerCase() === 'celular' || x.whatsapp) ?? data.telefones[0]
+        const num = (t.ddd ?? '') + (t.numero ?? '')
+        const cleanNum = num.replace(/\D/g, '')
+        if (cleanNum.length >= 10) setValue('telefone', maskPhone(cleanNum))
+      }
+
+      if (data.emails?.length) {
+        const sorted = [...data.emails].sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0))
+        if (sorted[0]?.email) setValue('email', sorted[0].email)
+      }
+
+      if (data.enderecos?.length) {
+        const end = data.enderecos[0]
+        if (end.cep) setValue('cep', maskCEP(end.cep))
+        if (end.logradouro) setValue('endereco', end.logradouro)
+        if (end.numero) setValue('numero', end.numero)
+        if (end.complemento) setValue('complemento', end.complemento)
+        if (end.bairro) setValue('bairro', end.bairro)
+        if (end.municipio) setValue('cidade', end.municipio)
+        if (end.uf) setValue('estado', end.uf)
+      }
+
+      toast.success('Dados importados com sucesso da Assertiva!')
+    } catch (err) {
+      toast.error('Erro ao consultar a API Assertiva')
+    } finally {
+      setBuscandoAssertiva(false)
+    }
+  }
 
   const {
     register,
@@ -223,12 +300,14 @@ export default function ClientesPage() {
 
   const abrirNovoCliente = () => {
     setClienteSelecionado(null)
+    setDadosAssertiva(null)
     reset({ status: 'ativo' })
     setSheetOpen(true)
   }
 
   const abrirEditarCliente = (cliente: ClienteEmporio) => {
     setClienteSelecionado(cliente)
+    setDadosAssertiva((cliente as any).dados_assertiva ?? null)
     reset({
       nome: cliente.nome,
       cpf: cliente.cpf ? maskCPF(cliente.cpf) : '',
@@ -256,7 +335,7 @@ export default function ClientesPage() {
     if (!empresaAtual) return
     setSalvando(true)
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         empresa_id: empresaAtual.id,
         nome: data.nome,
         cpf: data.cpf ? data.cpf.replace(/\D/g, '') : null,
@@ -275,6 +354,27 @@ export default function ClientesPage() {
         status: data.status,
         observacoes: data.observacoes || null,
         updated_at: new Date().toISOString(),
+      }
+
+      if (dadosAssertiva && dadosAssertiva.documento === payload.cpf) {
+        payload.dados_assertiva = dadosAssertiva
+        payload.score_assertiva = dadosAssertiva.score ?? null
+        payload.faixa_risco_assertiva = dadosAssertiva.faixa_risco ?? null
+        payload.renda_estimada_assertiva = dadosAssertiva.renda_estimada ?? null
+        payload.assertiva_consultado_em = new Date().toISOString()
+        payload.total_negativacoes_assertiva = dadosAssertiva.total_negativacoes ?? 0
+        payload.valor_total_negativacoes_assertiva = dadosAssertiva.valor_total_negativacoes ?? 0.00
+        payload.total_protestos_assertiva = dadosAssertiva.total_protestos ?? 0
+        payload.valor_total_protestos_assertiva = dadosAssertiva.valor_total_protestos ?? 0.00
+        payload.total_acoes_judiciais_assertiva = dadosAssertiva.total_acoes_judiciais ?? 0
+        payload.valor_total_acoes_assertiva = dadosAssertiva.valor_total_acoes ?? 0.00
+        payload.total_ccf_assertiva = dadosAssertiva.total_ccf ?? 0
+        payload.total_dividas_assertiva = dadosAssertiva.total_dividas ?? 0
+        payload.valor_total_dividas_assertiva = dadosAssertiva.valor_total_dividas ?? 0.00
+        payload.pep_assertiva = dadosAssertiva.pep ?? false
+        payload.indicador_obito_assertiva = dadosAssertiva.indicador_obito ?? false
+        payload.situacao_documento_assertiva = dadosAssertiva.tipo === 'pf' ? (dadosAssertiva.situacao_cpf ?? null) : (dadosAssertiva.situacao_cnpj ?? null)
+        payload.faturamento_presumido_assertiva = dadosAssertiva.faturamento_presumido ? (typeof dadosAssertiva.faturamento_presumido === 'number' ? dadosAssertiva.faturamento_presumido : parseFloat(dadosAssertiva.faturamento_presumido as string)) : null
       }
 
       if (clienteSelecionado) {
@@ -542,34 +642,58 @@ export default function ClientesPage() {
                   <p className="text-xs text-red-500">{errors.nome.message}</p>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div className="space-y-2">
-                  <Label htmlFor="cpf">CPF</Label>
-                  <Controller
-                    name="cpf"
-                    control={control}
-                    render={({ field }) => (
-                      <Input
-                        id="cpf"
-                        placeholder="000.000.000-00"
-                        value={field.value ?? ''}
-                        onChange={(e) => field.onChange(maskCPF(e.target.value))}
-                      />
-                    )}
-                  />
+                  <Label htmlFor="cpf">CPF/CNPJ</Label>
+                  <div className="flex gap-2">
+                    <Controller
+                      name="cpf"
+                      control={control}
+                      render={({ field }) => (
+                        <Input
+                          id="cpf"
+                          placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                          value={field.value ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '')
+                            if (val.length <= 11) {
+                              field.onChange(maskCPF(e.target.value))
+                            } else {
+                              field.onChange(maskCNPJ(e.target.value))
+                            }
+                          }}
+                          className="flex-1"
+                        />
+                      )}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const values = control._formValues
+                        consultarAssertiva(values.cpf)
+                      }}
+                      disabled={buscandoAssertiva}
+                      className="shrink-0 h-10 px-3"
+                    >
+                      {buscandoAssertiva ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : 'Consultar API'}
+                    </Button>
+                  </div>
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label htmlFor="rg">RG</Label>
                   <Input id="rg" {...register('rg')} placeholder="RG" />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="data_nascimento">Data de Nascimento</Label>
-                <Input
-                  id="data_nascimento"
-                  type="date"
-                  {...register('data_nascimento')}
-                />
+                <div className="space-y-2">
+                  <Label htmlFor="data_nascimento">Data de Nascimento</Label>
+                  <Input
+                    id="data_nascimento"
+                    type="date"
+                    {...register('data_nascimento')}
+                  />
+                </div>
               </div>
             </div>
 

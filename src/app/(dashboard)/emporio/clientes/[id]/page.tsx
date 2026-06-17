@@ -15,6 +15,8 @@ import {
   MessageCircle,
   Eye,
   Loader2,
+  AlertTriangle,
+  Search,
 } from 'lucide-react'
 
 import { createClient } from '@/lib/supabase/client'
@@ -33,6 +35,9 @@ import {
   formatarTelefone,
   iniciais,
 } from '@/lib/utils/formatters'
+import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
+import { buscarRelatorioAssertiva, scoreLabel, scoreColor } from '@/lib/assertiva/client'
+import type { RelatorioCompleto } from '@/lib/assertiva/types'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -88,6 +93,11 @@ interface ClienteEmporio {
   status: 'ativo' | 'inativo' | 'bloqueado'
   created_at: string
   updated_at: string
+  dados_assertiva: RelatorioCompleto | null
+  score_assertiva: number | null
+  faixa_risco_assertiva: string | null
+  renda_estimada_assertiva: number | null
+  assertiva_consultado_em: string | null
 }
 
 interface Venda {
@@ -193,6 +203,136 @@ const receberSchema = z.object({
 })
 
 type ReceberFormData = z.infer<typeof receberSchema>
+
+// ─── Assertiva Tab Component ─────────────────────────────────────────────────
+
+function AssertivaTab({
+  cliente,
+  onAtualizar,
+}: {
+  cliente: ClienteEmporio
+  onAtualizar: (rel: RelatorioCompleto) => void
+}) {
+  const supabase = createClient()
+  const [relatorio, setRelatorio] = useState<RelatorioCompleto | null>(
+    cliente.dados_assertiva ?? null
+  )
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function consultar() {
+    const doc = (cliente.cpf ?? '').replace(/\D/g, '')
+    if (!doc || (doc.length !== 11 && doc.length !== 14)) {
+      setErro('Cliente não possui CPF/CNPJ cadastrado.')
+      return
+    }
+    const tipo = doc.length === 11 ? 'pf' : 'pj'
+    setLoading(true)
+    setErro(null)
+
+    const { data, erro: err } = await buscarRelatorioAssertiva(doc, tipo)
+    setLoading(false)
+
+    if (err) { setErro(err); return }
+    if (!data) return
+
+    setRelatorio(data)
+    onAtualizar(data)
+
+    await supabase.from('clientes_emporio').update({
+      dados_assertiva: data,
+      score_assertiva: data.score ?? null,
+      faixa_risco_assertiva: data.faixa_risco ?? null,
+      renda_estimada_assertiva: data.renda_estimada ?? null,
+      assertiva_consultado_em: new Date().toISOString(),
+      total_negativacoes_assertiva: data.total_negativacoes ?? 0,
+      valor_total_negativacoes_assertiva: data.valor_total_negativacoes ?? 0.00,
+      total_protestos_assertiva: data.total_protestos ?? 0,
+      valor_total_protestos_assertiva: data.valor_total_protestos ?? 0.00,
+      total_acoes_judiciais_assertiva: data.total_acoes_judiciais ?? 0,
+      valor_total_acoes_assertiva: data.valor_total_acoes ?? 0.00,
+      total_ccf_assertiva: data.total_ccf ?? 0,
+      total_dividas_assertiva: data.total_dividas ?? 0,
+      valor_total_dividas_assertiva: data.valor_total_dividas ?? 0.00,
+      pep_assertiva: data.pep ?? false,
+      indicador_obito_assertiva: data.indicador_obito ?? false,
+      situacao_documento_assertiva: data.tipo === 'pf' ? (data.situacao_cpf ?? null) : (data.situacao_cnpj ?? null),
+      faturamento_presumido_assertiva: data.faturamento_presumido ? (typeof data.faturamento_presumido === 'number' ? data.faturamento_presumido : parseFloat(data.faturamento_presumido as string)) : null,
+    }).eq('id', cliente.id)
+  }
+
+  const consultadoEm = cliente.assertiva_consultado_em
+    ? new Date(cliente.assertiva_consultado_em)
+    : null
+  const horasDesdeConsulta = consultadoEm
+    ? (Date.now() - consultadoEm.getTime()) / (1000 * 60 * 60)
+    : null
+  const bloqueadoPorTempo = horasDesdeConsulta !== null && horasDesdeConsulta < 6
+  const horasRestantes = bloqueadoPorTempo ? Math.ceil(6 - horasDesdeConsulta!) : 0
+
+  return (
+    <div className="space-y-4">
+      {/* Header com botão de consulta */}
+      <div className="bg-white rounded-xl border p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex-1">
+          <h3 className="font-bold text-foreground text-base">Análise de Crédito — Assertiva</h3>
+          {consultadoEm ? (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Última consulta: <span className="font-medium">{consultadoEm.toLocaleString('pt-BR')}</span>
+              {relatorio?.score != null && (
+                <> · Score: <span className="font-bold" style={{ color: scoreColor(relatorio.score) }}>{relatorio.score}</span> ({scoreLabel(relatorio.score)})</>
+              )}
+              {bloqueadoPorTempo && (
+                <span className="ml-1 text-amber-600 font-semibold"> · atualização disponível em {horasRestantes}h</span>
+              )}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-0.5">Nenhuma consulta realizada ainda.</p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <Button onClick={consultar} disabled={loading || bloqueadoPorTempo} size="sm">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+            {relatorio ? 'Atualizar Consulta' : 'Consultar Assertiva'}
+          </Button>
+          {bloqueadoPorTempo && !loading && (
+            <p className="text-[10px] text-amber-600 font-medium">aguarde {horasRestantes}h para nova consulta</p>
+          )}
+        </div>
+      </div>
+
+      {/* Erro */}
+      {erro && !loading && (
+        <div className="flex items-start gap-3 bg-red-500/5 border border-red-500/20 rounded-2xl p-4">
+          <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-500">{erro}</p>
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 bg-white rounded-xl border text-center">
+          <Loader2 size={32} className="animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Consultando Assertiva...</p>
+        </div>
+      )}
+
+      {/* Relatório */}
+      {!loading && relatorio && <RelatorioView relatorio={relatorio} />}
+
+      {/* Empty */}
+      {!loading && !relatorio && !erro && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 bg-white rounded-xl border text-center">
+          <TrendingUp size={36} className="text-muted-foreground/30" />
+          <div>
+            <p className="font-semibold text-foreground">Sem dados de crédito</p>
+            <p className="text-sm text-muted-foreground mt-1">Clique em "Consultar Assertiva" para obter o relatório completo.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -658,6 +798,7 @@ export default function ClienteDetalhePage() {
           <TabsTrigger value="compras">Compras</TabsTrigger>
           <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
           <TabsTrigger value="dados">Dados</TabsTrigger>
+          <TabsTrigger value="assertiva">Assertiva</TabsTrigger>
           <TabsTrigger value="observacoes">Observações</TabsTrigger>
         </TabsList>
 
@@ -926,6 +1067,23 @@ export default function ClienteDetalhePage() {
               </div>
             </form>
           </div>
+        </TabsContent>
+
+        {/* ── Assertiva ── */}
+        <TabsContent value="assertiva">
+          <AssertivaTab
+            cliente={cliente}
+            onAtualizar={(novosDados) => {
+              setCliente(prev => prev ? {
+                ...prev,
+                dados_assertiva: novosDados,
+                score_assertiva: novosDados.score ?? null,
+                faixa_risco_assertiva: novosDados.faixa_risco ?? null,
+                renda_estimada_assertiva: novosDados.renda_estimada ?? null,
+                assertiva_consultado_em: new Date().toISOString()
+              } : null)
+            }}
+          />
         </TabsContent>
 
         {/* ── Observações ── */}

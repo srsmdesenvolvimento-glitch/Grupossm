@@ -5,6 +5,7 @@ import type {
   RelatorioAcaoJudicial, RelatorioCcf, RelatorioEndereco,
   RelatorioTelefone, RelatorioEmail, RelatorioParticipacao,
   RelatorioSocio, RelatorioConsultaAnterior, RelatorioScoreDetalhado,
+  RelatorioVeiculo, RelatorioVinculo,
 } from '@/lib/assertiva/types'
 
 // ─── URLs corretas conforme documentação oficial ──────────────────────────────
@@ -155,6 +156,31 @@ function parseLocalizePf(raw: any) {
   const ocupacao = cad.ocupacao ?? cad.profissao ?? histProf.cboDescricao
   const rendaEstimada = histProf.rendaEstimada ? parseFloat(histProf.rendaEstimada) : undefined
 
+  // Veículos
+  const veiculos: RelatorioVeiculo[] = (resp.veiculos ?? resp.possiveisVeiculos ?? []).map((v: any) => ({
+    placa: v.placa,
+    marca: v.marca,
+    modelo: v.modelo,
+    ano_fabricacao: v.anoFabricacao ? parseInt(v.anoFabricacao) : undefined,
+    ano_modelo: v.anoModelo ? parseInt(v.anoModelo) : undefined,
+    cor: v.cor,
+    situacao: v.situacao,
+    tipo: v.tipo,
+    renavam: v.renavam,
+    combustivel: v.combustivel,
+    municipio: v.cidade ?? v.municipio,
+    uf: v.uf,
+  }))
+
+  // Vínculos
+  const vinculos: RelatorioVinculo[] = (resp.vinculos ?? resp.possiveisParentes ?? resp.parentes ?? []).map((v: any) => ({
+    nome: v.nome,
+    cpf: v.cpf,
+    tipo: v.tipo ?? v.parentesco,
+    parentesco: v.parentesco,
+    data: v.data,
+  }))
+
   return {
     nome: cad.nome,
     nome_mae: cad.maeNome ?? cad.mae,
@@ -175,6 +201,8 @@ function parseLocalizePf(raw: any) {
     telefones: tels,
     emails,
     participacoes_societarias: parts,
+    veiculos,
+    vinculos,
   }
 }
 
@@ -229,6 +257,31 @@ function parseLocalizePj(raw: any) {
     data_entrada: s.dataEntrada,
   }))
 
+  // Veículos
+  const veiculos: RelatorioVeiculo[] = (resp.veiculos ?? resp.possiveisVeiculos ?? []).map((v: any) => ({
+    placa: v.placa,
+    marca: v.marca,
+    modelo: v.modelo,
+    ano_fabricacao: v.anoFabricacao ? parseInt(v.anoFabricacao) : undefined,
+    ano_modelo: v.anoModelo ? parseInt(v.anoModelo) : undefined,
+    cor: v.cor,
+    situacao: v.situacao,
+    tipo: v.tipo,
+    renavam: v.renavam,
+    combustivel: v.combustivel,
+    municipio: v.cidade ?? v.municipio,
+    uf: v.uf,
+  }))
+
+  // Vínculos
+  const vinculos: RelatorioVinculo[] = (resp.vinculos ?? resp.possiveisParentes ?? resp.parentes ?? []).map((v: any) => ({
+    nome: v.nome,
+    cpf: v.cpf,
+    tipo: v.tipo ?? v.parentesco,
+    parentesco: v.parentesco,
+    data: v.data,
+  }))
+
   return {
     razao_social: cad.razaoSocial,
     nome_fantasia: cad.nomeFantasia,
@@ -246,6 +299,8 @@ function parseLocalizePj(raw: any) {
     enderecos: ends,
     telefones: tels,
     emails,
+    veiculos,
+    vinculos,
   }
 }
 
