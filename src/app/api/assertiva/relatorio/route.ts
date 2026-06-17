@@ -95,7 +95,7 @@ function formatarDataParaIso(dataStr?: string): string | undefined {
 }
 
 // ─── Parser: Localize CPF → campos do RelatorioCompleto ───────────────────────
-function parseLocalizePf(raw: any) {
+export function parseLocalizePf(raw: any) {
   if (!raw) return {}
   // Localize retorna: { cabecalho, resposta: { dadosCadastrais, cadastro, enderecos, telefones, emails, ... } }
   const resp = raw.resposta ?? raw
@@ -207,7 +207,7 @@ function parseLocalizePf(raw: any) {
 }
 
 // ─── Parser: Localize CNPJ → campos do RelatorioCompleto ──────────────────────
-function parseLocalizePj(raw: any) {
+export function parseLocalizePj(raw: any) {
   if (!raw) return {}
   const resp = raw.resposta ?? raw
   const cad  = resp.dadosCadastrais ?? resp.cadastro ?? resp
@@ -305,7 +305,7 @@ function parseLocalizePj(raw: any) {
 }
 
 // ─── Parser: Crédito Mix PF → campos financeiros ─────────────────────────────
-function parseMixPf(raw: any) {
+export function parseMixPf(raw: any) {
   if (!raw) return {}
   const resp    = raw.resposta ?? raw
   const resumos = resp.resumos ?? {}
@@ -444,7 +444,7 @@ function parseMixPf(raw: any) {
 }
 
 // ─── Parser: Crédito Mix PJ → campos financeiros ─────────────────────────────
-function parseMixPj(raw: any) {
+export function parseMixPj(raw: any) {
   if (!raw) return {}
   const resp    = raw.resposta ?? raw
   const resumos = resp.resumos ?? {}
@@ -577,7 +577,7 @@ function parseMixPj(raw: any) {
 }
 
 // ─── Merge: combina dados de Localize + Mix (Mix tem prioridade) ──────────────
-function mergeData(localize: Record<string, any>, mix: Record<string, any>): Record<string, any> {
+export function mergeData(localize: Record<string, any>, mix: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {}
   const allKeys = new Set([...Object.keys(localize), ...Object.keys(mix)])
   for (const key of allKeys) {
@@ -596,7 +596,7 @@ function mergeData(localize: Record<string, any>, mix: Record<string, any>): Rec
 }
 
 // ─── Calcula totais gerais ────────────────────────────────────────────────────
-function calcularTotais(r: Partial<RelatorioCompleto>) {
+export function calcularTotais(r: Partial<RelatorioCompleto>) {
   const totalDividas = (r.total_negativacoes ?? 0) + (r.total_protestos ?? 0) +
                        (r.total_acoes_judiciais ?? 0) + (r.total_ccf ?? 0)
   const valorTotal   = (r.valor_total_negativacoes ?? 0) + (r.valor_total_protestos ?? 0) +
