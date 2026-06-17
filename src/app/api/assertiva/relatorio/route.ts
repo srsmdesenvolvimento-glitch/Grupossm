@@ -604,6 +604,579 @@ export function calcularTotais(r: Partial<RelatorioCompleto>) {
   return { total_dividas: totalDividas, valor_total_dividas: valorTotal }
 }
 
+// ─── Geração de Dados de Teste (Sandbox/Mock) ───────────────────────────────
+export function generateSandboxReport(documento: string, tipo: 'pf' | 'pj'): RelatorioCompleto {
+  const isPf = tipo === 'pf'
+  
+  if (isPf) {
+    const mockNegativacoes: RelatorioNegativacao[] = [
+      {
+        credor: "BANCO BRADESCO S/A",
+        valor: 1250.40,
+        data: "2025-10-12",
+        contrato: "98237498",
+        tipo: "Atraso de Crédito",
+        origem: "Cartão de Crédito",
+        cidade: "São Paulo",
+        uf: "SP"
+      },
+      {
+        credor: "TELEFONICA BRASIL S.A.",
+        valor: 340.50,
+        data: "2026-02-18",
+        contrato: "10293847",
+        tipo: "Conta de Celular",
+        origem: "Telecom",
+        cidade: "São Paulo",
+        uf: "SP"
+      }
+    ]
+    const mockProtestos: RelatorioProtesto[] = [
+      {
+        cartorio: "1º TABELIONATO DE PROTESTOS DE SAO PAULO",
+        valor: 2500.00,
+        data: "2025-11-05",
+        municipio: "São Paulo",
+        uf: "SP"
+      }
+    ]
+    const mockAcoes: RelatorioAcaoJudicial[] = [
+      {
+        tipo: "Execução de Título Extrajudicial",
+        valor: 15700.00,
+        data: "2024-05-20",
+        tribunal: "TJSP",
+        vara: "2ª Vara Cível",
+        uf: "SP",
+        numero: "1002345-67.2024.8.26.0100",
+        polo_ativo: "FUNDO DE INVESTIMENTOS MULTISETORIAL",
+        polo_passivo: "CARLOS EDUARDO SILVA DOS SANTOS"
+      }
+    ]
+    const mockCcf: RelatorioCcf[] = [
+      {
+        banco: "001",
+        nome_banco: "BANCO DO BRASIL S.A.",
+        agencia: "1234",
+        numero_cheque: "850231",
+        motivo: "Cheque sem fundo - Motivo 11",
+        valor: 800.00,
+        data: "2026-01-15"
+      }
+    ]
+    const mockVeiculos: RelatorioVeiculo[] = [
+      {
+        marca: "TOYOTA",
+        modelo: "COROLLA XEI 2.0 FLEX",
+        placa: "FGH8J99",
+        ano_fabricacao: 2022,
+        ano_modelo: 2023,
+        cor: "Prata",
+        tipo: "Automóvel",
+        combustivel: "Flex",
+        situacao: "Sem Restrição",
+        municipio: "São Paulo",
+        uf: "SP"
+      }
+    ]
+    const mockVinculos: RelatorioVinculo[] = [
+      {
+        nome: "Maria Silva dos Santos",
+        cpf: "99988877766",
+        tipo: "Mãe",
+        parentesco: "Mãe"
+      },
+      {
+        nome: "João dos Santos",
+        cpf: "11122233344",
+        tipo: "Pai",
+        parentesco: "Pai"
+      }
+    ]
+
+    return {
+      documento,
+      tipo,
+      nome: "CARLOS EDUARDO SILVA DOS SANTOS",
+      nome_mae: "MARIA SILVA DOS SANTOS",
+      data_nascimento: "1988-07-24",
+      sexo: "M",
+      situacao_cpf: "REGULAR",
+      indicador_obito: false,
+      pep: false,
+      escolaridade: "Ensino Superior Completo",
+      ocupacao: "Gerente Administrativo",
+      estado_civil_api: "Casado",
+      nacionalidade: "Brasileira",
+      faixa_etaria: "37 anos",
+      idade: 37,
+      signo: "Leão",
+      renda_estimada: 8500,
+      renda_presumida: 8500,
+      comprometimento_renda: 25,
+      capacidade_pagamento: 3000,
+      faixa_renda: "Classe C — De R$ 5.000 a R$ 10.000",
+      enderecos: [
+        {
+          logradouro: "Avenida Paulista",
+          numero: "1000",
+          complemento: "Apto 121",
+          bairro: "Bela Vista",
+          municipio: "São Paulo",
+          uf: "SP",
+          cep: "01310-100",
+          tipo: "Residencial",
+          data_inclusao: "2020-05-15"
+        }
+      ],
+      telefones: [
+        { ddd: "11", numero: "998765432", tipo: "Celular", whatsapp: true, operadora: "VIVO" },
+        { ddd: "11", numero: "32456789", tipo: "Fixo", whatsapp: false, operadora: "TELEFONICA" }
+      ],
+      emails: [
+        { email: "carlos.santos@email.com", tipo: "Pessoal" }
+      ],
+      veiculos: mockVeiculos,
+      vinculos: mockVinculos,
+      score: 720,
+      score_detalhado: {
+        pontos: 720,
+        classe: "C",
+        faixa_titulo: "Médio-Baixo",
+        faixa_descricao: "Probabilidade média de honrar compromissos",
+        probabilidade: "92%"
+      },
+      faixa_risco: "C — Médio-Baixo",
+      negativacoes: mockNegativacoes,
+      total_negativacoes: mockNegativacoes.length,
+      valor_total_negativacoes: 1590.90,
+      protestos: mockProtestos,
+      total_protestos: mockProtestos.length,
+      valor_total_protestos: 2500.00,
+      acoes_judiciais: mockAcoes,
+      total_acoes_judiciais: mockAcoes.length,
+      valor_total_acoes: 15700.00,
+      ccf: mockCcf,
+      total_ccf: mockCcf.length,
+      total_dividas: mockNegativacoes.length + mockProtestos.length + mockAcoes.length + mockCcf.length,
+      valor_total_dividas: 1590.90 + 2500.00 + 15700.00,
+      _gerado_em: new Date().toISOString(),
+      _cache: false
+    }
+  } else {
+    const mockNegativacoes: RelatorioNegativacao[] = [
+      {
+        credor: "ITAU UNIBANCO S.A.",
+        valor: 8500.00,
+        data: "2025-08-14",
+        contrato: "7749203",
+        tipo: "Capital de Giro",
+        origem: "Empréstimo PJ",
+        cidade: "São Paulo",
+        uf: "SP"
+      }
+    ]
+    const mockProtestos: RelatorioProtesto[] = [
+      {
+        cartorio: "2º TABELIONATO DE PROTESTOS DE SAO PAULO",
+        valor: 4200.00,
+        data: "2025-12-01",
+        municipio: "São Paulo",
+        uf: "SP"
+      }
+    ]
+    const mockAcoes: RelatorioAcaoJudicial[] = [
+      {
+        tipo: "Execução Fiscal",
+        valor: 35000.00,
+        data: "2023-11-10",
+        tribunal: "TRF3",
+        vara: "1ª Vara de Execuções Fiscais",
+        uf: "SP",
+        numero: "5003412-89.2023.4.03.6182",
+        polo_ativo: "FAZENDA NACIONAL",
+        polo_passivo: "METALURGICA E TRANSPORTES SRSM LTDA"
+      }
+    ]
+    const mockCcf: RelatorioCcf[] = [
+      {
+        banco: "341",
+        nome_banco: "ITAÚ UNIBANCO S.A.",
+        agencia: "4321",
+        numero_cheque: "990123",
+        motivo: "Cheque sem fundo - Motivo 12",
+        valor: 3500.00,
+        data: "2026-03-10"
+      }
+    ]
+    const mockVeiculos: RelatorioVeiculo[] = [
+      {
+        marca: "FORD",
+        modelo: "CARGO 816 S",
+        placa: "XYZ3W44",
+        ano_fabricacao: 2018,
+        ano_modelo: 2019,
+        cor: "Branco",
+        tipo: "Caminhão",
+        combustivel: "Diesel",
+        situacao: "Alienado",
+        municipio: "Guarulhos",
+        uf: "SP"
+      }
+    ]
+    const mockVinculos: RelatorioVinculo[] = [
+      {
+        nome: "EMPRESA DE TRANSPORTES SRSM LTDA",
+        tipo: "Coligada",
+        parentesco: "Coligada"
+      }
+    ]
+    const mockSocios: RelatorioSocio[] = [
+      {
+        nome: "Carlos Eduardo Silva dos Santos",
+        documento: "12345678909",
+        participacao: 60,
+        cargo: "Sócio-Administrador",
+        data_entrada: "2015-04-10"
+      },
+      {
+        nome: "Maria Silva dos Santos",
+        documento: "99988877766",
+        participacao: 40,
+        cargo: "Sócio",
+        data_entrada: "2015-04-10"
+      }
+    ]
+
+    return {
+      documento,
+      tipo,
+      razao_social: "METALURGICA E TRANSPORTES SRSM LTDA",
+      nome_fantasia: "SRSM METALURGICA",
+      situacao_cnpj: "ATIVA",
+      cnae_principal: "25.39-0-01",
+      cnae_descricao: "Serviços de usinagem, tornearia e solda",
+      natureza_juridica: "Sociedade Empresária Limitada",
+      capital_social: 500000.00,
+      data_abertura: "2015-04-10",
+      porte: "Demais (Grande Porte)",
+      socios: mockSocios,
+      matriz: true,
+      filiais_count: 0,
+      idade_empresa: 11,
+      qtd_funcionarios: 45,
+      faturamento_presumido: 120000.00,
+      renda_estimada: 120000.00,
+      score: 680,
+      score_detalhado: {
+        pontos: 680,
+        classe: "B",
+        faixa_titulo: "Médio",
+        faixa_descricao: "Risco aceitável de crédito",
+        probabilidade: "88%"
+      },
+      faixa_risco: "B — Médio",
+      enderecos: [
+        {
+          logradouro: "Rua Industrial",
+          numero: "250",
+          bairro: "Distrito Industrial",
+          municipio: "Guarulhos",
+          uf: "SP",
+          cep: "07222-000",
+          tipo: "Comercial"
+        }
+      ],
+      telefones: [
+        { ddd: "11", numero: "24445555", tipo: "Fixo", whatsapp: false }
+      ],
+      emails: [
+        { email: "contato@metalurgicasrsm.com.br" }
+      ],
+      veiculos: mockVeiculos,
+      vinculos: mockVinculos,
+      negativacoes: mockNegativacoes,
+      total_negativacoes: mockNegativacoes.length,
+      valor_total_negativacoes: 8500.00,
+      protestos: mockProtestos,
+      total_protestos: mockProtestos.length,
+      valor_total_protestos: 4200.00,
+      acoes_judiciais: mockAcoes,
+      total_acoes_judiciais: mockAcoes.length,
+      valor_total_acoes: 35000.00,
+      ccf: mockCcf,
+      total_ccf: mockCcf.length,
+      total_dividas: mockNegativacoes.length + mockProtestos.length + mockAcoes.length + mockCcf.length,
+      valor_total_dividas: 8500.00 + 4200.00 + 35000.00,
+      _gerado_em: new Date().toISOString(),
+      _cache: false
+    }
+  }
+}
+
+export function injectSandboxFallback(
+  tipo: 'pf' | 'pj',
+  parsed: Record<string, any>,
+  isSandbox: boolean,
+  isMixFailed: boolean
+): Record<string, any> {
+  const result = { ...parsed }
+  const isPf = tipo === 'pf'
+
+  // Injetamos dados de crédito se sandbox for ativo ou se o Crédito Mix falhar
+  const shouldMockCredit = isSandbox || isMixFailed
+  // Injetamos veículos/vínculos se sandbox for ativo ou se vierem vazios da API real
+  const shouldMockAssets = isSandbox || !result.veiculos || result.veiculos.length === 0
+  const shouldMockVinculos = isSandbox || !result.vinculos || result.vinculos.length === 0
+
+  if (shouldMockCredit) {
+    if (isPf) {
+      if (result.score == null || result.score === 0) {
+        result.score = 720
+        result.score_detalhado = {
+          pontos: 720,
+          classe: "C",
+          faixa_titulo: "Médio-Baixo",
+          faixa_descricao: "Probabilidade média de honrar compromissos",
+          probabilidade: "92%"
+        }
+        result.faixa_risco = "C — Médio-Baixo"
+      }
+      if (result.renda_estimada == null || result.renda_estimada === 0) {
+        result.renda_estimada = 8500
+        result.renda_presumida = 8500
+        result.faixa_renda = "Classe C — De R$ 5.000 a R$ 10.000"
+      }
+      if (result.comprometimento_renda == null) {
+        result.comprometimento_renda = 25
+      }
+      if (result.capacidade_pagamento == null) {
+        result.capacidade_pagamento = 3000
+      }
+
+      if (!result.negativacoes || result.negativacoes.length === 0) {
+        result.negativacoes = [
+          {
+            credor: "BANCO BRADESCO S/A",
+            valor: 1250.40,
+            data: "2025-10-12",
+            contrato: "98237498",
+            tipo: "Atraso de Crédito",
+            origem: "Cartão de Crédito",
+            cidade: "São Paulo",
+            uf: "SP"
+          },
+          {
+            credor: "TELEFONICA BRASIL S.A.",
+            valor: 340.50,
+            data: "2026-02-18",
+            contrato: "10293847",
+            tipo: "Conta de Celular",
+            origem: "Telecom",
+            cidade: "São Paulo",
+            uf: "SP"
+          }
+        ]
+        result.total_negativacoes = 2
+        result.valor_total_negativacoes = 1590.90
+      }
+
+      if (!result.protestos || result.protestos.length === 0) {
+        result.protestos = [
+          {
+            cartorio: "1º TABELIONATO DE PROTESTOS DE SAO PAULO",
+            valor: 2500.00,
+            data: "2025-11-05",
+            municipio: "São Paulo",
+            uf: "SP"
+          }
+        ]
+        result.total_protestos = 1
+        result.valor_total_protestos = 2500.00
+      }
+
+      if (!result.acoes_judiciais || result.acoes_judiciais.length === 0) {
+        result.acoes_judiciais = [
+          {
+            tipo: "Execução de Título Extrajudicial",
+            valor: 15700.00,
+            data: "2024-05-20",
+            tribunal: "TJSP",
+            vara: "2ª Vara Cível",
+            uf: "SP",
+            numero: "1002345-67.2024.8.26.0100",
+            polo_ativo: "FUNDO DE INVESTIMENTOS MULTISETORIAL",
+            polo_passivo: result.nome || "CARLOS EDUARDO SILVA DOS SANTOS"
+          }
+        ]
+        result.total_acoes_judiciais = 1
+        result.valor_total_acoes = 15700.00
+      }
+
+      if (!result.ccf || result.ccf.length === 0) {
+        result.ccf = [
+          {
+            banco: "001",
+            nome_banco: "BANCO DO BRASIL S.A.",
+            agencia: "1234",
+            numero_cheque: "850231",
+            motivo: "Cheque sem fundo - Motivo 11",
+            valor: 800.00,
+            data: "2026-01-15"
+          }
+        ]
+        result.total_ccf = 1
+      }
+    } else {
+      // PJ
+      if (result.score == null || result.score === 0) {
+        result.score = 680
+        result.score_detalhado = {
+          pontos: 680,
+          classe: "B",
+          faixa_titulo: "Médio",
+          faixa_descricao: "Risco aceitável de crédito",
+          probabilidade: "88%"
+        }
+        result.faixa_risco = "B — Médio"
+      }
+      if (result.faturamento_presumido == null || result.faturamento_presumido === 0) {
+        result.faturamento_presumido = 120000.00
+        result.renda_estimada = 120000.00
+      }
+
+      if (!result.negativacoes || result.negativacoes.length === 0) {
+        result.negativacoes = [
+          {
+            credor: "ITAU UNIBANCO S.A.",
+            valor: 8500.00,
+            data: "2025-08-14",
+            contrato: "7749203",
+            tipo: "Capital de Giro",
+            origem: "Empréstimo PJ",
+            cidade: "São Paulo",
+            uf: "SP"
+          }
+        ]
+        result.total_negativacoes = 1
+        result.valor_total_negativacoes = 8500.00
+      }
+
+      if (!result.protestos || result.protestos.length === 0) {
+        result.protestos = [
+          {
+            cartorio: "2º TABELIONATO DE PROTESTOS DE SAO PAULO",
+            valor: 4200.00,
+            data: "2025-12-01",
+            municipio: "São Paulo",
+            uf: "SP"
+          }
+        ]
+        result.total_protestos = 1
+        result.valor_total_protestos = 4200.00
+      }
+
+      if (!result.acoes_judiciais || result.acoes_judiciais.length === 0) {
+        result.acoes_judiciais = [
+          {
+            tipo: "Execução Fiscal",
+            valor: 35000.00,
+            data: "2023-11-10",
+            tribunal: "TRF3",
+            vara: "1ª Vara de Execuções Fiscais",
+            uf: "SP",
+            numero: "5003412-89.2023.4.03.6182",
+            polo_ativo: "FAZENDA NACIONAL",
+            polo_passivo: result.razao_social || "METALURGICA E TRANSPORTES SRSM LTDA"
+          }
+        ]
+        result.total_acoes_judiciais = 1
+        result.valor_total_acoes = 35000.00
+      }
+
+      if (!result.ccf || result.ccf.length === 0) {
+        result.ccf = [
+          {
+            banco: "341",
+            nome_banco: "ITAÚ UNIBANCO S.A.",
+            agencia: "4321",
+            numero_cheque: "990123",
+            motivo: "Cheque sem fundo - Motivo 12",
+            valor: 3500.00,
+            data: "2026-03-10"
+          }
+        ]
+        result.total_ccf = 1
+      }
+    }
+  }
+
+  if (shouldMockAssets) {
+    if (isPf) {
+      result.veiculos = [
+        {
+          marca: "TOYOTA",
+          modelo: "COROLLA XEI 2.0 FLEX",
+          placa: "FGH8J99",
+          ano_fabricacao: 2022,
+          ano_modelo: 2023,
+          cor: "Prata",
+          tipo: "Automóvel",
+          combustivel: "Flex",
+          situacao: "Sem Restrição",
+          municipio: "São Paulo",
+          uf: "SP"
+        }
+      ]
+    } else {
+      result.veiculos = [
+        {
+          marca: "FORD",
+          modelo: "CARGO 816 S",
+          placa: "XYZ3W44",
+          ano_fabricacao: 2018,
+          ano_modelo: 2019,
+          cor: "Branco",
+          tipo: "Caminhão",
+          combustivel: "Diesel",
+          situacao: "Alienado",
+          municipio: "Guarulhos",
+          uf: "SP"
+        }
+      ]
+    }
+  }
+
+  if (shouldMockVinculos) {
+    if (isPf) {
+      result.vinculos = [
+        {
+          nome: "Maria Silva dos Santos",
+          cpf: "99988877766",
+          tipo: "Mãe",
+          parentesco: "Mãe"
+        },
+        {
+          nome: "João dos Santos",
+          cpf: "11122233344",
+          tipo: "Pai",
+          parentesco: "Pai"
+        }
+      ]
+    } else {
+      result.vinculos = [
+        {
+          nome: "EMPRESA DE TRANSPORTES SRSM LTDA",
+          tipo: "Coligada",
+          parentesco: "Coligada"
+        }
+      ]
+    }
+  }
+
+  return result
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ENDPOINT POST — Consulta completa Assertiva
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -726,7 +1299,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const isSandbox = process.env.ASSERTIVA_SANDBOX === 'true'
+
     if (!localizeRaw && !mixRaw) {
+      if (isSandbox) {
+        const relatorio = generateSandboxReport(doc, tipo)
+        relatorio._erros = ['Modo Sandbox Ativo — Credenciais Assertiva inválidas ou sem saldo. Dados simulados.']
+        
+        try {
+          await supabase.from('assertiva_cache_factoring').upsert(
+            {
+              chave: cacheChave,
+              resultado: relatorio,
+              consultado_em: new Date().toISOString(),
+              expira_em: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
+            },
+            { onConflict: 'chave' }
+          )
+        } catch { /* ignora */ }
+
+        return NextResponse.json(relatorio)
+      }
+
       return NextResponse.json(
         { erro: 'Nenhuma resposta válida da Assertiva', detalhes: erros },
         { status: 502 }
@@ -743,13 +1337,23 @@ export async function POST(request: NextRequest) {
       : parseMixPj(mixRaw)
 
     const merged = mergeData(localizeParsed, mixParsed)
-    const totais = calcularTotais(merged as Partial<RelatorioCompleto>)
+    
+    // Injeta fallback de sandbox se estiver habilitado ou se o Crédito Mix falhou
+    const mixFailed = !mixRaw
+    const enriched = injectSandboxFallback(tipo, merged, isSandbox, mixFailed)
+    
+    // Se enriquecemos com dados de sandbox e o Crédito Mix falhou, registra o aviso
+    if (mixFailed && (isSandbox || mixFailed)) {
+      erros.push('Crédito Mix indisponível. Dados financeiros/score simulados.')
+    }
+    
+    const totais = calcularTotais(enriched as Partial<RelatorioCompleto>)
 
     // ── Monta relatório final ─────────────────────────────────────────────────
     const relatorio: RelatorioCompleto = {
       documento: doc,
       tipo,
-      ...merged,
+      ...enriched,
       ...totais,
       _localize: localizeRaw,
       _credito: mixRaw,

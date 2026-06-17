@@ -6,7 +6,9 @@ import {
   parseMixPf,
   parseMixPj,
   mergeData,
-  calcularTotais
+  calcularTotais,
+  generateSandboxReport,
+  injectSandboxFallback
 } from '../src/app/api/assertiva/relatorio/route';
 
 test('Assertiva Parsers - unit tests', async (t) => {
@@ -180,5 +182,39 @@ test('Assertiva Parsers - unit tests', async (t) => {
     assert.strictEqual(merged.veiculos[0].placa, 'AAA0A00');
     assert.strictEqual(totals.total_dividas, 3);
     assert.strictEqual(totals.valor_total_dividas, 1200.00);
+  });
+
+  await t.test('generateSandboxReport creates complete mock reports', () => {
+    const pfReport = generateSandboxReport('12345678909', 'pf');
+    assert.strictEqual(pfReport.tipo, 'pf');
+    assert.strictEqual(pfReport.score, 720);
+    assert.ok(pfReport.negativacoes && pfReport.negativacoes.length > 0);
+    assert.ok(pfReport.veiculos && pfReport.veiculos.length > 0);
+    assert.ok(pfReport.vinculos && pfReport.vinculos.length > 0);
+
+    const pjReport = generateSandboxReport('12345678901234', 'pj');
+    assert.strictEqual(pjReport.tipo, 'pj');
+    assert.strictEqual(pjReport.score, 680);
+    assert.ok(pjReport.negativacoes && pjReport.negativacoes.length > 0);
+    assert.ok(pjReport.veiculos && pjReport.veiculos.length > 0);
+    assert.ok(pjReport.vinculos && pjReport.vinculos.length > 0);
+  });
+
+  await t.test('injectSandboxFallback enriches empty reports correctly', () => {
+    const emptyPf = {
+      nome: 'GUSTAVO TESTE',
+      veiculos: [],
+      vinculos: [],
+      score: 0,
+      negativacoes: []
+    };
+
+    const enriched = injectSandboxFallback('pf', emptyPf, true, true);
+    
+    assert.strictEqual(enriched.score, 720);
+    assert.strictEqual(enriched.renda_estimada, 8500);
+    assert.ok(enriched.veiculos && enriched.veiculos.length > 0);
+    assert.ok(enriched.vinculos && enriched.vinculos.length > 0);
+    assert.ok(enriched.negativacoes && enriched.negativacoes.length > 0);
   });
 });
