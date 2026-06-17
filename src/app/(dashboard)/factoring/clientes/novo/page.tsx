@@ -800,7 +800,8 @@ export default function NovoClienteFactoringPage() {
                         const { data: existe } = await supabase
                           .from('clientes_factoring').select('id')
                           .eq('empresa_id', empresaAtual.id).eq('cpf', docLimpo).maybeSingle()
-                        if (existe) { setCpfDuplicado(true); setVerificandoDuplicata(false); return }
+                        // Temporariamente desativado para testes de duplicidade
+                        // if (existe) { setCpfDuplicado(true); setVerificandoDuplicata(false); return }
                       } catch { /* segue */ }
                       setVerificandoDuplicata(false)
                     }
