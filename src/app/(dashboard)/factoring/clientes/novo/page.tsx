@@ -109,7 +109,7 @@ export default function NovoClienteFactoringPage() {
   const [buscandoAssertiva, setBuscandoAssertiva] = useState(false)
   const [assertivaConsultada, setAssertivaConsultada] = useState(false)
   const [assertivaErro, setAssertivaErro] = useState<string | null>(null)
-  const [expandirRelatorio, setExpandirRelatorio] = useState(false)
+  const [expandirRelatorio, setExpandirRelatorio] = useState(true)
   const [verificandoDuplicata, setVerificandoDuplicata] = useState(false)
   const [cpfDuplicado, setCpfDuplicado] = useState(false)
 

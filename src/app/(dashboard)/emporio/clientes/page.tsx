@@ -32,6 +32,7 @@ import { toast } from 'sonner'
 import { formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
 import { buscarRelatorioAssertiva } from '@/lib/assertiva/client'
 import type { RelatorioCompleto } from '@/lib/assertiva/types'
+import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -827,6 +828,20 @@ export default function ClientesPage() {
                 </div>
               </div>
             </div>
+
+            {dadosAssertiva && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Relatório de Crédito Assertiva
+                  </p>
+                  <div className="rounded-xl border border-border p-4 bg-muted/10 max-h-[350px] overflow-y-auto">
+                    <RelatorioView relatorio={dadosAssertiva} />
+                  </div>
+                </div>
+              </>
+            )}
 
             <Separator />
 

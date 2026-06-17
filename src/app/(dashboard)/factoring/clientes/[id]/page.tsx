@@ -101,6 +101,19 @@ interface ClienteFactoring {
   faixa_risco_assertiva: string | null
   renda_estimada_assertiva: number | null
   assertiva_consultado_em: string | null
+  total_negativacoes_assertiva?: number | null
+  valor_total_negativacoes_assertiva?: number | null
+  total_protestos_assertiva?: number | null
+  valor_total_protestos_assertiva?: number | null
+  total_acoes_judiciais_assertiva?: number | null
+  valor_total_acoes_assertiva?: number | null
+  total_ccf_assertiva?: number | null
+  total_dividas_assertiva?: number | null
+  valor_total_dividas_assertiva?: number | null
+  pep_assertiva?: boolean | null
+  indicador_obito_assertiva?: boolean | null
+  situacao_documento_assertiva?: string | null
+  faturamento_presumido_assertiva?: number | null
 }
 
 interface Emprestimo {
@@ -909,10 +922,53 @@ export default function ClientePerfilPage() {
               </div>
             </div>
 
-            {/* Score gauge */}
-            <div className="flex flex-col items-center gap-1.5 shrink-0 bg-muted/20 border border-border/40 rounded-2xl p-4 shadow-sm">
-              <ScoreGauge score={cliente.score_interno ?? 0} size="md" />
-              <span className="text-xs text-muted-foreground/80 font-bold uppercase tracking-wider">Score Interno</span>
+            {/* Gauges and summaries */}
+            <div className="flex flex-wrap gap-4 shrink-0 mt-3 lg:mt-0">
+              {/* Score Interno */}
+              <div className="flex flex-col items-center justify-center gap-1.5 bg-muted/20 border border-border/40 rounded-2xl p-4 shadow-sm min-w-[130px]">
+                <ScoreGauge score={cliente.score_interno ?? 0} size="sm" />
+                <span className="text-[10px] text-muted-foreground/80 font-bold uppercase tracking-wider">Score Interno</span>
+              </div>
+
+              {/* Score Assertiva */}
+              {cliente.score_assertiva !== null && (
+                <div className="flex flex-col items-center justify-center gap-1.5 bg-muted/20 border border-border/40 rounded-2xl p-4 shadow-sm min-w-[130px]">
+                  <div
+                    className="flex h-14 w-14 items-center justify-center rounded-full border-4 font-extrabold text-base"
+                    style={{ borderColor: scoreColor(cliente.score_assertiva), color: scoreColor(cliente.score_assertiva) }}
+                  >
+                    {cliente.score_assertiva}
+                  </div>
+                  <span className="text-[10px] font-bold" style={{ color: scoreColor(cliente.score_assertiva) }}>
+                    {scoreLabel(cliente.score_assertiva)}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/80 font-bold uppercase tracking-wider">Score Assertiva</span>
+                </div>
+              )}
+
+              {/* Resumo Restrições e Patrimônio */}
+              {cliente.dados_assertiva && (
+                <div className="flex flex-col justify-center gap-1.5 bg-muted/20 border border-border/40 rounded-2xl p-4 shadow-sm text-xs min-w-[180px]">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground font-medium">Dívidas (Assertiva):</span>
+                    <span className={cn("font-bold", (cliente.total_dividas_assertiva ?? 0) > 0 ? "text-red-600" : "text-emerald-600")}>
+                      {cliente.total_dividas_assertiva ?? 0} ocorr. ({formatarMoeda(cliente.valor_total_dividas_assertiva ?? 0)})
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground font-medium">Veículos (Bens):</span>
+                    <span className="font-semibold text-foreground">
+                      {(cliente.dados_assertiva as any).veiculos?.length ?? 0} veículo(s)
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground font-medium">Situação CPF/CNPJ:</span>
+                    <span className="font-semibold text-foreground">
+                      {cliente.situacao_documento_assertiva ?? 'REGULAR'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

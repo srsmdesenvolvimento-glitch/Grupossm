@@ -98,6 +98,19 @@ interface ClienteEmporio {
   faixa_risco_assertiva: string | null
   renda_estimada_assertiva: number | null
   assertiva_consultado_em: string | null
+  total_negativacoes_assertiva?: number | null
+  valor_total_negativacoes_assertiva?: number | null
+  total_protestos_assertiva?: number | null
+  valor_total_protestos_assertiva?: number | null
+  total_acoes_judiciais_assertiva?: number | null
+  valor_total_acoes_assertiva?: number | null
+  total_ccf_assertiva?: number | null
+  total_dividas_assertiva?: number | null
+  valor_total_dividas_assertiva?: number | null
+  pep_assertiva?: boolean | null
+  indicador_obito_assertiva?: boolean | null
+  situacao_documento_assertiva?: string | null
+  faturamento_presumido_assertiva?: number | null
 }
 
 interface Venda {
@@ -744,18 +757,55 @@ export default function ClienteDetalhePage() {
               </div>
             </div>
           </div>
-          <Button
-            className="gap-2 bg-green-500 text-white hover:bg-green-600 sm:self-start"
-            onClick={() =>
-              window.open(
-                `https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`,
-                '_blank',
-              )
-            }
-          >
-            <MessageCircle className="h-4 w-4" />
-            WhatsApp
-          </Button>
+          <div className="flex flex-col sm:flex-row items-center gap-3 self-end sm:self-start">
+            {/* Assertiva Summary Header */}
+            {cliente.dados_assertiva && (
+              <div className="flex gap-3 bg-muted/20 border border-border/40 rounded-2xl p-3 shadow-sm text-xs min-w-[280px]">
+                {/* Score Assertiva */}
+                {cliente.score_assertiva !== null && (
+                  <div className="flex flex-col items-center justify-center gap-1 bg-white border border-border/40 rounded-xl p-1.5 min-w-[80px] shrink-0">
+                    <div
+                      className="flex h-10 w-10 items-center justify-center rounded-full border-4 font-black text-xs"
+                      style={{ borderColor: scoreColor(cliente.score_assertiva), color: scoreColor(cliente.score_assertiva) }}
+                    >
+                      {cliente.score_assertiva}
+                    </div>
+                    <span className="text-[9px] font-bold" style={{ color: scoreColor(cliente.score_assertiva) }}>
+                      {scoreLabel(cliente.score_assertiva)}
+                    </span>
+                  </div>
+                )}
+                {/* Resumo */}
+                <div className="flex flex-col justify-center gap-1.5 flex-1">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground font-medium">Restrições:</span>
+                    <span className={(cliente.total_dividas_assertiva ?? 0) > 0 ? "text-red-600 font-bold" : "text-emerald-600 font-bold"}>
+                      {cliente.total_dividas_assertiva ?? 0} ocorr. ({formatarMoeda(cliente.valor_total_dividas_assertiva ?? 0)})
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground font-medium">Bens (Veículos):</span>
+                    <span className="font-semibold text-foreground">
+                      {cliente.dados_assertiva.veiculos?.length ?? 0} veículo(s)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <Button
+              className="gap-2 bg-green-500 text-white hover:bg-green-600 sm:self-center"
+              onClick={() =>
+                window.open(
+                  `https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`,
+                  '_blank',
+                )
+              }
+            >
+              <MessageCircle className="h-4 w-4" />
+              WhatsApp
+            </Button>
+          </div>
         </div>
       </div>
 
