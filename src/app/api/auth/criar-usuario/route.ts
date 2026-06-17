@@ -58,6 +58,8 @@ export async function POST(request: NextRequest) {
       email,
     })
     if (perfilError) {
+      // Rollback: delete created auth user
+      await admin.auth.admin.deleteUser(newUser.user.id)
       return NextResponse.json({ erro: 'Erro ao criar perfil do usuário', detalhes: perfilError.message }, { status: 500 })
     }
 
@@ -68,11 +70,14 @@ export async function POST(request: NextRequest) {
       papel,
     })
     if (vinculoError) {
+      // Rollback: delete created auth user
+      await admin.auth.admin.deleteUser(newUser.user.id)
       return NextResponse.json({ erro: 'Erro ao vincular usuário à empresa', detalhes: vinculoError.message }, { status: 500 })
     }
 
     return NextResponse.json({ sucesso: true, id: newUser.user.id })
-  } catch {
-    return NextResponse.json({ erro: 'Erro interno' }, { status: 500 })
+  } catch (err: any) {
+    console.error('[Criar Usuário] Erro:', err)
+    return NextResponse.json({ erro: err?.message || 'Erro interno no servidor' }, { status: 500 })
   }
 }
