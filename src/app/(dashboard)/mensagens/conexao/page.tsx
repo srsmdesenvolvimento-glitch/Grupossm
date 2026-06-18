@@ -154,7 +154,7 @@ export default function WhatsAppConexaoPage() {
 
   // Status de conexão em tempo real da API
   const [connectionState, setConnectionState] = useState<'open' | 'close' | 'connecting' | 'nao_configurado' | 'erro'>('nao_configurado')
-  const [qrCodeData, setQrCodeData] = useState<{ base64?: string; code?: string } | null>(null)
+  const [qrCodeData, setQrCodeData] = useState<{ base64?: string; code?: string; qrcode?: { base64?: string; code?: string; } } | null>(null)
   const [loadingStatus, setLoadingStatus] = useState(false)
   const [loadingQr, setLoadingQr] = useState(false)
   const [savingConfig, setSavingConfig] = useState(false)
@@ -794,10 +794,10 @@ export default function WhatsAppConexaoPage() {
                       ) : qrCodeData ? (
                         <div className="flex flex-col items-center space-y-4">
                           <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                            {qrCodeData.base64 ? (
-                              <img src={qrCodeData.base64} alt="Evolution QR Code" className="w-[180px] h-[180px]" />
-                            ) : qrCodeData.code ? (
-                              <QRCodeSVG value={qrCodeData.code} size={180} />
+                            {qrCodeData.base64 || qrCodeData.qrcode?.base64 ? (
+                              <img src={qrCodeData.base64 || qrCodeData.qrcode?.base64} alt="Evolution QR Code" className="w-[180px] h-[180px]" />
+                            ) : qrCodeData.code || qrCodeData.qrcode?.code ? (
+                              <QRCodeSVG value={qrCodeData.code || qrCodeData.qrcode?.code || ''} size={180} />
                             ) : (
                               <div className="w-[180px] h-[180px] flex items-center justify-center text-xs text-slate-400">QR Inválido</div>
                             )}
@@ -824,24 +824,24 @@ export default function WhatsAppConexaoPage() {
 
                     {/* Footer Actions do Card */}
                     <div className="w-full flex gap-2 pt-2 border-t border-slate-100">
-                      {connectionState === 'open' ? (
+                      <Button 
+                        variant="outline"
+                        onClick={() => checkConnectionStatus(true)}
+                        disabled={loadingStatus || !config.api_url}
+                        className="flex-1 text-xs font-semibold rounded-lg py-2 border-slate-200 text-slate-600 hover:bg-slate-50"
+                      >
+                        <RefreshCw size={12} className={`mr-1.5 ${loadingStatus ? 'animate-spin' : ''}`} />
+                        Atualizar Status
+                      </Button>
+                      
+                      {(connectionState === 'open' || connectionState === 'connecting') && (
                         <Button 
                           variant="destructive"
                           onClick={disconnectInstance}
                           disabled={loadingStatus}
-                          className="w-full text-xs font-medium rounded-lg py-2"
+                          className="flex-1 text-xs font-medium rounded-lg py-2"
                         >
-                          Desconectar Aparelho
-                        </Button>
-                      ) : (
-                        <Button 
-                          variant="outline"
-                          onClick={() => checkConnectionStatus(true)}
-                          disabled={loadingStatus || !config.api_url}
-                          className="w-full text-xs font-semibold rounded-lg py-2 border-slate-200 text-slate-600 hover:bg-slate-50"
-                        >
-                          <RefreshCw size={12} className={`mr-1.5 ${loadingStatus ? 'animate-spin' : ''}`} />
-                          Atualizar Status
+                          Desconectar
                         </Button>
                       )}
                     </div>

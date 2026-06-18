@@ -145,9 +145,30 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ erro: `Falha ao gerar QR Code: ${connectErr}` }, { status: 400 })
         }
 
-        const connectData = await connectRes.json()
+        let connectData = await connectRes.json()
         
-        // A Evolution API retorna o QR Code em connectData.base64 ou connectData.code
+        // Se já estiver conectando, a API pode não retornar o QR code. Forçamos logout para resetar.
+        if (!connectData.base64 && !connectData.code && !connectData.qrcode?.base64 && !connectData.qrcode?.code) {
+          console.log('[WhatsApp API] Instância parece presa sem QR Code. Tentando logout para resetar...')
+          await fetch(`${apiUrl}/instance/logout/${instanceName}`, {
+            method: 'DELETE',
+            headers: { apikey: apiKey },
+          })
+          
+          // Tenta pegar o QR code mais uma vez
+          connectRes = await fetch(`${apiUrl}/instance/connect/${instanceName}`, {
+            method: 'GET',
+            headers: { apikey: apiKey },
+            cache: 'no-store',
+          })
+          
+          if (connectRes.ok) {
+            connectData = await connectRes.json()
+          }
+        }
+        
+        // A Evolution API retorna o QR Code em connectData.base64 ou connectData.code,
+        // ou às vezes encapsulado em connectData.qrcode.base64
         return NextResponse.json(connectData)
       } catch (err: any) {
         return NextResponse.json({ erro: `Erro ao requisitar QR Code: ${err.message}` }, { status: 500 })
