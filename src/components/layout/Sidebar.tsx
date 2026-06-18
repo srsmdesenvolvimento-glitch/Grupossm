@@ -160,10 +160,13 @@ export function Sidebar({
       {/* ── Brand ─────────────────────────────────────────────── */}
       <div
         className={cn(
-          'flex items-center border-b border-white/[0.06] shrink-0',
-          collapsed ? 'justify-center px-2 py-5' : 'px-5 py-6.5',
+          'flex items-center shrink-0 relative',
+          collapsed ? 'justify-center px-2 py-5' : 'px-5 py-5',
         )}
-        style={{ backgroundColor: cfg.bgSecondary }}
+        style={{
+          backgroundColor: cfg.bgSecondary,
+          boxShadow: `inset 0 -1px 0 ${cfg.primary}12`,
+        }}
       >
         {collapsed ? (
           <div
@@ -210,7 +213,7 @@ export function Sidebar({
       </div>
 
       {/* ── Navigation ────────────────────────────────────────── */}
-      <nav className={cn('flex-1 overflow-y-auto scrollbar-none py-4 space-y-1', collapsed ? 'px-2' : 'px-3')}>
+      <nav className={cn('flex-1 overflow-y-auto scrollbar-none py-3 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
         {menu.map(item => {
           if (item.subitems && item.subitems.length > 0) {
             const hasActive = item.subitems.some(s => isActive(s.href))
@@ -472,20 +475,18 @@ export function Sidebar({
       {/* ── Admin Section (admins only) ──────────────────────── */}
       {isAdmin && (
         <>
-          <div className={cn('px-3 pb-1 pt-3', collapsed ? 'hidden' : '')}>
-            <p
-              className="text-[10px] font-semibold uppercase tracking-[0.15em] px-2"
-              style={{ color: `${cfg.primary}70` }}
-            >
-              Administração
-            </p>
-          </div>
-          {collapsed && (
-            <div className="px-2 py-1">
-              <div className="h-px w-full opacity-20" style={{ backgroundColor: cfg.primary }} />
+          {collapsed ? (
+            <div className="px-2 py-1.5">
+              <div className="h-px w-full" style={{ background: `linear-gradient(to right, transparent, ${cfg.primary}25, transparent)` }} />
+            </div>
+          ) : (
+            <div className="px-4 pb-1 pt-2.5 flex items-center gap-2">
+              <div className="h-px flex-1" style={{ background: `linear-gradient(to right, ${cfg.primary}20, transparent)` }} />
+              <p className="text-[9px] font-bold uppercase tracking-[0.2em] shrink-0" style={{ color: `${cfg.primary}50` }}>Admin</p>
+              <div className="h-px flex-1" style={{ background: `linear-gradient(to left, ${cfg.primary}20, transparent)` }} />
             </div>
           )}
-          <nav className={cn('pb-2 space-y-1', collapsed ? 'px-2' : 'px-3')}>
+          <nav className={cn('pb-2 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
             {MENU_ADMIN.map(item => {
               if (item.subitems && item.subitems.length > 0) {
                 const hasActive = item.subitems.some(s => isActive(s.href))
@@ -573,15 +574,19 @@ export function Sidebar({
 
       {/* ── Footer ────────────────────────────────────────────── */}
       <div
-        className={cn('border-t border-white/[0.06] shrink-0', collapsed ? 'px-2 py-3' : 'px-3 py-3')}
+        className={cn('shrink-0 border-t border-white/[0.05]', collapsed ? 'px-2 py-3' : 'p-3')}
         style={{ backgroundColor: cfg.bgSecondary }}
       >
         {collapsed ? (
           <div className="flex flex-col items-center gap-2.5">
             <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold cursor-default select-none ring-2"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold cursor-default select-none"
               title={userName}
-              style={{ backgroundColor: `${cfg.primary}25`, color: cfg.primary, boxShadow: `0 0 0 2px ${cfg.primary}20` }}
+              style={{
+                background: `linear-gradient(135deg, ${cfg.primary}30, ${cfg.primary}15)`,
+                color: cfg.primary,
+                boxShadow: `0 0 0 1.5px ${cfg.primary}35, 0 2px 8px rgba(0,0,0,0.3)`,
+              }}
             >
               {userInitials}
             </div>
@@ -596,40 +601,58 @@ export function Sidebar({
             )}
           </div>
         ) : (
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2.5 px-2.5 py-2">
+          <div className="space-y-2">
+            {/* User card */}
+            <div
+              className="flex items-center gap-3 px-3 py-2.5 rounded-2xl"
+              style={{
+                background: `linear-gradient(135deg, ${cfg.primary}08, transparent)`,
+                border: `1px solid ${cfg.primary}12`,
+              }}
+            >
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ring-2"
-                style={{ backgroundColor: `${cfg.primary}25`, color: cfg.primary, boxShadow: `0 0 0 2px ${cfg.primary}20` }}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                style={{
+                  background: `linear-gradient(135deg, ${cfg.primary}40, ${cfg.primary}20)`,
+                  color: cfg.primary,
+                  boxShadow: `0 0 0 1.5px ${cfg.primary}30, 0 2px 8px rgba(0,0,0,0.25)`,
+                }}
               >
                 {userInitials}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-white text-xs font-semibold truncate tracking-[-0.01em]">{userName}</p>
-                <p className="text-white/30 text-[10px] truncate mt-0.5">{userRole}</p>
+                <p className="text-white/90 text-xs font-semibold truncate tracking-[-0.01em]">{userName}</p>
+                <p className="text-white/30 text-[10px] truncate mt-0.5 font-medium">{userRole}</p>
               </div>
               {onToggleCollapsed && (
                 <button
                   onClick={onToggleCollapsed}
-                  className="p-1.5 rounded-xl text-white/30 hover:text-white hover:bg-white/[0.08] transition-all duration-200 shrink-0"
+                  className="p-1.5 rounded-xl text-white/20 hover:text-white/70 hover:bg-white/[0.06] transition-all duration-200 shrink-0"
                   title="Recolher menu"
                 >
-                  <ChevronLeft size={16} />
+                  <ChevronLeft size={15} />
                 </button>
               )}
             </div>
 
-            <div className="border-t border-white/[0.06] pt-1.5">
-              <Link
-                href="/selecionar-empresa"
-                className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-sm text-white/30 hover:text-white hover:bg-white/[0.06] transition-all duration-200"
-              >
-                <Building2 size={16} />
-                <span>Trocar Empresa</span>
-              </Link>
-            </div>
+            {/* Trocar Empresa */}
+            <Link
+              href="/selecionar-empresa"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-white/35 hover:text-white/80 hover:bg-white/[0.05] transition-all duration-200 group"
+            >
+              <Building2 size={14} className="opacity-60 group-hover:opacity-100 transition-opacity" />
+              <span>Trocar Empresa</span>
+            </Link>
 
-            <p className="text-white/[0.12] text-[10px] text-center tracking-wide mt-0.5">v1.0.0</p>
+            {/* Version badge */}
+            <div className="flex justify-center pt-0.5">
+              <span
+                className="text-[9px] font-semibold tracking-widest px-2.5 py-0.5 rounded-full"
+                style={{ color: `${cfg.primary}50`, border: `1px solid ${cfg.primary}15` }}
+              >
+                v1.0.0
+              </span>
+            </div>
           </div>
         )}
       </div>

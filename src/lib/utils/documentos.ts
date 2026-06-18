@@ -1283,10 +1283,9 @@ export async function gerarContratoComAssinaturaPDF(
   doc.setTextColor(255, 255, 255)
   doc.text(`CERTIFICADO SRS M FACTORING — ${certId} — DOCUMENTO COM VALIDADE JURÍDICA CONFORME MP 2.200-2/2001`, 105, 287, { align: 'center' })
 
-  // ── PÁGINA 3: AVALIAÇÃO DE CRÉDITO E ANÁLISE DE RISCO (BACK-OFFICE) ──
-  // Somente se houver dados da Assertiva para resguardo
+  // Página 3 (ficha de crédito Assertiva) removida a pedido do usuário
   const cli = params.cliente as any
-  if (cli && (cli.assertiva_consultado_em || cli.score_assertiva != null)) {
+  if (false && cli && (cli.assertiva_consultado_em || cli.score_assertiva != null)) {
     doc.addPage()
     // Page Border Box
     doc.setDrawColor(0, 0, 0)
