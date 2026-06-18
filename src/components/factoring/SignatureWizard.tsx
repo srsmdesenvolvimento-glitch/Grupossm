@@ -980,56 +980,61 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
             </p>
           </div>
 
-          {/* Explicit Geolocation prompt / status details card */}
-          <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 space-y-3">
+          {/* Geolocation — obrigatória para assinar */}
+          <div className={`rounded-2xl p-4 space-y-3 border transition-all duration-300 ${
+            geolocationStatus === 'success'
+              ? 'bg-emerald-950/30 border-emerald-500/20'
+              : 'bg-red-950/30 border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.08)]'
+          }`}>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-350">
-                <MapPin size={14} className="text-indigo-400 shrink-0" />
-                <span>Consentimento de Geolocalização</span>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                <MapPin size={14} className={geolocationStatus === 'success' ? 'text-emerald-400' : 'text-red-400'} />
+                <span>Localização GPS — Obrigatória</span>
               </div>
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                geolocationStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
-                geolocationStatus === 'requesting' ? 'bg-indigo-500/10 text-indigo-400' :
-                'bg-red-500/10 text-red-400'
+                geolocationStatus === 'success' ? 'bg-emerald-500/15 text-emerald-400' :
+                geolocationStatus === 'requesting' ? 'bg-indigo-500/15 text-indigo-400' :
+                'bg-red-500/15 text-red-400'
               }`}>
-                {geolocationStatus === 'success' && 'Evidência Coletada'}
+                {geolocationStatus === 'success' && '✓ Capturada'}
                 {geolocationStatus === 'requesting' && 'Buscando GPS...'}
-                {geolocationStatus === 'idle' && 'Aguardando'}
-                {geolocationStatus === 'error' && 'Necessita Autorização'}
+                {geolocationStatus === 'idle' && '⚠ Necessária'}
+                {geolocationStatus === 'error' && '✕ Bloqueada'}
               </span>
             </div>
 
-            <div className="space-y-2 text-[11px] text-slate-400 leading-normal font-semibold">
-              {geolocationStatus === 'success' ? (
-                <p className="text-slate-300 bg-slate-950/45 p-2 rounded-xl border border-white/5 select-all font-mono text-[10px] break-all leading-normal">
-                  {geolocation}
+            {geolocationStatus === 'success' ? (
+              <div className="space-y-1.5">
+                <p className="text-[9px] font-semibold text-emerald-500/70 uppercase tracking-wide">Coordenadas registradas no contrato:</p>
+                <p className="text-slate-200 bg-slate-950/60 p-2.5 rounded-xl border border-emerald-500/15 select-all font-mono text-[10px] break-all leading-relaxed">
+                  📍 {geolocation}
                 </p>
-              ) : (
-                <div className="flex flex-col gap-2 bg-slate-950/45 p-3 rounded-xl border border-white/5">
-                  <p className="text-[10px] text-slate-400 font-normal">
-                    Para assinar este termo digital com pleno resguardo de autenticidade, sua localização geográfica é necessária. Favor autorizar o compartilhamento.
-                  </p>
-                  <Button
-                    type="button"
-                    onClick={() => obterLocalizacao(false)}
-                    variant="outline"
-                    size="sm"
-                    className="border-indigo-500/30 hover:bg-indigo-500/10 text-indigo-400 text-xs font-bold h-8.5 rounded-lg gap-1.5 self-start cursor-pointer"
-                  >
-                    {geolocationStatus === 'requesting' ? (
-                      <Loader2 size={13} className="animate-spin" />
-                    ) : (
-                      <RefreshCw size={13} />
-                    )}
-                    <span>Compartilhar Localização GPS</span>
-                  </Button>
-                </div>
-              )}
-              
-              <p className="text-[9px] text-slate-500 leading-normal font-normal">
-                Conforme ICP-Brasil e MP 2.200-2, vinculamos metadados de IP, coordenadas geográficas e navegador para segurança jurídica mútua.
-              </p>
-            </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 bg-slate-950/45 p-3 rounded-xl border border-red-500/10">
+                <p className="text-[10px] text-red-300/80 font-normal leading-relaxed">
+                  ⚠️ <strong>Localização obrigatória.</strong> A geolocalização é exigida para garantir autenticidade jurídica do contrato. Sem ela, não é possível assinar.
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => obterLocalizacao(false)}
+                  size="sm"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold h-9 rounded-lg gap-1.5 self-start cursor-pointer"
+                  disabled={geolocationStatus === 'requesting'}
+                >
+                  {geolocationStatus === 'requesting' ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <MapPin size={13} />
+                  )}
+                  <span>{geolocationStatus === 'requesting' ? 'Buscando GPS...' : 'Autorizar Localização GPS'}</span>
+                </Button>
+              </div>
+            )}
+
+            <p className="text-[9px] text-slate-500 leading-normal font-normal">
+              Conforme ICP-Brasil e MP 2.200-2, vinculamos coordenadas geográficas, IP e navegador para segurança jurídica mútua. Dado impresso no contrato.
+            </p>
           </div>
 
           <div className="flex gap-3 pt-2">

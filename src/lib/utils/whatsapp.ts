@@ -3,7 +3,7 @@
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
 const WHATSAPP_VERSION = process.env.WHATSAPP_VERSION ?? 'v20.0'
-const FETCH_TIMEOUT_MS = 12_000
+const FETCH_TIMEOUT_MS = 30_000
 
 // In-process config cache (TTL: 60s) — evita N queries DB por execucao de cron
 const _configCache = new Map<string, { data: any; expiresAt: number }>()
@@ -189,3 +189,4 @@ export async function enviarMensagem(
   console.log('[WhatsApp Dry-run]', { para: numeroFormatado, empresaId, imediato, linkPdf, textoFinal })
   return { ok: true, messageId: `mock_${Math.random().toString(36).substring(2, 11)}` }
 }
+

@@ -146,19 +146,5 @@ export const MENU_ADMIN: MenuItem[] = [
     href: '/admin/usuarios',
     icon: 'UserCog',
   },
-  {
-    label: 'Assinaturas',
-    href: '/admin/assinaturas',
-    icon: 'CreditCard',
-    subitems: [
-      { label: 'Gestão de Assinaturas', href: '/admin/assinaturas', icon: 'CreditCard' },
-      { label: 'Planos', href: '/admin/planos', icon: 'Package' },
-    ],
-  },
-  {
-    label: 'Salários',
-    href: '/admin/salarios',
-    icon: 'Wallet',
-  },
 ]
 
