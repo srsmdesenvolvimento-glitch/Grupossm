@@ -1,0 +1,24 @@
+name: Keep Evolution API Alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # A cada 10 minutos — evita o sleep do Render free tier
+  workflow_dispatch:           # Disparo manual pela interface do GitHub
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Ping Evolution API
+        run: |
+          echo "Acordando Evolution API..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 25 https://evolution-deploy-237v.onrender.com/)
+          echo "HTTP Status: $STATUS"
+
+          if [ "$STATUS" = "200" ]; then
+            echo "OK - Evolution API esta acordada e respondendo"
+          else
+            echo "AVISO - Evolution API retornou $STATUS (pode estar inicializando)"
+          fi
