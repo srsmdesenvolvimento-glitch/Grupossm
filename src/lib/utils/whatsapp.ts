@@ -172,7 +172,18 @@ export async function enviarMensagem(
       })
 
       if (!res.ok) {
-        const errorText = await res.text()
+        let errorText = await res.text()
+        // Detecta o caso específico de número sem WhatsApp (exists: false)
+        try {
+          const errJson = JSON.parse(errorText)
+          const msgs = errJson?.response?.message
+          if (Array.isArray(msgs) && msgs[0]?.exists === false) {
+            return { ok: false, erro: `Número ${numeroFormatado} não possui WhatsApp cadastrado.` }
+          }
+          if (errJson?.response?.message?.includes?.('not-authorized') || res.status === 401) {
+            return { ok: false, erro: 'WhatsApp desconectado. Reconecte em Mensagens → Conexão WhatsApp.' }
+          }
+        } catch {}
         return { ok: false, erro: `Evolution API HTTP ${res.status}: ${errorText}` }
       }
 
