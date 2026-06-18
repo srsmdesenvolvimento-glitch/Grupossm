@@ -476,3 +476,80 @@ export type NotificacaoLog = {
 }
 export type NotificacaoLogInsert = Omit<NotificacaoLog, 'id' | 'created_at'> & { id?: string }
 export type NotificacaoLogUpdate = Partial<NotificacaoLogInsert>
+
+// ── Subscription System ──────────────────────────────────────
+
+export type StatusAssinatura = 'trial' | 'ativa' | 'inadimplente' | 'cancelada' | 'suspensa' | 'expirada'
+
+export type PlanoAssinatura = {
+  id: string
+  nome: string
+  descricao: string | null
+  preco_mensal: number
+  preco_anual: number | null
+  max_usuarios: number
+  max_empresas: number
+  recursos: Record<string, unknown>
+  destaque: boolean
+  ordem: number
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+export type PlanoAssinaturaInsert = Omit<PlanoAssinatura, 'id' | 'created_at' | 'updated_at'> & { id?: string }
+export type PlanoAssinaturaUpdate = Partial<PlanoAssinaturaInsert>
+
+export type Assinatura = {
+  id: string
+  empresa_id: string
+  plano_id: string
+  status: StatusAssinatura
+  periodicidade: 'mensal' | 'anual'
+  data_inicio: string
+  data_fim: string | null
+  data_renovacao: string | null
+  valor_cobrado: number | null
+  desconto_pct: number
+  contrato_url: string | null
+  assinado_em: string | null
+  assinado_por: string | null
+  assinado_ip: string | null
+  observacoes: string | null
+  created_at: string
+  updated_at: string
+}
+export type AssinaturaInsert = Omit<Assinatura, 'id' | 'created_at' | 'updated_at'> & { id?: string }
+export type AssinaturaUpdate = Partial<AssinaturaInsert>
+
+export type PagamentoAssinatura = {
+  id: string
+  assinatura_id: string
+  empresa_id: string
+  valor: number
+  status: 'pendente' | 'pago' | 'falhou' | 'estornado'
+  tipo_pagamento: string | null
+  referencia: string | null
+  comprovante_url: string | null
+  vencimento: string
+  pago_em: string | null
+  created_at: string
+}
+export type PagamentoAssinaturaInsert = Omit<PagamentoAssinatura, 'id' | 'created_at'> & { id?: string }
+
+export type Salario = {
+  id: string
+  usuario_id: string
+  empresa_id: string
+  cargo: string | null
+  valor_base: number
+  beneficios: number
+  desconto: number
+  valor_liquido: number
+  data_inicio: string
+  data_fim: string | null
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+export type SalarioInsert = Omit<Salario, 'id' | 'valor_liquido' | 'created_at' | 'updated_at'> & { id?: string }
+export type SalarioUpdate = Partial<SalarioInsert>

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { enviarMensagem } from '@/lib/utils/whatsapp'
 
@@ -24,28 +24,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, enviadas: 0 })
   }
 
-  let enviadas = 0
-  let erros = 0
-
-  await Promise.all(
+  // Envia todas em paralelo com imediato=true (sem delay de digitacao)
+  const resultados = await Promise.all(
     pendentes.map(async msg => {
-      const resultado = await enviarMensagem(msg.destinatario, msg.mensagem, msg.empresa_id)
-
-      if (resultado.ok) {
-        enviadas++
-        await supabase
-          .from('notificacoes_log')
-          .update({ status: 'enviado', enviado_em: new Date().toISOString() })
-          .eq('id', msg.id)
-      } else {
-        erros++
-        await supabase
-          .from('notificacoes_log')
-          .update({ status: 'erro', erro: resultado.erro ?? 'Erro desconhecido' })
-          .eq('id', msg.id)
-      }
+      const resultado = await enviarMensagem(msg.destinatario, msg.mensagem, msg.empresa_id, true)
+      return { id: msg.id, ...resultado }
     }),
   )
 
-  return NextResponse.json({ ok: true, enviadas, erros })
+  const sucessos = resultados.filter(r => r.ok).map(r => r.id)
+  const erros = resultados.filter(r => !r.ok)
+
+  // Batch update dos sucessos em uma unica query
+  if (sucessos.length > 0) {
+    await supabase
+      .from('notificacoes_log')
+      .update({ status: 'enviado', enviado_em: new Date().toISOString() })
+      .in('id', sucessos)
+  }
+
+  // Updates individuais apenas para erros (normalmente poucos)
+  if (erros.length > 0) {
+    await Promise.all(
+      erros.map(r =>
+        supabase
+          .from('notificacoes_log')
+          .update({ status: 'erro', erro: r.erro ?? 'Erro desconhecido' })
+          .eq('id', r.id),
+      ),
+    )
+  }
+
+  return NextResponse.json({ ok: true, enviadas: sucessos.length, erros: erros.length })
 }

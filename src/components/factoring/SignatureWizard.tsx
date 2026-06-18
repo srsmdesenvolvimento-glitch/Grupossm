@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { 
-  FileText, ShieldCheck, Camera, Upload, Trash2, CheckCircle2, 
-  Loader2, Smartphone, MapPin, Award, ArrowRight, UserCheck, AlertTriangle, RefreshCw
+import {
+  FileText, ShieldCheck, Camera, Upload, Trash2, CheckCircle2,
+  Loader2, MapPin, Award, ArrowRight, UserCheck, AlertTriangle, RefreshCw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -26,12 +26,19 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   const [enviando, setEnviando] = useState(false)
   const [resultadoUrl, setResultadoUrl] = useState<string | null>(null)
 
-  // Live Camera states
+  // Live Camera states (selfie)
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null)
   const [cameraAtiva, setCameraAtiva] = useState(false)
   const [carregandoCamera, setCarregandoCamera] = useState(false)
   const [permissaoNegada, setPermissaoNegada] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  // Document camera states
+  const [docCameraStream, setDocCameraStream] = useState<MediaStream | null>(null)
+  const [docCameraAtiva, setDocCameraAtiva] = useState(false)
+  const [docCarregandoCamera, setDocCarregandoCamera] = useState(false)
+  const [docPermissaoNegada, setDocPermissaoNegada] = useState(false)
+  const docVideoRef = useRef<HTMLVideoElement | null>(null)
 
   // Calligraphy signature states
   const [sigType, setSigType] = useState<'draw' | 'type'>('draw')
@@ -151,6 +158,58 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       setCameraStream(null)
     }
     setCameraAtiva(false)
+  }
+
+  const iniciarCameraDocumento = async () => {
+    setDocCarregandoCamera(true)
+    setDocPermissaoNegada(false)
+    try {
+      if (docCameraStream) docCameraStream.getTracks().forEach(t => t.stop())
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
+        audio: false,
+      })
+      setDocCameraStream(stream)
+      setDocCameraAtiva(true)
+      setTimeout(() => {
+        if (docVideoRef.current) {
+          docVideoRef.current.srcObject = stream
+          docVideoRef.current.play().catch(() => {})
+        }
+      }, 150)
+    } catch {
+      setDocPermissaoNegada(true)
+    } finally {
+      setDocCarregandoCamera(false)
+    }
+  }
+
+  const pararCameraDocumento = () => {
+    if (docCameraStream) {
+      docCameraStream.getTracks().forEach(t => t.stop())
+      setDocCameraStream(null)
+    }
+    setDocCameraAtiva(false)
+  }
+
+  const capturarFotoDocumento = () => {
+    const video = docVideoRef.current
+    if (!video) return
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth || 1280
+      canvas.height = video.videoHeight || 960
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const base64 = canvas.toDataURL('image/jpeg', 0.9)
+        setDocumento(base64)
+        pararCameraDocumento()
+        toast.success('Documento fotografado com sucesso!')
+      }
+    } catch {
+      toast.error('Erro ao capturar foto do documento.')
+    }
   }
 
   const capturarFoto = () => {
@@ -560,54 +619,106 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
               <Camera size={28} />
             </div>
             <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Foto do Documento</h2>
-            <p className="text-xs text-slate-400">Posicione seu documento (RG ou CNH) dentro do visor e envie a foto.</p>
+            <p className="text-xs text-slate-400">Fotografe seu RG ou CNH aberto. Use câmera traseira para melhor qualidade.</p>
           </div>
 
           <div className="flex flex-col items-center justify-center">
             {documento ? (
-              <div className="relative w-full rounded-2xl border border-white/10 overflow-hidden bg-slate-900 aspect-[4/3] flex items-center justify-center shadow-inner">
-                <img 
-                  src={documento} 
-                  alt="Documento Digitalizado" 
-                  className="max-h-full max-w-full object-contain"
-                />
+              <div className="relative w-full rounded-2xl border border-emerald-500/30 overflow-hidden bg-slate-900 aspect-[4/3] flex items-center justify-center shadow-inner">
+                <img src={documento} alt="Documento" className="max-h-full max-w-full object-contain" />
+                <div className="absolute top-3 left-3 px-2.5 py-1 bg-emerald-500/90 rounded-full text-[10px] font-bold text-white flex items-center gap-1">
+                  <CheckCircle2 size={10} /> Documento Registrado
+                </div>
                 <button
-                  onClick={() => setDocumento(null)}
-                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-655 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
+                  onClick={() => { setDocumento(null); pararCameraDocumento() }}
+                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
                 >
                   <Trash2 size={16} />
                 </button>
               </div>
-            ) : (
-              <label className="w-full rounded-2xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 bg-slate-900/60 aspect-[4/3] flex flex-col items-center justify-center gap-3 cursor-pointer transition-all p-4 text-center relative overflow-hidden group">
-                
-                {/* Scanner Guides - Corners (Premium Frame design) */}
-                <div className="absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 border-indigo-500/80 rounded-tl-md group-hover:border-indigo-400 transition-colors" />
-                <div className="absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 border-indigo-500/80 rounded-tr-md group-hover:border-indigo-400 transition-colors" />
-                <div className="absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 border-indigo-500/80 rounded-bl-md group-hover:border-indigo-400 transition-colors" />
-                <div className="absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 border-indigo-500/80 rounded-br-md group-hover:border-indigo-400 transition-colors" />
-                
-                {/* Animated Scanner laser line */}
-                <div className="absolute left-0 right-0 h-0.5 bg-indigo-500/40 shadow-[0_0_10px_2px_rgba(99,102,241,0.5)] scanner-line pointer-events-none" style={{ top: '10%' }} />
+            ) : docCameraAtiva ? (
+              /* Live doc camera */
+              <div className="relative w-full rounded-2xl border border-white/10 overflow-hidden bg-slate-900 aspect-[4/3] flex items-center justify-center shadow-inner">
+                <video ref={docVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
 
-                <div className="w-16 h-16 rounded-full bg-slate-950 border border-white/5 flex items-center justify-center text-slate-400 group-hover:text-indigo-400 transition-colors shadow-lg">
-                  <Camera size={28} />
+                {/* Document frame guide */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-[85%] h-[60%] border-2 border-indigo-400/80 rounded-xl relative">
+                    <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-indigo-300 rounded-tl" />
+                    <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-indigo-300 rounded-tr" />
+                    <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-indigo-300 rounded-bl" />
+                    <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-indigo-300 rounded-br" />
+                    <div className="absolute inset-0 rounded-xl overflow-hidden">
+                      <div className="absolute left-0 right-0 h-0.5 bg-indigo-500/50 shadow-[0_0_8px_2px_rgba(99,102,241,0.5)] scanner-line" />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-200">Digitalizar Documento</p>
-                  <p className="text-[10px] text-slate-500 mt-1.5 max-w-[220px] mx-auto leading-relaxed">
-                    Fotografe a CNH ou RG aberto, com as informações legíveis e sem reflexos.
-                  </p>
+
+                <div className="absolute top-4 left-0 right-0 text-center pointer-events-none">
+                  <span className="px-3 py-1 bg-slate-950/85 border border-white/5 text-[9px] font-bold tracking-wider uppercase text-slate-300 rounded-full">
+                    Posicione o documento dentro do visor
+                  </span>
                 </div>
-                
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={handleDocumentCapture}
-                  className="hidden"
-                />
-              </label>
+
+                <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-4 z-20">
+                  <button
+                    type="button"
+                    onClick={pararCameraDocumento}
+                    className="w-10 h-10 bg-slate-800 hover:bg-slate-700 text-white rounded-full flex items-center justify-center shadow border border-white/10 transition-all active:scale-90 cursor-pointer"
+                    title="Cancelar"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={capturarFotoDocumento}
+                    className="w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-2xl border-4 border-slate-950 transition-all active:scale-90 duration-75 cursor-pointer"
+                    title="Fotografar Documento"
+                  >
+                    <Camera size={20} />
+                  </button>
+                </div>
+              </div>
+            ) : docCarregandoCamera ? (
+              <div className="w-full rounded-2xl border border-white/10 bg-slate-900 aspect-[4/3] flex flex-col items-center justify-center gap-3">
+                <Loader2 size={36} className="animate-spin text-indigo-500" />
+                <p className="text-xs font-bold text-slate-400">Ativando câmera...</p>
+              </div>
+            ) : (
+              /* Options: camera or upload */
+              <div className="w-full space-y-3">
+                {docPermissaoNegada && (
+                  <div className="bg-red-500/5 border border-red-500/15 rounded-xl p-3 flex gap-2 text-xs text-red-400">
+                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                    <span>Acesso à câmera bloqueado. Autorize nas configurações do navegador ou use o upload abaixo.</span>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={iniciarCameraDocumento}
+                  className="w-full rounded-2xl border-2 border-indigo-500/40 hover:border-indigo-500/80 bg-indigo-500/5 hover:bg-indigo-500/10 p-5 flex items-center gap-4 transition-all cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 shrink-0">
+                    <Camera size={22} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-slate-200">Fotografar com Câmera</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Use a câmera traseira para melhor nitidez. Recomendado.</p>
+                  </div>
+                </button>
+
+                <label className="w-full rounded-2xl border-2 border-dashed border-slate-700 hover:border-slate-500 bg-slate-900/60 p-5 flex items-center gap-4 cursor-pointer transition-all group">
+                  <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-slate-200 transition-colors shrink-0">
+                    <Upload size={20} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-slate-300">Enviar da Galeria / Arquivo</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Selecione uma foto já tirada do seu RG ou CNH.</p>
+                  </div>
+                  <input type="file" accept="image/*" onChange={handleDocumentCapture} className="hidden" />
+                </label>
+              </div>
             )}
           </div>
 
@@ -616,9 +727,9 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
             <div>
               <p className="font-bold text-slate-200 mb-0.5">Dicas para melhor leitura</p>
               <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-400">
-                <li>Remova o plástico do documento.</li>
-                <li>Certifique-se de que a foto e o texto estão focados e nítidos.</li>
-                <li>Evite ambientes escuros ou com sombras excessivas.</li>
+                <li>Documento aberto, frente e verso visíveis (CNH aberta ou RG frente).</li>
+                <li>Boa iluminação, sem reflexos ou sombras sobre o documento.</li>
+                <li>Remova o plástico protetor para evitar reflexo.</li>
               </ul>
             </div>
           </div>
@@ -627,14 +738,14 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
             <Button
               variant="outline"
               className="flex-1 h-12 rounded-full font-bold border-white/10 hover:bg-slate-900 text-slate-400 hover:text-slate-200 cursor-pointer"
-              onClick={() => setPasso(1)}
+              onClick={() => { pararCameraDocumento(); setPasso(1) }}
             >
               Voltar
             </Button>
             <Button
               className="flex-1 h-12 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 shadow-lg shadow-indigo-950/50 transition-all gap-1.5 cursor-pointer"
               disabled={!documento}
-              onClick={() => setPasso(3)}
+              onClick={() => { pararCameraDocumento(); setPasso(3) }}
             >
               <span>Avançar</span>
               <ArrowRight size={16} />

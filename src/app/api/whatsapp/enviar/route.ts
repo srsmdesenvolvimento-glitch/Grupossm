@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ erro: 'Destinatário, mensagem e Empresa ID são obrigatórios.' }, { status: 400 })
     }
 
-    // Valida que o usuário tem acesso à empresa
+    // Valida acesso à empresa
     const { data: access } = await supabase
       .from('usuario_empresa')
       .select('papel')
@@ -31,47 +31,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ erro: 'Acesso negado para esta empresa.' }, { status: 403 })
     }
 
-    // Envia a mensagem imediatamente (bypass delayMs = 0)
+    // Fire-and-forget: envia imediatamente sem salvar no banco
     const result = await enviarMensagem(destinatario, mensagem, empresa_id, true)
 
     if (!result.ok) {
-      // Registra a falha de envio imediato no log de notificações
-      await supabase.from('notificacoes_log').insert({
-        empresa_id,
-        canal: 'whatsapp',
-        destinatario,
-        assunto: 'Notificação Imediata WhatsApp (Falhou)',
-        mensagem,
-        status: 'erro',
-        erro: result.erro || 'Falha ao enviar mensagem imediatamente.',
-      })
-
-      return NextResponse.json({ erro: result.erro || 'Falha ao enviar mensagem imediata.' }, { status: 400 })
+      return NextResponse.json({ erro: result.erro || 'Falha ao enviar mensagem.' }, { status: 400 })
     }
 
-    // Registra o envio imediato no log de notificações com o ID da mensagem externa
-    const { data: logRecord, error: logError } = await supabase
-      .from('notificacoes_log')
-      .insert({
-        empresa_id,
-        canal: 'whatsapp',
-        destinatario,
-        assunto: 'Notificação Imediata WhatsApp',
-        mensagem,
-        status: 'enviado',
-        enviado_em: new Date().toISOString(),
-        whatsapp_message_id: result.messageId || null,
-      })
-      .select('id')
-      .single()
-
-    if (logError) {
-      console.error('[WhatsApp API Enviar] Erro ao gravar log de envio:', logError.message)
-    }
-
-    return NextResponse.json({ sucesso: true, messageId: result.messageId, logId: logRecord?.id })
+    return NextResponse.json({ sucesso: true, messageId: result.messageId })
   } catch (err: any) {
-    console.error('[WhatsApp API Enviar] Erro:', err)
+    console.error('[WhatsApp Enviar] Erro:', err)
     return NextResponse.json({ erro: 'Erro interno do servidor.' }, { status: 500 })
   }
 }

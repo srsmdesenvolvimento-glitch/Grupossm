@@ -139,3 +139,26 @@ export const MENU_MENSAGENS: MenuItem[] = [
   { label: 'Clientes Factoring', href: '/mensagens/factoring', icon: 'Banknote' },
 ]
 
+// Seção administrativa do grupo (visível somente para admins)
+export const MENU_ADMIN: MenuItem[] = [
+  {
+    label: 'Usuários',
+    href: '/admin/usuarios',
+    icon: 'UserCog',
+  },
+  {
+    label: 'Assinaturas',
+    href: '/admin/assinaturas',
+    icon: 'CreditCard',
+    subitems: [
+      { label: 'Gestão de Assinaturas', href: '/admin/assinaturas', icon: 'CreditCard' },
+      { label: 'Planos', href: '/admin/planos', icon: 'Package' },
+    ],
+  },
+  {
+    label: 'Salários',
+    href: '/admin/salarios',
+    icon: 'Wallet',
+  },
+]
+
