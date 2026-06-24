@@ -10,11 +10,9 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingPage'
+import { CriarUsuarioDialog } from '@/components/shared/CriarUsuarioDialog'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
@@ -207,11 +205,6 @@ export default function ConfiguracoesFactoringPage() {
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([])
   const [loadingUsuarios] = useState(false)
   const [dialogConvidar, setDialogConvidar] = useState(false)
-  const [novoNome, setNovoNome] = useState('')
-  const [novoEmail, setNovoEmail] = useState('')
-  const [novaSenha, setNovaSenha] = useState('')
-  const [novoPapel, setNovoPapel] = useState<PapelUsuario>('operador')
-  const [criandoUsuario, setCriandoUsuario] = useState(false)
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual) return
@@ -417,64 +410,6 @@ export default function ConfiguracoesFactoringPage() {
       toast.success('Usuário removido')
     } catch {
       toast.error('Erro ao remover usuário')
-    }
-  }
-
-  async function convidarUsuario() {
-    if (!empresaAtual) return
-
-    const nomeTrimmed = novoNome.trim()
-    const emailTrimmed = novoEmail.trim()
-
-    if (!nomeTrimmed) {
-      toast.error('O nome completo é obrigatório.')
-      return
-    }
-    if (nomeTrimmed.length < 2) {
-      toast.error('O nome completo deve conter pelo menos 2 caracteres.')
-      return
-    }
-    if (!emailTrimmed) {
-      toast.error('O e-mail é obrigatório.')
-      return
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(emailTrimmed)) {
-      toast.error('O e-mail informado é inválido.')
-      return
-    }
-    if (!novaSenha) {
-      toast.error('A senha temporária é obrigatória.')
-      return
-    }
-    if (novaSenha.length < 6) {
-      toast.error('A senha deve conter no mínimo 6 caracteres.')
-      return
-    }
-
-    setCriandoUsuario(true)
-    try {
-      const res = await fetch('/api/auth/criar-usuario', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nome: nomeTrimmed,
-          email: emailTrimmed,
-          senha: novaSenha,
-          papel: novoPapel,
-          empresa_id: empresaAtual.id,
-        }),
-      })
-      const data = await res.json() as { error?: string }
-      if (!res.ok) { toast.error(data.error ?? 'Erro ao criar usuário'); return }
-      toast.success('Usuário criado com sucesso!')
-      setDialogConvidar(false)
-      setNovoNome(''); setNovoEmail(''); setNovaSenha(''); setNovoPapel('operador')
-      await carregarDados()
-    } catch {
-      toast.error('Erro ao criar usuário')
-    } finally {
-      setCriandoUsuario(false)
     }
   }
 
@@ -1102,79 +1037,14 @@ export default function ConfiguracoesFactoringPage() {
         </Tabs>
       </div>
 
-      {/* Dialog: Novo Usuário */}
-      <Dialog open={dialogConvidar} onOpenChange={setDialogConvidar}>
-        <DialogContent className="sm:max-w-md rounded-3xl p-6 border border-border/50 shadow-m3-3 bg-card gap-5">
-          <DialogHeader className="space-y-1 text-left">
-            <DialogTitle className="text-lg font-bold text-foreground tracking-tight leading-snug">
-              Adicionar Novo Usuário
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-1">
-            <div className="space-y-1.5">
-              <Label htmlFor="novo-nome" className="font-semibold text-xs text-foreground/80">Nome completo</Label>
-              <Input 
-                id="novo-nome" 
-                value={novoNome} 
-                onChange={e => setNovoNome(e.target.value)} 
-                placeholder="Nome do usuário" 
-                className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="novo-email" className="font-semibold text-xs text-foreground/80">E-mail corporativo</Label>
-              <Input 
-                id="novo-email" 
-                type="email" 
-                value={novoEmail} 
-                onChange={e => setNovoEmail(e.target.value)} 
-                placeholder="email@exemplo.com" 
-                className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="nova-senha" className="font-semibold text-xs text-foreground/80">Senha temporária</Label>
-              <Input 
-                id="nova-senha" 
-                type="password" 
-                value={novaSenha} 
-                onChange={e => setNovaSenha(e.target.value)} 
-                placeholder="Mínimo 6 caracteres" 
-                className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="novo-papel" className="font-semibold text-xs text-foreground/80">Nível de Permissão (Papel)</Label>
-              <Select value={novoPapel} onValueChange={(v) => setNovoPapel((v ?? 'operador') as PapelUsuario)}>
-                <SelectTrigger id="novo-papel" className="h-11 rounded-xl border-border/60"><SelectValue /></SelectTrigger>
-                <SelectContent className="rounded-2xl">
-                  <SelectItem value="admin">Admin (Acesso Total)</SelectItem>
-                  <SelectItem value="gerente">Gerente</SelectItem>
-                  <SelectItem value="operador">Operador (Apenas Operações)</SelectItem>
-                  <SelectItem value="visualizador">Visualizador (Apenas Leitura)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter className="flex flex-row items-center justify-end gap-2.5 pt-2">
-            <Button 
-              variant="outline" 
-              onClick={() => setDialogConvidar(false)} 
-              disabled={criandoUsuario}
-              className="h-10 rounded-full border-border hover:bg-muted text-sm font-medium px-5 flex-1 sm:flex-none"
-            >
-              Cancelar
-            </Button>
-            <Button 
-              onClick={convidarUsuario} 
-              disabled={criandoUsuario} 
-              className="h-10 rounded-full text-sm font-medium px-5 flex-1 sm:flex-none text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 transition-all duration-200 shadow-m3-1"
-            >
-              {criandoUsuario ? 'Adicionando...' : 'Adicionar Usuário'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {empresaAtual && (
+        <CriarUsuarioDialog
+          empresaId={empresaAtual.id}
+          open={dialogConvidar}
+          onOpenChange={setDialogConvidar}
+          onSuccess={carregarDados}
+        />
+      )}
     </AppShell>
   )
 }

@@ -10,11 +10,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingPage'
+import { CriarUsuarioDialog } from '@/components/shared/CriarUsuarioDialog'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
@@ -122,6 +120,7 @@ export default function ConfiguracoesEmporioPage() {
   const [diasVencimento, setDiasVencimento] = useState('30')
   const [prefixoNumeroVenda, setPrefixoNumeroVenda] = useState('EMP')
   const [whatsappPadrao, setWhatsappPadrao] = useState('')
+  const [saldoInicialCaixa, setSaldoInicialCaixa] = useState('0')
 
   // Mensagens state
   const [msgOrcamento, setMsgOrcamento] = useState('')
@@ -150,11 +149,6 @@ export default function ConfiguracoesEmporioPage() {
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([])
   const [loadingUsuarios, setLoadingUsuarios] = useState(false)
   const [dialogConvidar, setDialogConvidar] = useState(false)
-  const [novoNome, setNovoNome] = useState('')
-  const [novoEmail, setNovoEmail] = useState('')
-  const [novaSenha, setNovaSenha] = useState('')
-  const [novoPapel, setNovoPapel] = useState<PapelUsuario>('operador')
-  const [criandoUsuario, setCriandoUsuario] = useState(false)
 
   // ---------------------------------------------------------------------------
   // Load data
@@ -189,6 +183,7 @@ export default function ConfiguracoesEmporioPage() {
         setDiasVencimento(String(c.dias_vencimento_padrao))
         setPrefixoNumeroVenda(c.prefixo_numero_venda)
         setWhatsappPadrao(c.whatsapp_padrao ?? '')
+        setSaldoInicialCaixa(String(c.saldo_inicial_caixa ?? 0))
         setMsgOrcamento(c.msg_orcamento ?? '')
         setMsgAprovacao(c.msg_aprovacao ?? '')
         setMsgEntrega(c.msg_entrega ?? '')
@@ -249,6 +244,7 @@ export default function ConfiguracoesEmporioPage() {
         dias_vencimento_padrao: parseInt(diasVencimento, 10) || 30,
         prefixo_numero_venda: prefixoNumeroVenda.trim() || 'EMP',
         whatsapp_padrao: whatsappPadrao.trim() || null,
+        saldo_inicial_caixa: parseFloat(saldoInicialCaixa) || 0,
         ...(config ? { msg_orcamento: config.msg_orcamento, msg_aprovacao: config.msg_aprovacao, msg_entrega: config.msg_entrega, msg_cobranca: config.msg_cobranca, msg_aniversario: config.msg_aniversario } : {}),
       }
 
@@ -388,46 +384,6 @@ export default function ConfiguracoesEmporioPage() {
       toast.success('Usuário removido')
     } catch {
       toast.error('Erro ao remover usuário')
-    }
-  }
-
-  async function convidarUsuario() {
-    if (!empresaAtual) return
-    if (!novoNome.trim() || !novoEmail.trim() || !novaSenha.trim()) {
-      toast.error('Preencha todos os campos obrigatórios')
-      return
-    }
-    setCriandoUsuario(true)
-    try {
-      const res = await fetch('/api/auth/criar-usuario', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nome: novoNome.trim(),
-          email: novoEmail.trim(),
-          senha: novaSenha,
-          papel: novoPapel,
-          empresa_id: empresaAtual.id,
-        }),
-      })
-
-      const data = await res.json() as { error?: string }
-      if (!res.ok) {
-        toast.error(data.error ?? 'Erro ao criar usuário')
-        return
-      }
-
-      toast.success('Usuário criado com sucesso!')
-      setDialogConvidar(false)
-      setNovoNome('')
-      setNovoEmail('')
-      setNovaSenha('')
-      setNovoPapel('operador')
-      await carregarDados()
-    } catch {
-      toast.error('Erro ao criar usuário')
-    } finally {
-      setCriandoUsuario(false)
     }
   }
 
@@ -573,7 +529,7 @@ export default function ConfiguracoesEmporioPage() {
                   <p className="text-xs text-slate-400">Ex.: EMP → EMP-2026-00001</p>
                 </div>
 
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-2">
                   <Label htmlFor="whatsapp-padrao">WhatsApp padrão</Label>
                   <Input
                     id="whatsapp-padrao"
@@ -583,6 +539,20 @@ export default function ConfiguracoesEmporioPage() {
                     placeholder="(00) 00000-0000"
                   />
                   <p className="text-xs text-slate-400">Número utilizado para envio de mensagens automáticas</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="saldo-inicial-caixa">Saldo inicial do caixa (R$)</Label>
+                  <Input
+                    id="saldo-inicial-caixa"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={saldoInicialCaixa}
+                    onChange={e => setSaldoInicialCaixa(e.target.value)}
+                    placeholder="0,00"
+                  />
+                  <p className="text-xs text-slate-400">Valor em caixa antes das movimentações do sistema</p>
                 </div>
               </div>
 
@@ -793,85 +763,14 @@ export default function ConfiguracoesEmporioPage() {
         </Tabs>
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Dialog: Convidar Usuário                                            */}
-      {/* ------------------------------------------------------------------ */}
-      <Dialog open={dialogConvidar} onOpenChange={setDialogConvidar}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Convidar Usuário</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="novo-nome">Nome completo *</Label>
-              <Input
-                id="novo-nome"
-                value={novoNome}
-                onChange={e => setNovoNome(e.target.value)}
-                placeholder="Nome do usuário"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="novo-email">E-mail *</Label>
-              <Input
-                id="novo-email"
-                type="email"
-                value={novoEmail}
-                onChange={e => setNovoEmail(e.target.value)}
-                placeholder="email@exemplo.com"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="nova-senha">Senha inicial *</Label>
-              <Input
-                id="nova-senha"
-                type="password"
-                value={novaSenha}
-                onChange={e => setNovaSenha(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="novo-papel">Papel</Label>
-              <Select
-                value={novoPapel}
-                onValueChange={(v) => setNovoPapel((v ?? 'operador') as PapelUsuario)}
-              >
-                <SelectTrigger id="novo-papel">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="gerente">Gerente</SelectItem>
-                  <SelectItem value="operador">Operador</SelectItem>
-                  <SelectItem value="visualizador">Visualizador</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDialogConvidar(false)}
-              disabled={criandoUsuario}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={convidarUsuario}
-              disabled={criandoUsuario}
-              className="bg-[#D4A528] hover:bg-[#b88e22] text-white"
-            >
-              {criandoUsuario ? 'Criando...' : 'Criar Usuário'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {empresaAtual && (
+        <CriarUsuarioDialog
+          empresaId={empresaAtual.id}
+          open={dialogConvidar}
+          onOpenChange={setDialogConvidar}
+          onSuccess={carregarDados}
+        />
+      )}
     </AppShell>
   )
 }

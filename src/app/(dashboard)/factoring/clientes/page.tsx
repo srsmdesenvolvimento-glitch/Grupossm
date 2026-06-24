@@ -22,6 +22,7 @@ import type { ClienteFactoring } from '@/lib/types/database'
 import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { toast } from 'sonner'
 
 type ClienteComSaldo = ClienteFactoring & {
   emAberto: number
@@ -103,6 +104,8 @@ export default function FactoringClientesPage() {
           emAtraso: parcelasPorCliente[c.id]?.atraso ?? 0,
         }))
       )
+    } catch {
+      toast.error('Erro ao carregar clientes')
     } finally {
       setLoading(false)
     }
@@ -121,7 +124,7 @@ export default function FactoringClientesPage() {
   const filtrados = clientes.filter(c => {
     if (busca) {
       const q = busca.toLowerCase()
-      if (!c.nome.toLowerCase().includes(q) && !(c.cpf ?? '').includes(q) && !c.telefone.includes(q)) return false
+      if (!c.nome.toLowerCase().includes(q) && !(c.cpf ?? '').includes(q) && !(c.telefone ?? '').includes(q)) return false
     }
     if (filtroStatus !== 'todos' && c.status !== filtroStatus) return false
     if (filtroRisco !== 'todos') {

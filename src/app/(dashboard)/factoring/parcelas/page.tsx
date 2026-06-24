@@ -86,15 +86,9 @@ export default function ParcelasPage() {
 
   useEffect(() => { carregarDados() }, [carregarDados])
 
-  const [hojeStr, setHojeStr] = useState('')
-  const [em7DiasStr, setEm7DiasStr] = useState('')
-
-  useEffect(() => {
-    const agora = new Date()
-    setHojeStr(agora.toISOString().split('T')[0])
-    const em7 = new Date(agora); em7.setDate(em7.getDate() + 7)
-    setEm7DiasStr(em7.toISOString().split('T')[0])
-  }, [])
+  const hojeStr = new Date().toISOString().split('T')[0]
+  const em7Dias = new Date(); em7Dias.setDate(em7Dias.getDate() + 7)
+  const em7DiasStr = em7Dias.toISOString().split('T')[0]
 
   const totalEmAberto = parcelas
     .filter(p => p.status === 'pendente' || p.status === 'atrasado')
@@ -104,13 +98,10 @@ export default function ParcelasPage() {
     .filter(p => p.status === 'atrasado')
     .reduce((s, p) => s + p.valor + p.multa + p.juros_mora - (p.valor_pago ?? 0), 0)
 
-  const qtdVencemHoje = hojeStr ? parcelas.filter(p => p.status === 'pendente' && p.data_vencimento === hojeStr).length : 0
-  const qtdProximos7 = (hojeStr && em7DiasStr) ? parcelas.filter(p => p.status === 'pendente' && p.data_vencimento > hojeStr && p.data_vencimento <= em7DiasStr).length : 0
+  const qtdVencemHoje = parcelas.filter(p => p.status === 'pendente' && p.data_vencimento === hojeStr).length
+  const qtdProximos7 = parcelas.filter(p => p.status === 'pendente' && p.data_vencimento > hojeStr && p.data_vencimento <= em7DiasStr).length
 
   const filtradas = parcelas.filter(p => {
-    if (tab === 'hoje') return hojeStr && p.status === 'pendente' && p.data_vencimento === hojeStr
-    if (tab === 'proximos7') return hojeStr && em7DiasStr && p.status === 'pendente' && p.data_vencimento > hojeStr && p.data_vencimento <= em7DiasStr
-    if (tab !== 'todos' && p.status !== tab) return false
     if (busca) {
       const q = busca.toLowerCase()
       if (
@@ -119,6 +110,9 @@ export default function ParcelasPage() {
         !(p.cliente_cpf ?? '').includes(q)
       ) return false
     }
+    if (tab === 'hoje') return p.status === 'pendente' && p.data_vencimento === hojeStr
+    if (tab === 'proximos7') return p.status === 'pendente' && p.data_vencimento > hojeStr && p.data_vencimento <= em7DiasStr
+    if (tab !== 'todos' && p.status !== tab) return false
     return true
   })
 

@@ -13,6 +13,7 @@ import { LoadingPage } from '@/components/shared/LoadingPage'
 import { Button } from '@/components/ui/button'
 import { formatarMoeda, formatarData, formatarCPF, iniciais } from '@/lib/utils/formatters'
 import { logError } from '@/lib/utils/errors'
+import { toast } from 'sonner'
 
 type ClienteDevendo = {
   id: string
@@ -85,6 +86,7 @@ export default function TodosDevemPage() {
       setClientes(result)
     } catch (error) {
       logError('carregarDados', error)
+      toast.error('Erro ao carregar devedores')
     } finally {
       setLoading(false)
     }

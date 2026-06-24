@@ -581,7 +581,7 @@ export default function NovaVendaPage() {
                     min={0}
                     max={tipoDesconto === 'pct' ? 100 : subtotal}
                     value={desconto || ''}
-                    onChange={(e) => setDesconto(Number(e.target.value))}
+                    onChange={(e) => { const v = parseFloat(e.target.value); setDesconto(isNaN(v) ? 0 : v) }}
                     className="w-20 h-7 text-sm text-right"
                     placeholder="0"
                   />

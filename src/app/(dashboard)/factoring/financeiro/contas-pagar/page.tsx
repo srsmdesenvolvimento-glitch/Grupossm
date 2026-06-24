@@ -408,6 +408,14 @@ export default function ContasPagarFactoringPage() {
   async function confirmarPagamento() {
     const conta = pagarDialog.conta
     if (!conta || !empresaAtual?.id) return
+    if (!pagarForm.valor_pago || pagarForm.valor_pago <= 0) {
+      toast.error('Informe um valor válido')
+      return
+    }
+    if (!pagarForm.data_pagamento) {
+      toast.error('Informe a data do pagamento')
+      return
+    }
     if (!pagarForm.tipo_pagamento) {
       toast.error('Selecione a forma de pagamento')
       return

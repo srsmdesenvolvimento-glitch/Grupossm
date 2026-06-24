@@ -123,6 +123,14 @@ export default function AssinaturasAdminPage() {
       toast.error('Selecione a empresa e o plano')
       return
     }
+    if (form.valor_cobrado && isNaN(parseFloat(form.valor_cobrado))) {
+      toast.error('Valor cobrado inválido')
+      return
+    }
+    if (parseFloat(form.desconto_pct) > 100) {
+      toast.error('Desconto não pode ser maior que 100%')
+      return
+    }
     setSaving(true)
     try {
       const payload = {

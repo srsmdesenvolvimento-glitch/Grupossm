@@ -170,6 +170,7 @@ export default function FluxoCaixaPage() {
 
   const [periodo, setPeriodo] = useState<Periodo>('mes')
   const [movimentacoes, setMovimentacoes] = useState<MovimentacaoCaixa[]>([])
+  const [saldoInicial, setSaldoInicial] = useState(0)
   const [loading, setLoading] = useState(true)
 
   // ─── Load ─────────────────────────────────────────────────────────────
@@ -187,17 +188,25 @@ export default function FluxoCaixaPage() {
     }
     const dataInicio = periodos[p].toISOString().split('T')[0]
 
-    const { data, error } = await supabase
-      .from('movimentacoes_caixa')
-      .select('*')
-      .eq('empresa_id', empresaAtual.id)
-      .gte('data_movimentacao', dataInicio)
-      .order('data_movimentacao', { ascending: false })
+    const [configRes, movsRes] = await Promise.all([
+      supabase
+        .from('config_emporio')
+        .select('saldo_inicial_caixa')
+        .eq('empresa_id', empresaAtual.id)
+        .maybeSingle(),
+      supabase
+        .from('movimentacoes_caixa')
+        .select('*')
+        .eq('empresa_id', empresaAtual.id)
+        .gte('data_movimentacao', dataInicio)
+        .order('data_movimentacao', { ascending: false }),
+    ])
 
-    if (error) {
+    if (movsRes.error) {
       toast.error('Erro ao carregar movimentações')
     } else {
-      setMovimentacoes((data as MovimentacaoCaixa[]) ?? [])
+      setSaldoInicial(Number(configRes.data?.saldo_inicial_caixa ?? 0))
+      setMovimentacoes((movsRes.data as MovimentacaoCaixa[]) ?? [])
     }
     setLoading(false)
   }
@@ -225,7 +234,7 @@ export default function FluxoCaixaPage() {
     [movimentacoes],
   )
 
-  const saldo = entradas - saidas
+  const saldo = saldoInicial + entradas - saidas
 
   const chartData = useMemo(
     () => groupMovimentacoesByPeriod(movimentacoes, periodo),
@@ -233,7 +242,7 @@ export default function FluxoCaixaPage() {
   )
 
   const saldoData = useMemo(() => {
-    let saldoAcum = 0
+    let saldoAcum = saldoInicial
     return chartData.map((d) => {
       saldoAcum += d.entradas - d.saidas
       return { ...d, saldo: saldoAcum }
@@ -313,7 +322,15 @@ export default function FluxoCaixaPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard
+          titulo="Saldo Inicial"
+          valor={formatarMoeda(saldoInicial)}
+          subtitulo="Configurações → Financeiro"
+          icone={BarChart2}
+          corIcone="#D4A528"
+          corFundo="#FFFBEB"
+        />
         <StatCard
           titulo="Total Entradas"
           valor={formatarMoeda(entradas)}
@@ -331,7 +348,7 @@ export default function FluxoCaixaPage() {
           corFundo="#FEF2F2"
         />
         <StatCard
-          titulo="Saldo"
+          titulo="Saldo Atual"
           valor={formatarMoeda(Math.abs(saldo))}
           subtitulo={saldo >= 0 ? 'Superávit' : 'Déficit'}
           icone={DollarSign}

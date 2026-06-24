@@ -271,6 +271,7 @@ export type ConfigEmporio = {
   whatsapp_padrao: string | null
   prefixo_numero_venda: string
   dias_vencimento_padrao: number
+  saldo_inicial_caixa: number
   msg_orcamento: string | null
   msg_aprovacao: string | null
   msg_entrega: string | null

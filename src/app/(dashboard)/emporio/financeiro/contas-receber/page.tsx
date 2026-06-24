@@ -178,7 +178,10 @@ export default function ContasReceberPage() {
     if (search.trim()) {
       const q = search.toLowerCase()
       lista = lista.filter((p) =>
-        p.clientes_emporio?.nome?.toLowerCase().includes(q),
+        (p.clientes_emporio?.nome ?? '').toLowerCase().includes(q) ||
+        (p.clientes_emporio?.telefone ?? '').includes(q) ||
+        String(p.vendas?.numero_venda ?? '').toLowerCase().includes(q) ||
+        p.data_vencimento.includes(q),
       )
     }
 

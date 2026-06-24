@@ -21,6 +21,7 @@ import { formatarMoeda, formatarData, formatarCPF, iniciais } from '@/lib/utils/
 import type { Emprestimo, ClienteFactoring } from '@/lib/types/database'
 import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
+import { toast } from 'sonner'
 
 type EmprestimoComCliente = Emprestimo & {
   cliente?: Pick<ClienteFactoring, 'id' | 'nome' | 'cpf'>
@@ -80,6 +81,8 @@ export default function EmprestimosPage() {
           parcelas_pagas: pagasPorEmp[e.id] ?? 0,
         }))
       )
+    } catch {
+      toast.error('Erro ao carregar empréstimos')
     } finally {
       setLoading(false)
     }

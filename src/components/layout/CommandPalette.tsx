@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, LogOut, Building2, LayoutDashboard, Users, Package, Banknote, ShoppingCart, CalendarDays } from 'lucide-react'
 import {
@@ -38,7 +38,8 @@ export function CommandPalette() {
   const router = useRouter()
   const { empresaAtual } = useEmpresa()
   const { signOut } = useAuth()
-  const supabase = createClient()
+  // useMemo garante instância estável (evita recriar em cada render, prevenindo loops no useCallback)
+  const supabase = useMemo(() => createClient(), [])
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -102,6 +103,7 @@ export function CommandPalette() {
     } finally {
       setSearching(false)
     }
+  // supabase é estável (useMemo) — não precisa estar nas deps
   }, [empresaAtual, supabase])
 
   useEffect(() => { buscar(debouncedQuery) }, [debouncedQuery, buscar])
@@ -121,8 +123,8 @@ export function CommandPalette() {
   const menu = empresaAtual?.tipo === 'emporio' ? MENU_EMPORIO : MENU_FACTORING
   const linksMenu = menu.flatMap(item =>
     item.subitems
-      ? item.subitems.map(sub => ({ label: sub.label, href: sub.href }))
-      : [{ label: item.label, href: item.href }]
+      ? item.subitems.filter(sub => sub.href).map(sub => ({ label: sub.label, href: sub.href! }))
+      : item.href ? [{ label: item.label, href: item.href }] : []
   )
 
   return (

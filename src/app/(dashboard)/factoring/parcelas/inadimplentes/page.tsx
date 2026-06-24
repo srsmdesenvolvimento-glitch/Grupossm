@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { formatarMoeda, formatarCPF, iniciais } from '@/lib/utils/formatters'
 import type { ParcelaEmprestimo } from '@/lib/types/database'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 type ClienteInadimplente = {
   id: string
@@ -129,6 +130,8 @@ export default function InadimplentesPage() {
       }).sort((a, b) => b.maxDiasAtraso - a.maxDiasAtraso)
 
       setClientes(result)
+    } catch {
+      toast.error('Erro ao carregar inadimplentes')
     } finally {
       setLoading(false)
     }
@@ -138,12 +141,19 @@ export default function InadimplentesPage() {
 
   async function marcarBloqueado(clienteId: string) {
     setBloqueando(clienteId)
-    await supabase
-      .from('clientes_factoring')
-      .update({ status: 'bloqueado' })
-      .eq('id', clienteId)
-    setClientes(prev => prev.map(c => c.id === clienteId ? { ...c, status: 'bloqueado' } : c))
-    setBloqueando(null)
+    try {
+      const { error } = await supabase
+        .from('clientes_factoring')
+        .update({ status: 'bloqueado' })
+        .eq('id', clienteId)
+      if (error) throw error
+      setClientes(prev => prev.map(c => c.id === clienteId ? { ...c, status: 'bloqueado' } : c))
+      toast.success('Cliente encaminhado ao jurídico')
+    } catch {
+      toast.error('Erro ao atualizar status do cliente')
+    } finally {
+      setBloqueando(null)
+    }
   }
 
   const filtrados = useMemo(() => {

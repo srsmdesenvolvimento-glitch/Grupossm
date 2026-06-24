@@ -259,6 +259,7 @@ CREATE TABLE config_emporio (
   whatsapp_padrao           VARCHAR(20),
   prefixo_numero_venda      VARCHAR(10) NOT NULL DEFAULT 'EMP',
   dias_vencimento_padrao    INT         NOT NULL DEFAULT 30,
+  saldo_inicial_caixa       DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   msg_orcamento             TEXT,
   msg_aprovacao             TEXT,
   msg_entrega               TEXT,
