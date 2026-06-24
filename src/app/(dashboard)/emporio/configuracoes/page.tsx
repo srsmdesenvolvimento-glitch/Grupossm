@@ -6,9 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingPage'
@@ -17,7 +14,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
 import { VARIAVEIS_EMPORIO, previewMensagem } from '@/lib/utils/mensagens'
-import type { ConfigEmporio, Empresa, PapelUsuario } from '@/lib/types/database'
+import type { ConfigEmporio, Empresa } from '@/lib/types/database'
 import { UserPlus, Trash2 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -29,7 +26,7 @@ type UsuarioRow = {
   usuario_id: string
   nome: string
   email: string
-  papel: PapelUsuario
+  papel: string
   ativo: boolean
 }
 
@@ -212,7 +209,7 @@ export default function ConfiguracoesEmporioPage() {
             usuario_id: ue.usuario_id,
             nome: u?.nome ?? '—',
             email: u?.email ?? '—',
-            papel: ue.papel as PapelUsuario,
+            papel: ue.papel as string,
             ativo: ue.ativo,
           }
         })
@@ -344,20 +341,6 @@ export default function ConfiguracoesEmporioPage() {
   // Usuários handlers
   // ---------------------------------------------------------------------------
 
-  async function alterarPapel(ueId: string, papel: PapelUsuario) {
-    try {
-      const { error } = await supabase
-        .from('usuario_empresa')
-        .update({ papel })
-        .eq('id', ueId)
-      if (error) throw error
-      setUsuarios(prev => prev.map(u => u.ue_id === ueId ? { ...u, papel } : u))
-      toast.success('Papel atualizado')
-    } catch {
-      toast.error('Erro ao atualizar papel')
-    }
-  }
-
   async function toggleAtivo(ueId: string, ativo: boolean) {
     try {
       const { error } = await supabase
@@ -404,22 +387,11 @@ export default function ConfiguracoesEmporioPage() {
     },
     {
       key: 'papel',
-      header: 'Papel',
-      render: row => (
-        <Select
-          value={row.papel}
-          onValueChange={(v) => alterarPapel(row.ue_id, (v ?? 'operador') as PapelUsuario)}
-        >
-          <SelectTrigger className="h-8 text-xs w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="admin">Admin</SelectItem>
-            <SelectItem value="gerente">Gerente</SelectItem>
-            <SelectItem value="operador">Operador</SelectItem>
-            <SelectItem value="visualizador">Visualizador</SelectItem>
-          </SelectContent>
-        </Select>
+      header: 'Acesso',
+      render: () => (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+          Acesso Total
+        </span>
       ),
     },
     {

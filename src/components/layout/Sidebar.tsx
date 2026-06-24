@@ -98,9 +98,8 @@ export function Sidebar({
   const cfg = EMPRESA_CONFIG[empresa]
   const shouldReduceMotion = useReducedMotion()
   const { perfil, user } = useAuth()
-  const { empresaAtual, role } = useEmpresa()
+  const { empresaAtual } = useEmpresa()
   const counts = useFactoringCounts(empresa === 'factoring')
-  const isAdmin = role === 'admin'
   const logoSrc = empresaAtual?.logo_url ?? cfg.logo
   const isFactoring = empresa === 'factoring'
   const displayLogoSrc = collapsed && isFactoring ? '/logos/factoring_emblem.png' : logoSrc
@@ -472,10 +471,9 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* ── Admin Section (admins only) ──────────────────────── */}
-      {isAdmin && (
-        <>
-          {collapsed ? (
+      {/* ── Admin Section ─────────────────────────────────────── */}
+      <>
+        {collapsed ? (
             <div className="px-2 py-1.5">
               <div className="h-px w-full" style={{ background: `linear-gradient(to right, transparent, ${cfg.primary}25, transparent)` }} />
             </div>
@@ -569,8 +567,7 @@ export function Sidebar({
               )
             })}
           </nav>
-        </>
-      )}
+      </>
 
       {/* ── Footer ────────────────────────────────────────────── */}
       <div

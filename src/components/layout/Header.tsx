@@ -36,10 +36,14 @@ const SEGMENT_LABELS: Record<string, string> = {
   caixa: 'Fluxo de Caixa', inadimplentes: 'Inadimplentes',
   pagamento: 'Lançar Pagamento', simulador: 'Simulador',
   relatorio: 'Relatório', catalogo: 'Catálogo',
-  movimentacoes: 'Movimentações', fila: 'Fila',
+  movimentacoes: 'Movimentações', fila: 'Fila de Envio',
   historico: 'Histórico', templates: 'Templates',
   'contas-pagar': 'A Pagar', 'contas-receber': 'A Receber',
   'fluxo-caixa': 'Fluxo de Caixa', 'todos-devem': 'Todos que Devem',
+  'analise-credito': 'Análise de Crédito', conexao: 'Conexão WhatsApp',
+  admin: 'Administração', usuarios: 'Usuários',
+  assinaturas: 'Assinaturas', planos: 'Planos', salarios: 'Salários',
+  perfil: 'Meu Perfil', 'selecionar-empresa': 'Selecionar Empresa',
 }
 
 function useBreadcrumbs(pathname: string) {

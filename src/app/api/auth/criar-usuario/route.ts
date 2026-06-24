@@ -41,26 +41,7 @@ export async function POST(request: NextRequest) {
 
     const { nome, email, senha, empresas } = parsed.data
 
-    // Verificação de permissão: o caller precisa ser admin em TODAS as empresas solicitadas
-    const { data: callerUes } = await supabase
-      .from('usuario_empresa')
-      .select('empresa_id, papel')
-      .eq('usuario_id', user.id)
-      .eq('ativo', true)
-      .in('empresa_id', empresas.map(e => e.empresa_id))
-
-    const callerMap = new Map((callerUes ?? []).map(ue => [ue.empresa_id, ue.papel]))
-
-    for (const { empresa_id } of empresas) {
-      const callerPapel = callerMap.get(empresa_id)
-      if (callerPapel !== 'admin') {
-        return NextResponse.json(
-          { erro: `Sem permissão para criar usuários na empresa ${empresa_id}` },
-          { status: 403 }
-        )
-      }
-    }
-
+    // Sem hierarquia de permissões — qualquer usuário autenticado pode criar usuários
     const admin = createAdminClient()
 
     // Cria o usuário no Auth

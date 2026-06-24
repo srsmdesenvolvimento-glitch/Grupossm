@@ -5,9 +5,6 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { DataTable, type Column } from '@/components/shared/DataTable'
@@ -16,7 +13,7 @@ import { CriarUsuarioDialog } from '@/components/shared/CriarUsuarioDialog'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
-import type { ConfigFactoring, PapelUsuario } from '@/lib/types/database'
+import type { ConfigFactoring } from '@/lib/types/database'
 import { UserPlus, Trash2, Settings, Award, MessageSquare, Bell, AlertCircle, Clock, Wallet, Copy, FileCheck, RefreshCw } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
@@ -121,7 +118,7 @@ type UsuarioRow = {
   usuario_id: string
   nome: string
   email: string
-  papel: PapelUsuario
+  papel: string
   ativo: boolean
 }
 
@@ -254,7 +251,7 @@ export default function ConfiguracoesFactoringPage() {
             usuario_id: ue.usuario_id,
             nome: u?.nome ?? '—',
             email: u?.email ?? '—',
-            papel: ue.papel as PapelUsuario,
+            papel: ue.papel as string,
             ativo: ue.ativo,
           }
         }))
@@ -376,18 +373,6 @@ export default function ConfiguracoesFactoringPage() {
     }
   }
 
-  async function alterarPapel(ueId: string, papel: PapelUsuario) {
-    if (!empresaAtual) return
-    try {
-      const { error } = await supabase.from('usuario_empresa').update({ papel }).eq('id', ueId).eq('empresa_id', empresaAtual.id)
-      if (error) throw error
-      setUsuarios(prev => prev.map(u => u.ue_id === ueId ? { ...u, papel } : u))
-      toast.success('Papel atualizado')
-    } catch {
-      toast.error('Erro ao atualizar papel')
-    }
-  }
-
   async function toggleAtivo(ueId: string, ativo: boolean) {
     if (!empresaAtual) return
     try {
@@ -426,17 +411,11 @@ export default function ConfiguracoesFactoringPage() {
     },
     {
       key: 'papel',
-      header: 'Papel',
-      render: row => (
-        <Select value={row.papel} onValueChange={(v) => alterarPapel(row.ue_id, (v ?? 'operador') as PapelUsuario)}>
-          <SelectTrigger className="h-8 text-xs w-36 rounded-full border-border/50"><SelectValue /></SelectTrigger>
-          <SelectContent className="rounded-xl">
-            <SelectItem value="admin">Admin</SelectItem>
-            <SelectItem value="gerente">Gerente</SelectItem>
-            <SelectItem value="operador">Operador</SelectItem>
-            <SelectItem value="visualizador">Visualizador</SelectItem>
-          </SelectContent>
-        </Select>
+      header: 'Acesso',
+      render: () => (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+          Acesso Total
+        </span>
       ),
     },
     {

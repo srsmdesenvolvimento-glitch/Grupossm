@@ -7,19 +7,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
 import { Eye, EyeOff, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
-import type { PapelUsuario } from '@/lib/types/database'
-
-const PAPEIS: { value: PapelUsuario; label: string; desc: string }[] = [
-  { value: 'admin',       label: 'Administrador',  desc: 'Acesso total: configurações, usuários e todos os dados' },
-  { value: 'gerente',     label: 'Gerente',         desc: 'Gerencia operações, relatórios e clientes' },
-  { value: 'operador',    label: 'Operador',        desc: 'Registra operações do dia a dia' },
-  { value: 'visualizador',label: 'Visualizador',    desc: 'Somente visualização, sem poder alterar nada' },
-]
 
 interface Props {
   empresaId: string
@@ -33,14 +22,12 @@ export function CriarUsuarioDialog({ empresaId, open, onOpenChange, onSuccess }:
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [mostrarSenha, setMostrarSenha] = useState(false)
-  const [papel, setPapel] = useState<PapelUsuario>('operador')
   const [salvando, setSalvando] = useState(false)
 
   function reset() {
     setNome('')
     setEmail('')
     setSenha('')
-    setPapel('operador')
     setMostrarSenha(false)
   }
 
@@ -76,7 +63,7 @@ export function CriarUsuarioDialog({ empresaId, open, onOpenChange, onSuccess }:
           nome: nomeTrimmed,
           email: emailTrimmed,
           senha,
-          papel,
+          papel: 'admin', // acesso total — sem hierarquia
           empresa_id: empresaId,
         }),
       })
@@ -96,11 +83,9 @@ export function CriarUsuarioDialog({ empresaId, open, onOpenChange, onSuccess }:
     }
   }
 
-  const papelAtual = PAPEIS.find(p => p.value === papel)
-
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) fechar(); else onOpenChange(true) }}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <UserPlus size={18} className="text-slate-600" />
@@ -109,7 +94,6 @@ export function CriarUsuarioDialog({ empresaId, open, onOpenChange, onSuccess }:
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          {/* Nome */}
           <div className="space-y-1.5">
             <Label htmlFor="cu-nome" className="text-sm font-medium">
               Nome completo <span className="text-red-500">*</span>
@@ -125,7 +109,6 @@ export function CriarUsuarioDialog({ empresaId, open, onOpenChange, onSuccess }:
             />
           </div>
 
-          {/* Email */}
           <div className="space-y-1.5">
             <Label htmlFor="cu-email" className="text-sm font-medium">
               E-mail <span className="text-red-500">*</span>
@@ -142,7 +125,6 @@ export function CriarUsuarioDialog({ empresaId, open, onOpenChange, onSuccess }:
             />
           </div>
 
-          {/* Senha */}
           <div className="space-y-1.5">
             <Label htmlFor="cu-senha" className="text-sm font-medium">
               Senha inicial <span className="text-red-500">*</span>
@@ -171,34 +153,6 @@ export function CriarUsuarioDialog({ empresaId, open, onOpenChange, onSuccess }:
             </div>
             {senha.length > 0 && senha.length < 6 && (
               <p className="text-xs text-red-500">Senha muito curta</p>
-            )}
-          </div>
-
-          {/* Papel */}
-          <div className="space-y-1.5">
-            <Label htmlFor="cu-papel" className="text-sm font-medium">
-              Nível de acesso <span className="text-red-500">*</span>
-            </Label>
-            <Select
-              value={papel}
-              onValueChange={v => setPapel(v as PapelUsuario)}
-              disabled={salvando}
-            >
-              <SelectTrigger id="cu-papel">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAPEIS.map(p => (
-                  <SelectItem key={p.value} value={p.value}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {papelAtual && (
-              <p className="text-xs text-slate-500 leading-relaxed">
-                {papelAtual.desc}
-              </p>
             )}
           </div>
         </div>

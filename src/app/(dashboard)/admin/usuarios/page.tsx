@@ -28,19 +28,6 @@ type UsuarioRow = {
   empresas_vinculadas: { empresa_id: string; papel: string; nome: string; tipo: string }[]
 }
 
-const PAPEL_LABELS: Record<string, string> = {
-  admin: 'Admin',
-  gerente: 'Gerente',
-  operador: 'Operador',
-  visualizador: 'Visualizador',
-}
-
-const PAPEL_COLORS: Record<string, string> = {
-  admin:        'bg-purple-100 text-purple-700',
-  gerente:      'bg-blue-100 text-blue-700',
-  operador:     'bg-teal-100 text-teal-700',
-  visualizador: 'bg-slate-100 text-slate-600',
-}
 
 type VinculoForm = { empresa_id: string; papel: string; ativo: boolean }
 
@@ -119,7 +106,7 @@ export default function UsuariosAdminPage() {
   }
 
   function addVinculo() {
-    setVinculos(p => [...p, { empresa_id: '', papel: 'operador', ativo: true }])
+    setVinculos(p => [...p, { empresa_id: '', papel: 'admin', ativo: true }])
   }
 
   function removeVinculo(i: number) {
@@ -206,18 +193,11 @@ export default function UsuariosAdminPage() {
     },
     {
       key: 'id',
-      header: 'Papéis',
-      render: row => (
-        <div className="flex flex-wrap gap-1">
-          {[...new Map(row.empresas_vinculadas.map(ev => [ev.papel, ev])).values()].map(ev => (
-            <span
-              key={ev.papel}
-              className={`text-xs px-2 py-0.5 rounded-full font-medium ${PAPEL_COLORS[ev.papel] ?? 'bg-slate-100 text-slate-600'}`}
-            >
-              {PAPEL_LABELS[ev.papel] ?? ev.papel}
-            </span>
-          ))}
-        </div>
+      header: 'Acesso',
+      render: () => (
+        <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">
+          Acesso Total
+        </span>
       ),
     },
     {
@@ -261,9 +241,9 @@ export default function UsuariosAdminPage() {
             </div>
             <div>
               <p className="text-2xl font-bold text-slate-900">
-                {usuarios.filter(u => u.empresas_vinculadas.some(ev => ev.papel === 'admin')).length}
+                {usuarios.length}
               </p>
-              <p className="text-xs text-slate-500">Administradores</p>
+              <p className="text-xs text-slate-500">Com acesso total</p>
             </div>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
@@ -389,19 +369,6 @@ export default function UsuariosAdminPage() {
                           <SelectItem key={e.id} value={e.id} className="text-xs">
                             {e.nome}
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={v.papel}
-                      onValueChange={val => setVinculos(p => p.map((x, idx) => idx === i ? { ...x, papel: val ?? 'operador' } : x))}
-                    >
-                      <SelectTrigger className="w-28 h-8 border-slate-200 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(PAPEL_LABELS).map(([k, lbl]) => (
-                          <SelectItem key={k} value={k} className="text-xs">{lbl}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
