@@ -1,20 +1,19 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { parseBRL, formatBRL, handleCurrencyChange } from '@/lib/utils/currency'
 import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { DataTable, type Column } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingPage'
-import { CriarUsuarioDialog } from '@/components/shared/CriarUsuarioDialog'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
 import type { ConfigFactoring } from '@/lib/types/database'
-import { UserPlus, Trash2, Settings, Award, MessageSquare, Bell, AlertCircle, Clock, Wallet, Copy, FileCheck, RefreshCw } from 'lucide-react'
+import { Settings, Award, MessageSquare, Bell, AlertCircle, Clock, Wallet, Copy, FileCheck, RefreshCw } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -113,15 +112,6 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { REGRAS_SCORE_PADRAO, type RegraScore } from '@/lib/utils/calculos'
 
-type UsuarioRow = {
-  ue_id: string
-  usuario_id: string
-  nome: string
-  email: string
-  papel: string
-  ativo: boolean
-}
-
 export default function ConfiguracoesFactoringPage() {
   const supabase = createClient()
   const { empresaAtual, loading: ctxLoading } = useEmpresa()
@@ -132,8 +122,7 @@ export default function ConfiguracoesFactoringPage() {
 
   // Financeiro
   const [taxaJurosPadrao, setTaxaJurosPadrao] = useState('5')
-  const [jurosMoraDiario, setJurosMoraDiario] = useState('0.033')
-  const [saldoInicialCaixa, setSaldoInicialCaixa] = useState('0')
+  const [saldoInicialCaixa, setSaldoInicialCaixa] = useState('0,00')
 
   // Score Engine Configurations
   const [regrasScore, setRegrasScore] = useState<RegraScore[]>([])
@@ -160,9 +149,9 @@ export default function ConfiguracoesFactoringPage() {
         .upsert({
           empresa_id: empresaAtual.id,
           regras_score: regrasScore,
-          taxa_juros_padrao: parseFloat(taxaJurosPadrao) || 5,
-          juros_mora_diario: parseFloat(jurosMoraDiario) || 0.033,
-          saldo_inicial_caixa: parseFloat(saldoInicialCaixa) || 0,
+          taxa_juros_padrao: parseFloat(taxaJurosPadrao.replace(',', '.')) || 5,
+          multa_atraso: parseFloat(multaAtraso.replace(',', '.')) || 2,
+          saldo_inicial_caixa: parseBRL(saldoInicialCaixa),
         }, { onConflict: 'empresa_id' })
 
       if (error) throw error
@@ -198,34 +187,25 @@ export default function ConfiguracoesFactoringPage() {
   const [msgVencimento, setMsgVencimento] = useState({ ativo: true, template: DEFAULT_TEMPLATES.lembrete_vencimento })
   const [msgPosVencimento, setMsgPosVencimento] = useState({ ativo: true, template: DEFAULT_TEMPLATES.cobranca_pos_vencimento })
 
-  // Usuários
-  const [usuarios, setUsuarios] = useState<UsuarioRow[]>([])
-  const [loadingUsuarios] = useState(false)
-  const [dialogConvidar, setDialogConvidar] = useState(false)
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual) return
     setLoading(true)
     try {
       const client = createClient()
-      const [configRes, usuariosRes] = await Promise.all([
+      const [configRes] = await Promise.all([
         client
           .from('config_factoring')
           .select('*')
           .eq('empresa_id', empresaAtual.id)
           .maybeSingle(),
-        client
-          .from('usuario_empresa')
-          .select('id, usuario_id, papel, ativo, usuarios(id, nome, email)')
-          .eq('empresa_id', empresaAtual.id),
       ])
 
       if (configRes.data) {
         const c = configRes.data as any
         setConfig(c)
         setTaxaJurosPadrao(String(c.taxa_juros_padrao))
-        setJurosMoraDiario(String(c.juros_mora_diario))
-        setSaldoInicialCaixa(String(c.saldo_inicial_caixa ?? 0))
+        setSaldoInicialCaixa(formatBRL(Number(c.saldo_inicial_caixa ?? 0)))
         setRegrasScore(c.regras_score || REGRAS_SCORE_PADRAO)
 
         // WhatsApp settings
@@ -243,19 +223,6 @@ export default function ConfiguracoesFactoringPage() {
         setRegrasScore(REGRAS_SCORE_PADRAO)
       }
 
-      if (usuariosRes.data) {
-        setUsuarios(usuariosRes.data.map((ue) => {
-          const u = ue.usuarios as unknown as { id: string; nome: string; email: string } | null
-          return {
-            ue_id: ue.id,
-            usuario_id: ue.usuario_id,
-            nome: u?.nome ?? '—',
-            email: u?.email ?? '—',
-            papel: ue.papel as string,
-            ativo: ue.ativo,
-          }
-        }))
-      }
     } catch {
       toast.error('Erro ao carregar configurações')
     } finally {
@@ -281,14 +248,11 @@ export default function ConfiguracoesFactoringPage() {
     if (!empresaAtual) return
     setSaving(true)
     try {
-      const parseSaldo = parseFloat(saldoInicialCaixa)
-      const payload = {
+      const basePayload = {
         empresa_id: empresaAtual.id,
-        taxa_juros_padrao: parseFloat(taxaJurosPadrao) || 5,
-        juros_mora_diario: parseFloat(jurosMoraDiario) || 0.033,
-        saldo_inicial_caixa: isNaN(parseSaldo) ? 0 : parseSaldo,
+        taxa_juros_padrao: parseFloat(taxaJurosPadrao.replace(',', '.')) || 5,
+        multa_atraso: parseFloat(multaAtraso.replace(',', '.')) || 2,
         tipo_taxa_padrao: config?.tipo_taxa_padrao ?? 'mensal',
-        multa_atraso: config?.multa_atraso ?? 2,
         dias_carencia: config?.dias_carencia ?? 0,
         prazo_minimo_meses: config?.prazo_minimo_meses ?? 3,
         prazo_maximo_meses: config?.prazo_maximo_meses ?? 60,
@@ -297,17 +261,26 @@ export default function ConfiguracoesFactoringPage() {
         whatsapp_padrao: config?.whatsapp_padrao ?? null,
         prefixo_contrato: config?.prefixo_contrato ?? 'FAC',
       }
-      const { data: saved, error } = await supabase
+
+      // Try with saldo; fall back without if column not in DB yet
+      const { error: errComSaldo } = await supabase
         .from('config_factoring')
-        .upsert(payload, { onConflict: 'empresa_id' })
-        .select()
-        .single()
-      if (error) throw error
-      if (saved) setConfig(saved as ConfigFactoring)
-      toast.success('Configurações salvas!')
-    } catch (err) {
+        .upsert({ ...basePayload, saldo_inicial_caixa: parseBRL(saldoInicialCaixa) }, { onConflict: 'empresa_id' })
+
+      if (errComSaldo) {
+        const { error: errSemSaldo } = await supabase
+          .from('config_factoring')
+          .upsert(basePayload, { onConflict: 'empresa_id' })
+        if (errSemSaldo) throw errSemSaldo
+        toast.success('Configurações salvas! (rode a migration add_saldo_inicial_caixa.sql para habilitar o saldo de caixa)')
+      } else {
+        toast.success('Configurações salvas!')
+      }
+
+      await carregarDados()
+    } catch (err: any) {
       console.error('Erro ao salvar configurações:', err)
-      toast.error('Erro ao salvar configurações')
+      toast.error(`Erro ao salvar: ${err?.message ?? 'verifique o console'}`)
     } finally {
       setSaving(false)
     }
@@ -373,80 +346,6 @@ export default function ConfiguracoesFactoringPage() {
     }
   }
 
-  async function toggleAtivo(ueId: string, ativo: boolean) {
-    if (!empresaAtual) return
-    try {
-      const { error } = await supabase.from('usuario_empresa').update({ ativo: !ativo }).eq('id', ueId).eq('empresa_id', empresaAtual.id)
-      if (error) throw error
-      setUsuarios(prev => prev.map(u => u.ue_id === ueId ? { ...u, ativo: !ativo } : u))
-      toast.success(ativo ? 'Usuário desativado' : 'Usuário ativado')
-    } catch {
-      toast.error('Erro ao alterar status')
-    }
-  }
-
-  async function removerUsuario(ueId: string) {
-    if (!empresaAtual) return
-    if (!confirm('Remover este usuário da empresa?')) return
-    try {
-      const { error } = await supabase.from('usuario_empresa').delete().eq('id', ueId).eq('empresa_id', empresaAtual.id)
-      if (error) throw error
-      setUsuarios(prev => prev.filter(u => u.ue_id !== ueId))
-      toast.success('Usuário removido')
-    } catch {
-      toast.error('Erro ao remover usuário')
-    }
-  }
-
-  const colunasUsuarios: Column<UsuarioRow>[] = [
-    {
-      key: 'nome',
-      header: 'Nome',
-      render: row => (
-        <div>
-          <p className="font-bold text-foreground leading-none">{row.nome}</p>
-          <p className="text-xs text-muted-foreground mt-1">{row.email}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'papel',
-      header: 'Acesso',
-      render: () => (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-          Acesso Total
-        </span>
-      ),
-    },
-    {
-      key: 'ativo',
-      header: 'Status',
-      render: row => (
-        <button
-          type="button"
-          onClick={() => toggleAtivo(row.ue_id, row.ativo)}
-          className={cn(
-            "px-3 py-1 rounded-full text-xs font-bold transition-all duration-200 border",
-            row.ativo 
-              ? "bg-[var(--gt-green-light)] text-[var(--gt-green)] border-[var(--gt-green-light)] hover:bg-[var(--gt-green-light)]/85" 
-              : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
-          )}
-        >
-          {row.ativo ? 'Ativo' : 'Inativo'}
-        </button>
-      ),
-    },
-    {
-      key: 'acoes',
-      header: '',
-      render: row => (
-        <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded-full h-8 w-8 p-0 flex items-center justify-center" onClick={() => removerUsuario(row.ue_id)}>
-          <Trash2 size={15} />
-        </Button>
-      ),
-    },
-  ]
-
   if (ctxLoading || loading) return <LoadingPage />
 
   return (
@@ -472,12 +371,6 @@ export default function ConfiguracoesFactoringPage() {
               className="rounded-full px-5 py-2 font-bold text-xs tracking-tight transition-all duration-200 data-[state=active]:bg-[var(--gt-blue)] data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
               Empresa
-            </TabsTrigger>
-            <TabsTrigger 
-              value="usuarios" 
-              className="rounded-full px-5 py-2 font-bold text-xs tracking-tight transition-all duration-200 data-[state=active]:bg-[var(--gt-blue)] data-[state=active]:text-white data-[state=active]:shadow-sm"
-            >
-              Usuários
             </TabsTrigger>
             <TabsTrigger
               value="whatsapp"
@@ -508,58 +401,36 @@ export default function ConfiguracoesFactoringPage() {
                   <Label htmlFor="taxa-juros" className="font-semibold text-xs text-foreground/80">Taxa de juros padrão (% a.m.)</Label>
                   <Input
                     id="taxa-juros"
-                    type="number"
-                    step="0.01"
-                    min={0}
+                    inputMode="decimal"
                     value={taxaJurosPadrao}
                     onChange={e => setTaxaJurosPadrao(e.target.value)}
-                    placeholder="5.00"
+                    placeholder="5"
                     className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
                   />
                   <p className="text-xs text-muted-foreground/60 leading-normal">Taxa padrão aplicada ao criar um novo empréstimo.</p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="juros-mora" className="font-semibold text-xs text-foreground/80">Juros de mora diário (%)</Label>
+                  <Label htmlFor="taxa-atraso" className="font-semibold text-xs text-foreground/80">Taxa de atraso diária (% a.d.)</Label>
                   <Input
-                    id="juros-mora"
-                    type="number"
-                    step="0.001"
-                    min={0}
-                    value={jurosMoraDiario}
-                    onChange={e => setJurosMoraDiario(e.target.value)}
-                    placeholder="0.033"
-                    className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
-                  />
-                  <p className="text-xs text-muted-foreground/60 leading-normal">Cobrado a cada dia corrido após o vencimento (juros simples acumulado).</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="multa-atraso" className="font-semibold text-xs text-foreground/80">Multa por atraso (%)</Label>
-                  <Input
-                    id="multa-atraso"
-                    type="number"
-                    step="0.1"
-                    min={0}
-                    max={10}
+                    id="taxa-atraso"
+                    inputMode="decimal"
                     value={multaAtraso}
                     onChange={e => setMultaAtraso(e.target.value)}
-                    placeholder="2.00"
+                    placeholder="2"
                     className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
                   />
-                  <p className="text-xs text-muted-foreground/60 leading-normal">Multa única aplicada no 1º dia de atraso (% sobre o valor da parcela).</p>
+                  <p className="text-xs text-muted-foreground/60 leading-normal">Cobrada a partir do 1º dia de atraso, com juros compostos (sobre juros) a cada dia.</p>
                 </div>
 
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="saldo-inicial" className="font-semibold text-xs text-foreground/80">Saldo inicial do caixa (R$)</Label>
                   <Input
                     id="saldo-inicial"
-                    type="number"
-                    step="0.01"
-                    min={0}
+                    inputMode="numeric"
                     value={saldoInicialCaixa}
-                    onChange={e => setSaldoInicialCaixa(e.target.value)}
-                    placeholder="0.00"
+                    onChange={e => setSaldoInicialCaixa(handleCurrencyChange(e.target.value))}
+                    placeholder="0,00"
                     className="h-11 rounded-xl bg-card border-border/60 focus-visible:ring-1 focus-visible:ring-[var(--gt-blue)]"
                   />
                   <p className="text-xs text-muted-foreground/60 leading-normal">Valor de partida do caixa — base para o saldo atual exibido no dashboard e fluxo.</p>
@@ -687,35 +558,6 @@ export default function ConfiguracoesFactoringPage() {
                 >
                   {salvandoEmpresa ? 'Salvando...' : 'Salvar Dados da Empresa'}
                 </Button>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* ── Usuários ── */}
-          <TabsContent value="usuarios">
-            <div className="bg-card rounded-2xl border border-border/50 shadow-m3-1 p-6 space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <h2 className="text-base font-bold text-foreground tracking-tight">Membros da Equipe</h2>
-                  <p className="text-sm text-muted-foreground mt-1">Controle quem tem acesso operacional ao sistema.</p>
-                </div>
-                <Button 
-                  onClick={() => setDialogConvidar(true)} 
-                  className="h-10 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 rounded-full px-5 font-medium shadow-sm flex items-center gap-2 transition-all duration-200 shrink-0"
-                >
-                  <UserPlus size={16} />
-                  Adicionar Usuário
-                </Button>
-              </div>
-
-              <div className="border-t border-border/40 pt-5">
-                <DataTable<UsuarioRow>
-                  columns={colunasUsuarios}
-                  data={usuarios}
-                  keyExtractor={r => r.ue_id}
-                  loading={loadingUsuarios}
-                  emptyMessage="Nenhum usuário cadastrado nesta factoring."
-                />
               </div>
             </div>
           </TabsContent>
@@ -1016,14 +858,6 @@ export default function ConfiguracoesFactoringPage() {
         </Tabs>
       </div>
 
-      {empresaAtual && (
-        <CriarUsuarioDialog
-          empresaId={empresaAtual.id}
-          open={dialogConvidar}
-          onOpenChange={setDialogConvidar}
-          onSuccess={carregarDados}
-        />
-      )}
     </AppShell>
   )
 }

@@ -33,6 +33,7 @@ const CATEGORIAS: Record<string, string> = {
   saida_manual: 'Saída manual',
   juros: 'Juros',
   multa: 'Multa',
+  saldo_inicial: 'Saldo inicial',
 }
 
 function primeiroDiaMes(): string {
@@ -52,6 +53,8 @@ export default function CaixaPage() {
 
   const [movs, setMovs] = useState<Mov[]>([])
   const [saldoInicial, setSaldoInicial] = useState(0)
+  const [saldoAtual, setSaldoAtual] = useState(0)
+  const [configDate, setConfigDate] = useState('')
   const [loading, setLoading] = useState(true)
   const [filtroInicio, setFiltroInicio] = useState(primeiroDiaMes())
   const [filtroFim, setFiltroFim] = useState(ultimoDiaMes())
@@ -61,8 +64,8 @@ export default function CaixaPage() {
     if (!empresaAtual) return
     setLoading(true)
     try {
-      const [configRes, movsRes] = await Promise.all([
-        supabase.from('config_factoring').select('saldo_inicial_caixa').eq('empresa_id', empresaAtual.id).maybeSingle(),
+      const [configRes, movsRes, movsAllRes] = await Promise.all([
+        supabase.from('config_factoring').select('saldo_inicial_caixa, updated_at').eq('empresa_id', empresaAtual.id).maybeSingle(),
         supabase
           .from('movimentacoes_caixa')
           .select('id, tipo, categoria, descricao, valor, data_movimentacao, referencia_tipo, referencia_id')
@@ -70,9 +73,22 @@ export default function CaixaPage() {
           .gte('data_movimentacao', filtroInicio)
           .lte('data_movimentacao', filtroFim)
           .order('data_movimentacao', { ascending: false }),
+        supabase
+          .from('movimentacoes_caixa')
+          .select('tipo, valor')
+          .eq('empresa_id', empresaAtual.id),
       ])
-      setSaldoInicial(Number(configRes.data?.saldo_inicial_caixa ?? 0))
+      
+      const sInicial = Number(configRes.data?.saldo_inicial_caixa ?? 0)
+      const cDate = configRes.data?.updated_at ? configRes.data.updated_at.split('T')[0] : new Date().toISOString().split('T')[0]
+      setSaldoInicial(sInicial)
+      setConfigDate(cDate)
       setMovs((movsRes.data ?? []) as Mov[])
+      
+      const movsAll = movsAllRes.data ?? []
+      const totalEntradasAll = movsAll.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.valor, 0)
+      const totalSaidasAll   = movsAll.filter(m => m.tipo === 'saida').reduce((s, m) => s + m.valor, 0)
+      setSaldoAtual(sInicial + totalEntradasAll - totalSaidasAll)
     } finally {
       setLoading(false)
     }
@@ -80,11 +96,24 @@ export default function CaixaPage() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  const filtradas = filtroTipo === 'todos' ? movs : movs.filter(m => m.tipo === filtroTipo)
+  const virtualRow: Mov[] = (saldoInicial > 0 && (filtroTipo === 'todos' || filtroTipo === 'entrada')) ? [{
+    id: 'saldo-inicial',
+    tipo: 'entrada',
+    categoria: 'saldo_inicial',
+    descricao: 'Saldo Inicial do Caixa (Configurações)',
+    valor: saldoInicial,
+    data_movimentacao: configDate || new Date().toISOString().split('T')[0],
+    referencia_tipo: null,
+    referencia_id: null
+  }] : []
+
+  const filtradas = [
+    ...(filtroTipo === 'todos' ? movs : movs.filter(m => m.tipo === filtroTipo)),
+    ...virtualRow
+  ]
 
   const totalEntradas = movs.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.valor, 0)
   const totalSaidas   = movs.filter(m => m.tipo === 'saida').reduce((s, m) => s + m.valor, 0)
-  const saldoAtual    = saldoInicial + totalEntradas - totalSaidas
 
   const columns: Column<Mov>[] = [
     {

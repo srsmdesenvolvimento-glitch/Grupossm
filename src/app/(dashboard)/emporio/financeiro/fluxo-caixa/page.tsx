@@ -171,6 +171,9 @@ export default function FluxoCaixaPage() {
   const [periodo, setPeriodo] = useState<Periodo>('mes')
   const [movimentacoes, setMovimentacoes] = useState<MovimentacaoCaixa[]>([])
   const [saldoInicial, setSaldoInicial] = useState(0)
+  const [saldoAtual, setSaldoAtual] = useState(0)
+  const [dataInicioFilter, setDataInicioFilter] = useState('')
+  const [configDate, setConfigDate] = useState('')
   const [loading, setLoading] = useState(true)
 
   // ─── Load ─────────────────────────────────────────────────────────────
@@ -187,11 +190,12 @@ export default function FluxoCaixaPage() {
       ano: new Date(hoje.getFullYear(), 0, 1),
     }
     const dataInicio = periodos[p].toISOString().split('T')[0]
+    setDataInicioFilter(dataInicio)
 
-    const [configRes, movsRes] = await Promise.all([
+    const [configRes, movsRes, allMovsRes] = await Promise.all([
       supabase
         .from('config_emporio')
-        .select('saldo_inicial_caixa')
+        .select('saldo_inicial_caixa, updated_at')
         .eq('empresa_id', empresaAtual.id)
         .maybeSingle(),
       supabase
@@ -200,13 +204,25 @@ export default function FluxoCaixaPage() {
         .eq('empresa_id', empresaAtual.id)
         .gte('data_movimentacao', dataInicio)
         .order('data_movimentacao', { ascending: false }),
+      supabase
+        .from('movimentacoes_caixa')
+        .select('tipo, valor')
+        .eq('empresa_id', empresaAtual.id),
     ])
 
     if (movsRes.error) {
       toast.error('Erro ao carregar movimentações')
     } else {
-      setSaldoInicial(Number(configRes.data?.saldo_inicial_caixa ?? 0))
+      const sInicial = Number(configRes.data?.saldo_inicial_caixa ?? 0)
+      const cDate = configRes.data?.updated_at ? configRes.data.updated_at.split('T')[0] : new Date().toISOString().split('T')[0]
+      setSaldoInicial(sInicial)
+      setConfigDate(cDate)
       setMovimentacoes((movsRes.data as MovimentacaoCaixa[]) ?? [])
+      
+      const allMovs = (allMovsRes?.data ?? []) as { tipo: string, valor: number }[]
+      const totEntradas = allMovs.filter(m => m.tipo === 'entrada').reduce((s, m) => s + Number(m.valor), 0)
+      const totSaidas = allMovs.filter(m => m.tipo === 'saida').reduce((s, m) => s + Number(m.valor), 0)
+      setSaldoAtual(sInicial + totEntradas - totSaidas)
     }
     setLoading(false)
   }
@@ -234,7 +250,23 @@ export default function FluxoCaixaPage() {
     [movimentacoes],
   )
 
-  const saldo = saldoInicial + entradas - saidas
+  const virtualRow: MovimentacaoCaixa[] = saldoInicial > 0 ? [{
+    id: 'saldo-inicial',
+    empresa_id: empresaAtual?.id ?? '',
+    usuario_id: null,
+    tipo: 'entrada',
+    categoria: 'inicial',
+    descricao: 'Saldo Inicial do Caixa (Configurações)',
+    valor: saldoInicial,
+    referencia_tipo: null,
+    referencia_id: null,
+    data_movimentacao: configDate || new Date().toISOString().split('T')[0],
+    observacoes: null
+  }] : []
+
+  const movimentacoesExibidas = useMemo(() => {
+    return [...movimentacoes, ...virtualRow]
+  }, [movimentacoes, virtualRow])
 
   const chartData = useMemo(
     () => groupMovimentacoesByPeriod(movimentacoes, periodo),
@@ -349,11 +381,11 @@ export default function FluxoCaixaPage() {
         />
         <StatCard
           titulo="Saldo Atual"
-          valor={formatarMoeda(Math.abs(saldo))}
-          subtitulo={saldo >= 0 ? 'Superávit' : 'Déficit'}
+          valor={formatarMoeda(Math.abs(saldoAtual))}
+          subtitulo={saldoAtual >= 0 ? 'Superávit' : 'Déficit'}
           icone={DollarSign}
-          corIcone={saldo >= 0 ? '#22C55E' : '#EF4444'}
-          corFundo={saldo >= 0 ? '#F0FDF4' : '#FEF2F2'}
+          corIcone={saldoAtual >= 0 ? '#22C55E' : '#EF4444'}
+          corFundo={saldoAtual >= 0 ? '#F0FDF4' : '#FEF2F2'}
         />
       </div>
 
@@ -493,7 +525,7 @@ export default function FluxoCaixaPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {movimentacoes.length === 0 ? (
+          {movimentacoesExibidas.length === 0 ? (
             <div className="py-12">
               <EmptyState
                 icone={DollarSign}
@@ -504,7 +536,7 @@ export default function FluxoCaixaPage() {
           ) : (
             <DataTable
               columns={columns}
-              data={movimentacoes}
+              data={movimentacoesExibidas}
               keyExtractor={(row) => row.id}
               loading={loading}
               emptyMessage="Nenhuma movimentação encontrada para este período"

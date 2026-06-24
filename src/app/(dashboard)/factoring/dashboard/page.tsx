@@ -210,7 +210,7 @@ export default function FactoringDashboard() {
           .limit(10),
         supabase
           .from('config_factoring')
-          .select('saldo_inicial_caixa')
+          .select('saldo_inicial_caixa, updated_at')
           .eq('empresa_id', empresaAtual.id)
           .maybeSingle(),
         supabase
@@ -316,12 +316,23 @@ export default function FactoringDashboard() {
         })
 
       // ── List 3: últimos pagamentos
-      const ultimosPagamentos: Pagamento[] = movimentacoes.map(m => ({
-        id: m.id,
-        descricao: m.descricao ?? '—',
-        valor: m.valor ?? 0,
-        data: m.created_at,
-      }))
+      const configDate = configRes.data?.updated_at || (primeiroDia + 'T00:00:00.000Z')
+      const virtualPago: Pagamento[] = saldoInicialCaixa > 0 ? [{
+        id: 'saldo-inicial',
+        descricao: 'Saldo Inicial do Caixa (Configurações)',
+        valor: saldoInicialCaixa,
+        data: configDate,
+      }] : []
+
+      const ultimosPagamentos: Pagamento[] = [
+        ...movimentacoes.map(m => ({
+          id: m.id,
+          descricao: m.descricao ?? '—',
+          valor: m.valor ?? 0,
+          data: m.created_at,
+        })),
+        ...virtualPago
+      ].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())
 
       // ── Visão geral
       const totalClientes = clientes.length

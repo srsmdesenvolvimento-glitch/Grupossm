@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { parseBRL, formatBRL, handleCurrencyChange } from '@/lib/utils/currency'
 import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -180,7 +181,7 @@ export default function ConfiguracoesEmporioPage() {
         setDiasVencimento(String(c.dias_vencimento_padrao))
         setPrefixoNumeroVenda(c.prefixo_numero_venda)
         setWhatsappPadrao(c.whatsapp_padrao ?? '')
-        setSaldoInicialCaixa(String(c.saldo_inicial_caixa ?? 0))
+        setSaldoInicialCaixa(formatBRL(Number(c.saldo_inicial_caixa ?? 0)))
         setMsgOrcamento(c.msg_orcamento ?? '')
         setMsgAprovacao(c.msg_aprovacao ?? '')
         setMsgEntrega(c.msg_entrega ?? '')
@@ -241,7 +242,7 @@ export default function ConfiguracoesEmporioPage() {
         dias_vencimento_padrao: parseInt(diasVencimento, 10) || 30,
         prefixo_numero_venda: prefixoNumeroVenda.trim() || 'EMP',
         whatsapp_padrao: whatsappPadrao.trim() || null,
-        saldo_inicial_caixa: parseFloat(saldoInicialCaixa) || 0,
+        saldo_inicial_caixa: parseBRL(saldoInicialCaixa),
         ...(config ? { msg_orcamento: config.msg_orcamento, msg_aprovacao: config.msg_aprovacao, msg_entrega: config.msg_entrega, msg_cobranca: config.msg_cobranca, msg_aniversario: config.msg_aniversario } : {}),
       }
 
@@ -517,11 +518,9 @@ export default function ConfiguracoesEmporioPage() {
                   <Label htmlFor="saldo-inicial-caixa">Saldo inicial do caixa (R$)</Label>
                   <Input
                     id="saldo-inicial-caixa"
-                    type="number"
-                    min={0}
-                    step="0.01"
+                    inputMode="numeric"
                     value={saldoInicialCaixa}
-                    onChange={e => setSaldoInicialCaixa(e.target.value)}
+                    onChange={e => setSaldoInicialCaixa(handleCurrencyChange(e.target.value))}
                     placeholder="0,00"
                   />
                   <p className="text-xs text-slate-400">Valor em caixa antes das movimentações do sistema</p>
