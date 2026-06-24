@@ -9,7 +9,7 @@ import {
   calcularTotais,
   generateSandboxReport,
   injectSandboxFallback
-} from '../src/app/api/assertiva/relatorio/route';
+} from '../src/lib/assertiva/parsers';
 
 test('Assertiva Parsers - unit tests', async (t) => {
 

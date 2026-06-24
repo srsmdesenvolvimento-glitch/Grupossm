@@ -9,7 +9,9 @@ function formatarDataBR(dataStr: string): string {
   if (!dataStr) return '—'
   const partes = dataStr.split('-')
   return partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : dataStr
-}export async function GET(request: NextRequest) {
+}
+
+export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization')
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -28,6 +30,12 @@ function formatarDataBR(dataStr: string): string {
     hour12: false
   })
   const horaBrasilia = parseInt(formatter.format(new Date()))
+
+  // Verifica se horário atual está dentro da janela de envio da empresa (±1h de tolerância)
+  // Isso garante que o cron funcione mesmo rodando em intervalos de 30-60min
+  function dentroJanelaEnvio(horaEnvioNum: number): boolean {
+    return Math.abs(horaBrasilia - horaEnvioNum) <= 1
+  }
 
   try {
     // 1. Carregar Configurações de todas as empresas
@@ -135,7 +143,7 @@ function formatarDataBR(dataStr: string): string {
 
         const deveEnviarMensagem = 
           cobranca.ativo && 
-          horaBrasilia === cfg.hora_envio_num && 
+          dentroJanelaEnvio(cfg.hora_envio_num) && 
           !idsEnviadosHoje.has(p.id)
 
         if (deveEnviarMensagem && cliente && cliente.telefone) {
@@ -202,7 +210,7 @@ function formatarDataBR(dataStr: string): string {
 
         const deveEnviarMensagem = 
           venc.ativo && 
-          horaBrasilia === cfg.hora_envio_num && 
+          dentroJanelaEnvio(cfg.hora_envio_num) && 
           !idsEnviadosHoje.has(p.id)
 
         if (deveEnviarMensagem && cliente && cliente.telefone) {
@@ -244,7 +252,7 @@ function formatarDataBR(dataStr: string): string {
     const companiesByPreVencDays = new Map<number, string[]>()
     for (const [empresaId, cfg] of configMap.entries()) {
       // Apenas enfileira se o horário atual de Brasília coincidir com a hora configurada para a empresa
-      if (cfg.lembrete_pre_vencimento.ativo && horaBrasilia === cfg.hora_envio_num) {
+      if (cfg.lembrete_pre_vencimento.ativo && dentroJanelaEnvio(cfg.hora_envio_num)) {
         const days = Number(cfg.lembrete_pre_vencimento.dias_antes ?? 3)
         const currentList = companiesByPreVencDays.get(days) || []
         companiesByPreVencDays.set(days, [...currentList, empresaId])

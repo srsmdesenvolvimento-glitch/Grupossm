@@ -30,14 +30,29 @@ function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> 
  * com fallback para API Oficial Meta (env) ou Evolution global.
  * Cache in-process de 60s por empresa evita queries repetidas no cron.
  */
+/**
+ * Normaliza telefone para formato E.164 sem '+' (ex: 5511999990000).
+ * Retorna null se o número for inválido (muito curto após limpeza).
+ */
+export function normalizarTelefone(telefone: string): string | null {
+  const numero = telefone.replace(/\D/g, '')
+  if (numero.length < 10) return null // mínimo DDD + 8 dígitos
+  const com55 = numero.startsWith('55') ? numero : `55${numero}`
+  // Máximo: 55 + DDD (2) + 9 dígitos = 13 chars
+  if (com55.length > 13) return null
+  return com55
+}
+
 export async function enviarMensagem(
   telefone: string,
   mensagem: string,
   empresaId?: string,
   imediato?: boolean,
 ): Promise<{ ok: boolean; messageId?: string; erro?: string }> {
-  const numero = telefone.replace(/\D/g, '')
-  const numeroFormatado = numero.startsWith('55') ? numero : `55${numero}`
+  const numeroFormatado = normalizarTelefone(telefone)
+  if (!numeroFormatado) {
+    return { ok: false, erro: `Telefone inválido: "${telefone}". Use formato com DDD (ex: 11999990000).` }
+  }
 
   // 1. Extracao de PDF inline na mensagem
   const pdfRegex = /(https?:\/\/[^\s]+\.pdf[^\s]*)/i

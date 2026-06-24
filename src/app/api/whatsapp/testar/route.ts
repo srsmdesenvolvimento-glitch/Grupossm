@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       mensagem,
       status: 'enviado',
       enviado_em: new Date().toISOString(),
+      ...(result.messageId ? { whatsapp_message_id: result.messageId } : {}),
     })
 
     return NextResponse.json({ sucesso: true })

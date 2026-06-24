@@ -65,10 +65,10 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
 
     if (restored) {
       setEmpresaAtual(restored)
-      setRole('admin') // usuário único com acesso total
+      setRole(rMap[restored.id] ?? 'admin')
     } else if (lista.length === 1) {
       setEmpresaAtual(lista[0])
-      setRole('admin') // usuário único com acesso total
+      setRole(rMap[lista[0].id] ?? 'admin')
       localStorage.setItem('srsm:empresa_id', lista[0].id)
     }
 
@@ -110,9 +110,9 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
     const e = empresas.find(x => x.id === id)
     if (!e) return
     setEmpresaAtual(e)
-    setRole('admin') // usuário único com acesso total
+    setRole(rolesMap[id] ?? 'admin')
     if (typeof window !== 'undefined') localStorage.setItem('srsm:empresa_id', id)
-  }, [empresas])
+  }, [empresas, rolesMap])
 
   const trocarEmpresa = selecionarEmpresa
 

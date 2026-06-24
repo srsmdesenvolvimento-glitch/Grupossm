@@ -85,11 +85,11 @@ describe('parseLocalizePf', () => {
     }
     const result = parseLocalizePf(raw)
     expect(result.telefones).toHaveLength(2)
-    expect(result.telefones[0].tipo).toBe('Celular')
-    expect(result.telefones[0].whatsapp).toBe(true)
-    expect(result.telefones[0].operadora).toBe('VIVO')
-    expect(result.telefones[1].tipo).toBe('Fixo')
-    expect(result.telefones[1].whatsapp).toBe(false)
+    expect(result.telefones![0].tipo).toBe('Celular')
+    expect(result.telefones![0].whatsapp).toBe(true)
+    expect(result.telefones![0].operadora).toBe('VIVO')
+    expect(result.telefones![1].tipo).toBe('Fixo')
+    expect(result.telefones![1].whatsapp).toBe(false)
   })
 
   it('parseia endereços concatenando tipoLogradouro + logradouro', () => {
@@ -104,9 +104,9 @@ describe('parseLocalizePf', () => {
     }
     const result = parseLocalizePf(raw)
     expect(result.enderecos).toHaveLength(1)
-    expect(result.enderecos[0].logradouro).toBe('Rua das Flores')
-    expect(result.enderecos[0].numero).toBe('100')
-    expect(result.enderecos[0].municipio).toBe('SP')
+    expect(result.enderecos![0].logradouro).toBe('Rua das Flores')
+    expect(result.enderecos![0].numero).toBe('100')
+    expect(result.enderecos![0].municipio).toBe('SP')
   })
 
   it('converte data de nascimento dd/mm/yyyy no cadastro', () => {
@@ -179,9 +179,9 @@ describe('parseLocalizePj', () => {
     }
     const result = parseLocalizePj(raw)
     expect(result.socios).toHaveLength(1)
-    expect(result.socios[0].nome).toBe('Fulano')
-    expect(result.socios[0].documento).toBe('12345678909')
-    expect(result.socios[0].participacao).toBe(100)
+    expect(result.socios![0].nome).toBe('Fulano')
+    expect(result.socios![0].documento).toBe('12345678909')
+    expect(result.socios![0].participacao).toBe(100)
   })
 })
 
@@ -224,10 +224,10 @@ describe('parseMixPf', () => {
     }
     const result = parseMixPf(raw)
     expect(result.negativacoes).toHaveLength(1)
-    expect(result.negativacoes[0].credor).toBe('BANCO X')
-    expect(result.negativacoes[0].valor).toBe(500)
-    expect(result.negativacoes[0].tipo).toBe('Débito') // tipo 'B' → 'Débito'
-    expect(result.negativacoes[0].contrato).toBe('123')
+    expect(result.negativacoes![0].credor).toBe('BANCO X')
+    expect(result.negativacoes![0].valor).toBe(500)
+    expect(result.negativacoes![0].tipo).toBe('Débito') // tipo 'B' → 'Débito'
+    expect(result.negativacoes![0].contrato).toBe('123')
   })
 
   it('usa sumQuantidade dos resumos quando disponível', () => {
@@ -258,8 +258,8 @@ describe('parseMixPf', () => {
     }
     const result = parseMixPf(raw)
     expect(result.protestos).toHaveLength(1)
-    expect(result.protestos[0].cartorio).toBe('1')
-    expect(result.protestos[0].municipio).toBe('RJ')
+    expect(result.protestos![0].cartorio).toBe('1')
+    expect(result.protestos![0].municipio).toBe('RJ')
   })
 
   it('parseia ações judiciais com forum aninhado', () => {
@@ -271,8 +271,8 @@ describe('parseMixPf', () => {
     }
     const result = parseMixPf(raw)
     expect(result.acoes_judiciais).toHaveLength(1)
-    expect(result.acoes_judiciais[0].tipo).toBe('Execução')
-    expect(result.acoes_judiciais[0].vara).toBe('1')
+    expect(result.acoes_judiciais![0].tipo).toBe('Execução')
+    expect(result.acoes_judiciais![0].vara).toBe('1')
   })
 
   it('parseia CCF corretamente', () => {
@@ -284,8 +284,8 @@ describe('parseMixPf', () => {
     }
     const result = parseMixPf(raw)
     expect(result.ccf).toHaveLength(1)
-    expect(result.ccf[0].nome_banco).toBe('BB')
-    expect(result.ccf[0].motivo).toBe('Sem fundo')
+    expect(result.ccf![0].nome_banco).toBe('BB')
+    expect(result.ccf![0].motivo).toBe('Sem fundo')
   })
 })
 
