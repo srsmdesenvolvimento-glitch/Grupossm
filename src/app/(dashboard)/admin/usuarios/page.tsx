@@ -5,8 +5,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { DataTable, type Column } from '@/components/shared/DataTable'
@@ -29,8 +28,6 @@ type UsuarioRow = {
 }
 
 
-type VinculoForm = { empresa_id: string; papel: string; ativo: boolean }
-
 const FORM_INITIAL = {
   nome: '', email: '', senha: '', senhaVisivel: false as boolean,
 }
@@ -45,7 +42,7 @@ export default function UsuariosAdminPage() {
   const [search, setSearch] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState(FORM_INITIAL)
-  const [vinculos, setVinculos] = useState<VinculoForm[]>([{ empresa_id: '', papel: 'admin', ativo: true }])
+  const [selectedEmpresas, setSelectedEmpresas] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
@@ -96,26 +93,17 @@ export default function UsuariosAdminPage() {
 
   function openNew() {
     setForm(FORM_INITIAL)
-    // Padrão: acesso a todas as empresas disponíveis
-    setVinculos(
-      empresas.length > 0
-        ? empresas.map(e => ({ empresa_id: e.id, papel: 'admin', ativo: true }))
-        : [{ empresa_id: '', papel: 'admin', ativo: true }]
-    )
+    setSelectedEmpresas(new Set(empresas.map(e => e.id)))
     setDialogOpen(true)
   }
 
-  function addVinculo() {
-    setVinculos(p => [...p, { empresa_id: '', papel: 'admin', ativo: true }])
-  }
-
-  function removeVinculo(i: number) {
-    setVinculos(p => p.filter((_, idx) => idx !== i))
-  }
-
-  function setVinculoAll() {
-    // Vincula a todas as empresas com papel admin
-    setVinculos(empresas.map(e => ({ empresa_id: e.id, papel: 'admin', ativo: true })))
+  function toggleEmpresa(id: string) {
+    setSelectedEmpresas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   async function save() {
@@ -123,8 +111,7 @@ export default function UsuariosAdminPage() {
       toast.error('Preencha todos os campos obrigatórios')
       return
     }
-    const validVinculos = vinculos.filter(v => v.empresa_id)
-    if (validVinculos.length === 0) {
+    if (selectedEmpresas.size === 0) {
       toast.error('Selecione ao menos uma empresa')
       return
     }
@@ -137,7 +124,7 @@ export default function UsuariosAdminPage() {
           nome: form.nome,
           email: form.email,
           senha: form.senha,
-          empresas: validVinculos.map(v => ({ empresa_id: v.empresa_id, papel: v.papel })),
+          empresas: Array.from(selectedEmpresas).map(id => ({ empresa_id: id, papel: 'admin' })),
         }),
       })
 
@@ -337,60 +324,36 @@ export default function UsuariosAdminPage() {
 
             {/* Acesso a empresas */}
             <div className="space-y-2.5">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Acesso às empresas</Label>
-                <button
-                  type="button"
-                  onClick={setVinculoAll}
-                  className="text-[10px] font-bold text-[#1E5AA8] hover:underline"
-                >
-                  Selecionar todas
-                </button>
-              </div>
-
+              <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Acesso às empresas
+              </Label>
               <div className="space-y-2">
-                {vinculos.map((v, i) => (
-                  <div
-                    key={i}
-                    className="flex gap-2 items-center p-3 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-slate-50 transition-colors"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-[#1E5AA8]/10 flex items-center justify-center shrink-0">
-                      <Building2 size={13} className="text-[#1E5AA8]" />
-                    </div>
-                    <Select
-                      value={v.empresa_id}
-                      onValueChange={val => setVinculos(p => p.map((x, idx) => idx === i ? { ...x, empresa_id: val ?? '' } : x))}
+                {empresas.map(e => {
+                  const checked = selectedEmpresas.has(e.id)
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => toggleEmpresa(e.id)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+                        checked
+                          ? 'border-[#1E5AA8]/40 bg-[#EDF4FE]'
+                          : 'border-slate-200 bg-slate-50/60 hover:bg-slate-50'
+                      }`}
                     >
-                      <SelectTrigger className="flex-1 h-8 border-slate-200 text-xs">
-                        <SelectValue placeholder="Selecionar empresa..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {empresas.map(e => (
-                          <SelectItem key={e.id} value={e.id} className="text-xs">
-                            {e.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {vinculos.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeVinculo(i)}
-                        className="text-red-400 hover:text-red-600 text-lg leading-none shrink-0 w-6 flex items-center justify-center transition-colors"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                ))}
-
-                <button
-                  type="button"
-                  onClick={addVinculo}
-                  className="w-full py-2 rounded-xl border border-dashed border-slate-200 text-xs text-slate-400 hover:text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-all"
-                >
-                  + Adicionar empresa
-                </button>
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                        checked ? 'bg-[#1E5AA8]' : 'bg-slate-200'
+                      }`}>
+                        <Building2 size={13} className={checked ? 'text-white' : 'text-slate-500'} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{e.nome}</p>
+                        <p className="text-[10px] text-slate-400 uppercase">{e.tipo}</p>
+                      </div>
+                      {checked && <Check size={14} className="text-[#1E5AA8] shrink-0" />}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>
