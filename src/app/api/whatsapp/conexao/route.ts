@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 15_000): Promise<Response> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer))
+}
+
+function evolutionError(err: any, ctx: string): string {
+  if (err?.name === 'AbortError') {
+    return `Timeout: Evolution API não respondeu em 15s. Verifique se o servidor está online. (${ctx})`
+  }
+  return `${ctx}: ${err?.message ?? 'Erro desconhecido'}`
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -17,7 +30,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ erro: 'Ação e Empresa ID são obrigatórios.' }, { status: 400 })
     }
 
-    // Valida que o usuário tem acesso à empresa
     const { data: access } = await supabase
       .from('usuario_empresa')
       .select('papel')
@@ -30,7 +42,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ erro: 'Acesso negado para esta empresa.' }, { status: 403 })
     }
 
-    // Carrega credenciais do WhatsApp do banco de dados
     const { data: config, error: configError } = await supabase
       .from('config_whatsapp')
       .select('*')
@@ -46,52 +57,42 @@ export async function POST(request: NextRequest) {
     }
 
     const { api_url: apiUrl, api_key: apiKey, instance_name: instanceName } = config
+    const baseHeaders = { apikey: apiKey }
+    const jsonHeaders = { 'Content-Type': 'application/json', apikey: apiKey }
 
     // ─── AÇÃO: STATUS ──────────────────────────────────────────────────────────
     if (acao === 'status') {
       try {
-        const stateRes = await fetch(`${apiUrl}/instance/connectionState/${instanceName}`, {
+        const stateRes = await fetchWithTimeout(`${apiUrl}/instance/connectionState/${instanceName}`, {
           method: 'GET',
-          headers: { apikey: apiKey },
+          headers: baseHeaders,
           cache: 'no-store',
         })
 
         if (stateRes.status === 404) {
-          // Instância não existe no servidor Evolution, vamos criá-la!
-          const createRes = await fetch(`${apiUrl}/instance/create`, {
+          const createRes = await fetchWithTimeout(`${apiUrl}/instance/create`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              apikey: apiKey,
-            },
-            body: JSON.stringify({
-              instanceName: instanceName,
-              integration: 'WHATSAPP-BAILEYS',
-              qrcode: true,
-            }),
+            headers: jsonHeaders,
+            body: JSON.stringify({ instanceName, integration: 'WHATSAPP-BAILEYS', qrcode: true }),
           })
 
           if (!createRes.ok) {
-            const createErr = await createRes.text()
-            return NextResponse.json({ status: 'erro', erro: `Falha ao criar instância: ${createErr}` })
+            const err = await createRes.text()
+            return NextResponse.json({ status: 'erro', erro: `Falha ao criar instância: ${err}` })
           }
 
-          // Instância criada, retorna estado fechado (pronto para ler QR code)
           return NextResponse.json({ status: 'desconectado', state: 'close' })
         }
 
         if (!stateRes.ok) {
-          const stateErr = await stateRes.text()
-          return NextResponse.json({ status: 'erro', erro: `Erro ao obter status da Evolution: ${stateErr}` })
+          const err = await stateRes.text()
+          return NextResponse.json({ status: 'erro', erro: `Erro ao obter status da Evolution: ${err}` })
         }
 
         const stateData = await stateRes.json()
         const state = stateData.instance?.state || stateData.state || 'close'
-
-        // Mapeamento amigável de status
         const friendlyStatus = state === 'open' ? 'conectado' : state === 'connecting' ? 'conectando' : 'desconectado'
-        
-        // Atualiza status local no Supabase de forma otimista/silenciosa
+
         await supabase
           .from('config_whatsapp')
           .update({ status: friendlyStatus, updated_at: new Date().toISOString() })
@@ -99,96 +100,82 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ status: friendlyStatus, state })
       } catch (err: any) {
-        return NextResponse.json({ status: 'erro', erro: `Falha ao conectar no servidor Evolution: ${err.message}` })
+        return NextResponse.json({ status: 'erro', erro: evolutionError(err, 'Falha ao conectar no servidor Evolution') })
       }
     }
 
     // ─── AÇÃO: CONECTAR (Obter QR Code) ─────────────────────────────────────────
     if (acao === 'conectar') {
       try {
-        let connectRes = await fetch(`${apiUrl}/instance/connect/${instanceName}`, {
+        let connectRes = await fetchWithTimeout(`${apiUrl}/instance/connect/${instanceName}`, {
           method: 'GET',
-          headers: { apikey: apiKey },
+          headers: baseHeaders,
           cache: 'no-store',
         })
 
-        // Se a instância não existir (404), vamos criá-la e tentar conectar novamente
         if (connectRes.status === 404) {
-          const createRes = await fetch(`${apiUrl}/instance/create`, {
+          const createRes = await fetchWithTimeout(`${apiUrl}/instance/create`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              apikey: apiKey,
-            },
-            body: JSON.stringify({
-              instanceName: instanceName,
-              integration: 'WHATSAPP-BAILEYS',
-              qrcode: true,
-            }),
+            headers: jsonHeaders,
+            body: JSON.stringify({ instanceName, integration: 'WHATSAPP-BAILEYS', qrcode: true }),
           })
 
           if (!createRes.ok) {
-            const createErr = await createRes.text()
-            return NextResponse.json({ erro: `Falha ao criar instância: ${createErr}` }, { status: 400 })
+            const err = await createRes.text()
+            return NextResponse.json({ erro: `Falha ao criar instância: ${err}` }, { status: 400 })
           }
 
-          // Tenta conectar novamente após criar a instância
-          connectRes = await fetch(`${apiUrl}/instance/connect/${instanceName}`, {
+          connectRes = await fetchWithTimeout(`${apiUrl}/instance/connect/${instanceName}`, {
             method: 'GET',
-            headers: { apikey: apiKey },
+            headers: baseHeaders,
             cache: 'no-store',
           })
         }
 
         if (!connectRes.ok) {
-          const connectErr = await connectRes.text()
-          return NextResponse.json({ erro: `Falha ao gerar QR Code: ${connectErr}` }, { status: 400 })
+          const err = await connectRes.text()
+          return NextResponse.json({ erro: `Falha ao gerar QR Code: ${err}` }, { status: 400 })
         }
 
         let connectData = await connectRes.json()
-        
-        // Se já estiver conectando, a API pode não retornar o QR code. Forçamos logout para resetar.
+
         if (!connectData.base64 && !connectData.code && !connectData.qrcode?.base64 && !connectData.qrcode?.code) {
-          console.log('[WhatsApp API] Instância parece presa sem QR Code. Tentando logout para resetar...')
-          await fetch(`${apiUrl}/instance/logout/${instanceName}`, {
+          console.log('[WhatsApp API] Instância sem QR Code. Tentando logout para resetar...')
+          await fetchWithTimeout(`${apiUrl}/instance/logout/${instanceName}`, {
             method: 'DELETE',
-            headers: { apikey: apiKey },
-          })
-          
-          // Tenta pegar o QR code mais uma vez
-          connectRes = await fetch(`${apiUrl}/instance/connect/${instanceName}`, {
+            headers: baseHeaders,
+          }).catch(() => null)
+
+          connectRes = await fetchWithTimeout(`${apiUrl}/instance/connect/${instanceName}`, {
             method: 'GET',
-            headers: { apikey: apiKey },
+            headers: baseHeaders,
             cache: 'no-store',
           })
-          
+
           if (connectRes.ok) {
             connectData = await connectRes.json()
           }
         }
-        
-        // A Evolution API retorna o QR Code em connectData.base64 ou connectData.code,
-        // ou às vezes encapsulado em connectData.qrcode.base64
+
         return NextResponse.json(connectData)
       } catch (err: any) {
-        return NextResponse.json({ erro: `Erro ao requisitar QR Code: ${err.message}` }, { status: 500 })
+        return NextResponse.json({ erro: evolutionError(err, 'Erro ao requisitar QR Code') }, { status: 500 })
       }
     }
 
     // ─── AÇÃO: DESCONECTAR (Logout) ─────────────────────────────────────────────
     if (acao === 'desconectar') {
       try {
-        const logoutRes = await fetch(`${apiUrl}/instance/logout/${instanceName}`, {
+        const logoutRes = await fetchWithTimeout(`${apiUrl}/instance/logout/${instanceName}`, {
           method: 'DELETE',
-          headers: { apikey: apiKey },
+          headers: baseHeaders,
         })
 
         if (!logoutRes.ok) {
-          const logoutErr = await logoutRes.text()
-          return NextResponse.json({ erro: `Falha ao desconectar instância: ${logoutErr}` }, { status: 400 })
+          const err = await logoutRes.text()
+          return NextResponse.json({ erro: `Falha ao desconectar instância: ${err}` }, { status: 400 })
         }
 
-        // Atualiza status no banco de dados
         await supabase
           .from('config_whatsapp')
           .update({ status: 'desconectado', updated_at: new Date().toISOString() })
@@ -196,7 +183,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ sucesso: true })
       } catch (err: any) {
-        return NextResponse.json({ erro: `Erro ao desconectar instância: ${err.message}` }, { status: 500 })
+        return NextResponse.json({ erro: evolutionError(err, 'Erro ao desconectar instância') }, { status: 500 })
       }
     }
 

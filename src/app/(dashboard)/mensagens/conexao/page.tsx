@@ -160,6 +160,10 @@ export default function WhatsAppConexaoPage() {
   const [savingConfig, setSavingConfig] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
 
+  // Refs para controle do polling sem stale closures
+  const prevConnectionState = useRef<'open' | 'close' | 'connecting' | 'nao_configurado' | 'erro'>('nao_configurado')
+  const qrFetchedRef = useRef(false)
+
   // Mensagem de teste
   const [testNumber, setTestNumber] = useState('')
   const [testMessage, setTestMessage] = useState('Olá! Esta é uma mensagem de teste do módulo WhatsApp do SRSM Group.')
@@ -282,52 +286,51 @@ export default function WhatsAppConexaoPage() {
 
       if (data.status === 'nao_configurado') {
         setConnectionState('nao_configurado')
-      } else {
-        const nextState = data.state === 'open' ? 'open' : data.state === 'connecting' ? 'connecting' : 'close'
-        
-        setConnectionState(prev => {
-          if (nextState === 'open' && prev !== 'open') {
-            toast.success('WhatsApp pareado com sucesso!')
-            loadRecentLogs()
-          }
-          return nextState
-        })
-        
-        // Se estiver desconectado e não tiver QR carregado, carrega
-        if (nextState === 'close' && !qrCodeData) {
-          getQrCode()
-        } else if (nextState === 'open') {
-          setQrCodeData(null) // Limpa QR se conectou
-        }
+        return
       }
+
+      const nextState: 'open' | 'close' | 'connecting' =
+        data.state === 'open' ? 'open' :
+        data.state === 'connecting' ? 'connecting' :
+        'close'
+
+      // Side-effects fora do setState para evitar dupla execução no React 18 Strict Mode
+      if (nextState === 'open' && prevConnectionState.current !== 'open') {
+        toast.success('WhatsApp pareado com sucesso!')
+        loadRecentLogs()
+        setQrCodeData(null)
+        qrFetchedRef.current = false
+      }
+
+      prevConnectionState.current = nextState
+      setConnectionState(nextState)
     } catch (err) {
       console.error(err)
       setConnectionState('erro')
     } finally {
       setLoadingStatus(false)
     }
-  }, [empresaAtual?.id, config.api_url, config.instance_name, qrCodeData])
+  }, [empresaAtual?.id, config.api_url, config.instance_name, loadRecentLogs])
 
-  // Efeito de polling de status quando desconectado ou conectando
+  // Polling de status — reinicia quando config ou empresa mudam
   useEffect(() => {
-    if (loading || dbMigrationError) return
-    if (!config.api_url || !config.instance_name) return
-
-    // Executa a primeira checa imediata
+    if (loading || dbMigrationError || !config.api_url || !config.instance_name) return
+    qrFetchedRef.current = false
+    setQrCodeData(null)
     checkConnectionStatus()
-
-    const interval = setInterval(() => {
-      // Apenas consulta automaticamente se estiver desconectado ou conectando para identificar pareamento
-      setConnectionState(prev => {
-        if (prev === 'close' || prev === 'connecting') {
-          checkConnectionStatus()
-        }
-        return prev
-      })
-    }, 6000)
-
+    const interval = setInterval(() => checkConnectionStatus(), 6000)
     return () => clearInterval(interval)
-  }, [config.api_url, config.instance_name, loading, dbMigrationError])
+  }, [config.api_url, config.instance_name, loading, dbMigrationError, checkConnectionStatus])
+
+  // Auto-fetch do QR quando estado muda para 'close' — apenas uma vez por ciclo
+  useEffect(() => {
+    if (connectionState === 'close' && !qrFetchedRef.current && config.api_url && config.instance_name) {
+      qrFetchedRef.current = true
+      getQrCode()
+    }
+    // getQrCode é uma função estável no render atual; qrFetchedRef garante single-fire
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionState, config.api_url, config.instance_name])
 
   // Obtém o QR Code para pareamento
   const getQrCode = async () => {
@@ -377,7 +380,8 @@ export default function WhatsAppConexaoPage() {
       toast.success('WhatsApp desconectado com sucesso.')
       setConnectionState('close')
       setQrCodeData(null)
-      getQrCode()
+      qrFetchedRef.current = false
+      // auto-QR effect dispara ao detectar connectionState === 'close'
     } catch (err: any) {
       toast.error('Erro ao desconectar: ' + err.message)
     } finally {
@@ -794,24 +798,36 @@ export default function WhatsAppConexaoPage() {
                       ) : qrCodeData ? (
                         <div className="flex flex-col items-center space-y-4">
                           <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                            {qrCodeData.base64 || qrCodeData.qrcode?.base64 ? (
-                              <img src={qrCodeData.base64 || qrCodeData.qrcode?.base64} alt="Evolution QR Code" className="w-[180px] h-[180px]" />
-                            ) : qrCodeData.code || qrCodeData.qrcode?.code ? (
-                              <QRCodeSVG value={qrCodeData.code || qrCodeData.qrcode?.code || ''} size={180} />
-                            ) : (
-                              <div className="w-[180px] h-[180px] flex items-center justify-center text-xs text-slate-400">QR Inválido</div>
-                            )}
+                            {(() => {
+                              const raw = qrCodeData.base64 || qrCodeData.qrcode?.base64
+                              const code = qrCodeData.code || qrCodeData.qrcode?.code
+                              if (raw) {
+                                const src = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`
+                                return <img src={src} alt="QR Code WhatsApp" className="w-[180px] h-[180px]" />
+                              }
+                              if (code) return <QRCodeSVG value={code} size={180} />
+                              return <div className="w-[180px] h-[180px] flex items-center justify-center text-xs text-slate-400">QR inválido — tente novamente</div>
+                            })()}
                           </div>
                           <p className="text-[10px] text-center text-slate-400 max-w-[200px] leading-relaxed">
                             Abra o WhatsApp no celular, toque em "Aparelhos conectados" e escaneie o código acima.
                           </p>
+                          <button
+                            type="button"
+                            onClick={() => { qrFetchedRef.current = false; getQrCode() }}
+                            disabled={loadingQr}
+                            className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors disabled:opacity-50"
+                          >
+                            <RefreshCw size={10} className={loadingQr ? 'animate-spin' : ''} />
+                            QR expirou? Atualizar
+                          </button>
                         </div>
                       ) : (
                         <div className="text-center p-4">
-                          <Button 
+                          <Button
                             variant="outline"
                             size="sm"
-                            onClick={getQrCode}
+                            onClick={() => { qrFetchedRef.current = false; getQrCode() }}
                             disabled={!config.api_url}
                             className="text-xs font-semibold rounded-lg"
                           >
