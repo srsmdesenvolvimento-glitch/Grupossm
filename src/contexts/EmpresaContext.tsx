@@ -45,15 +45,6 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Fallback: show all active companies
-    if (lista.length === 0) {
-      const { data: all } = await supabase
-        .from('empresas')
-        .select('id, nome, tipo, logo_url, ativo, cnpj, telefone, email, endereco, cidade, estado, cep')
-        .eq('ativo', true)
-      lista = (all ?? []) as EmpresaInfo[]
-    }
-
     setEmpresas(lista)
     setRolesMap(rMap)
 
@@ -65,10 +56,10 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
 
     if (restored) {
       setEmpresaAtual(restored)
-      setRole(rMap[restored.id] ?? 'admin')
+      setRole(rMap[restored.id] ?? 'operador')
     } else if (lista.length === 1) {
       setEmpresaAtual(lista[0])
-      setRole(rMap[lista[0].id] ?? 'admin')
+      setRole(rMap[lista[0].id] ?? 'operador')
       localStorage.setItem('srsm:empresa_id', lista[0].id)
     }
 
@@ -110,7 +101,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
     const e = empresas.find(x => x.id === id)
     if (!e) return
     setEmpresaAtual(e)
-    setRole(rolesMap[id] ?? 'admin')
+    setRole(rolesMap[id] ?? 'operador')
     if (typeof window !== 'undefined') localStorage.setItem('srsm:empresa_id', id)
   }, [empresas, rolesMap])
 

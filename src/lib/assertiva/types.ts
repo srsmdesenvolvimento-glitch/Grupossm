@@ -232,8 +232,11 @@ export interface RelatorioCompleto {
 
   // ── Meta ──────────────────────────────────────────────────────────────────
   _cache?: boolean
+  _sandbox?: boolean
   _gerado_em?: string
   _localize?: any
   _credito?: any
   _erros?: string[]
+  _mix_403?: boolean
+  _auth_error?: string
 }

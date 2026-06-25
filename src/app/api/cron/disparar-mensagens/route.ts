@@ -14,7 +14,8 @@ export async function GET(request: NextRequest) {
     .from('notificacoes_log')
     .select('id, destinatario, mensagem, empresa_id')
     .eq('status', 'pendente')
-    .limit(50)
+    .order('created_at', { ascending: true })
+    .limit(100)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -24,12 +25,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, enviadas: 0 })
   }
 
-  // Envia em série com intervalo mínimo para não sobrecarregar a Evolution API
-  // (50 mensagens em paralelo gera picos de 429 em instâncias compartilhadas)
+  // Envia em série com intervalo entre cada envio para evitar 429 na Evolution API
   const resultados: Array<{ id: string; ok: boolean; messageId?: string; erro?: string }> = []
-  for (const msg of pendentes) {
+  for (let i = 0; i < pendentes.length; i++) {
+    const msg = pendentes[i]
     const resultado = await enviarMensagem(msg.destinatario, msg.mensagem, msg.empresa_id, true)
     resultados.push({ id: msg.id, ...resultado })
+    if (i < pendentes.length - 1) {
+      await new Promise(r => setTimeout(r, 300))
+    }
   }
 
   const sucessos = resultados.filter(r => r.ok)

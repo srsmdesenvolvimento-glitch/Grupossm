@@ -1,8 +1,35 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+function verificarAutenticidadeWebhook(request: Request): boolean {
+  // Opção 1: token na query string (ex: URL = /api/webhooks/whatsapp?token=SEU_SECRET)
+  const url = new URL(request.url)
+  const queryToken = url.searchParams.get('token')
+  const webhookSecret = process.env.WEBHOOK_SECRET
+
+  // Se WEBHOOK_SECRET está configurado, exige validação
+  if (webhookSecret) {
+    if (queryToken === webhookSecret) return true
+
+    // Opção 2: header apikey (Evolution API envia o apikey da instância)
+    const headerApiKey = request.headers.get('apikey')
+    if (headerApiKey && headerApiKey === webhookSecret) return true
+
+    return false
+  }
+
+  // Sem WEBHOOK_SECRET configurado: permite mas loga aviso
+  console.warn('[Webhook WhatsApp] WEBHOOK_SECRET não configurado — endpoint público. Configure para segurança.')
+  return true
+}
+
 export async function POST(request: Request) {
   try {
+    if (!verificarAutenticidadeWebhook(request)) {
+      console.warn('[Webhook WhatsApp] Requisição rejeitada: token inválido')
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const supabase = createAdminClient()
 

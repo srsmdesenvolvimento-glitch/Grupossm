@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertTriangle, CheckCircle2, Clock, Download, CalendarDays, CreditCard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
@@ -38,6 +38,7 @@ const TABS = [
 
 export default function ParcelasPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { empresaAtual } = useEmpresa()
   const { temPermissao } = usePermissao()
   const supabase = createClient()
@@ -45,7 +46,9 @@ export default function ParcelasPage() {
   const [parcelas, setParcelas] = useState<ParcelaCompleta[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
-  const [tab, setTab] = useState('todos')
+  const validTabs = TABS.map(t => t.key)
+  const paramFiltro = searchParams.get('filtro') ?? ''
+  const [tab, setTab] = useState(validTabs.includes(paramFiltro) ? paramFiltro : 'todos')
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual) return
@@ -286,7 +289,7 @@ export default function ParcelasPage() {
               value={busca}
               onChange={setBusca}
               placeholder="Buscar por contrato ou cliente..."
-              className="max-w-md"
+              className="flex-1 min-w-48 max-w-md"
             />
             {temPermissao('financeiro') && filtradas.length > 0 && (
               <Button

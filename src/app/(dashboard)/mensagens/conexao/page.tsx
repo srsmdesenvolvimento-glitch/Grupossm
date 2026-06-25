@@ -67,24 +67,104 @@ type WhatsappSettings = {
 const DEFAULT_SETTINGS: WhatsappSettings = {
   contrato_criado: {
     ativo: true,
-    template: "Olá, {{nome}}! O seu contrato de empréstimo {{numero_contrato}} no valor de {{valor_principal}} foi criado e está pronto para assinatura. Por favor, acesse o link a seguir para assinar digitalmente: {{link_assinatura}}"
+    template: `🏦 *SRS M FACTORING — CONTRATO APROVADO* ✅
+
+Olá, *{{nome}}*! Ótimas notícias!
+
+Seu contrato de crédito foi aprovado e gerado com sucesso.
+
+📋 *Dados do Contrato:*
+• Nº: {{numero_contrato}}
+• Valor Liberado: *{{valor_principal}}*
+
+✍️ *Assine agora (link exclusivo):*
+{{link_assinatura}}
+
+ℹ️ A assinatura é digital, segura e tem validade jurídica.
+
+_SRS M Factoring — Crédito com Responsabilidade_`
   },
   contrato_assinado: {
     ativo: true,
-    template: "Olá, {{nome}}! Seu contrato {{numero_contrato}} foi assinado digitalmente com sucesso. Segue a cópia assinada do contrato: {{link_contrato}}"
+    template: `✅ *CONTRATO ASSINADO — SRS M FACTORING*
+
+Olá, *{{nome}}*!
+
+Seu contrato *{{numero_contrato}}* foi assinado digitalmente com sucesso. O documento tem plena validade jurídica conforme MP 2.200-2/2001.
+
+📄 *Acesse e salve seu contrato:*
+{{link_contrato}}
+
+Dúvidas? Estamos à disposição.
+_SRS M Factoring_`
   },
   lembrete_pre_vencimento: {
     ativo: true,
     dias_antes: 3,
-    template: "Olá, {{nome}}! Passando para lembrar que sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} vence em {{dias_antes}} dias ({{data_vencimento}}) no valor de {{valor}}. Chave PIX: {{whatsapp_padrao}}."
+    template: `🔔 *LEMBRETE DE VENCIMENTO — SRS M FACTORING*
+
+Olá, *{{nome}}*!
+
+Sua parcela vence em *{{dias_antes}} dias*. Não esqueça!
+
+📋 *Detalhes:*
+• Contrato: {{numero_contrato}}
+• Parcela: {{numero_parcela}}/{{total_parcelas}}
+• Vencimento: *{{data_vencimento}}*
+• Valor: *{{valor}}*
+
+💳 *Pague via PIX:*
+\`{{whatsapp_padrao}}\`
+
+Pagando antes do vencimento você evita encargos. 😊
+
+_SRS M Factoring — Financeiro_`
   },
   lembrete_vencimento: {
     ativo: true,
-    template: "Atenção, {{nome}}! Sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} vence HOJE ({{data_vencimento}}) no valor de {{valor}}. Chave PIX de pagamento: {{whatsapp_padrao}}. Favor desconsiderar caso já pago."
+    template: `📅 *PARCELA VENCE HOJE — SRS M FACTORING*
+
+Olá, *{{nome}}*!
+
+⚠️ Sua parcela vence *HOJE*. Evite multa e juros efetuando o pagamento.
+
+📋 *Detalhes:*
+• Contrato: {{numero_contrato}}
+• Parcela: {{numero_parcela}}/{{total_parcelas}}
+• Valor: *{{valor}}*
+
+💳 *Pague agora via PIX:*
+\`{{whatsapp_padrao}}\`
+
+Após o vencimento são cobrados multa + juros diários.
+_SRS M Factoring — Setor Financeiro_`
   },
   cobranca_pos_vencimento: {
     ativo: true,
-    template: "Prezado(a) {{nome}}, consta em nosso sistema que a sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} está em atraso. O valor de {{valor}} foi atualizado para {{valor_total}} (multa de {{multa}} e juros de {{juros_mora}}). Favor regularizar via PIX: {{whatsapp_padrao}}."
+    template: `⚠️ *PARCELA EM ATRASO — SRS M FACTORING*
+
+Olá, *{{nome}}*.
+
+Identificamos que há parcela(s) em aberto no seu contrato.
+
+📋 *Situação atual:*
+• Contrato: {{numero_contrato}}
+• Parcela: {{numero_parcela}}/{{total_parcelas}}
+• Vencimento: {{data_vencimento}}
+• ⏱ Dias em atraso: *{{dias_atraso}} dias*
+
+💰 *Valores atualizados:*
+• Valor original: {{valor}}
+• Multa: +{{multa}}
+• Juros acumulados: +{{juros_mora}}
+• *Total a pagar: {{valor_total}}*
+
+💳 *Regularize via PIX:*
+\`{{whatsapp_padrao}}\`
+
+⚡ Os juros aumentam a cada dia. Regularize o quanto antes.
+
+_SRS M Factoring — Departamento de Cobranças_`
   },
   hora_envio: "09:00"
 }
@@ -147,6 +227,9 @@ export default function WhatsAppConexaoPage() {
 
   // Settings de Automação (JSONB no config_factoring)
   const [settings, setSettings] = useState<WhatsappSettings>(DEFAULT_SETTINGS)
+
+  // Chave PIX para cobranças
+  const [pixChave, setPixChave] = useState('')
 
   // Logs Recentes de Envio
   const [recentLogs, setRecentLogs] = useState<any[]>([])
@@ -230,10 +313,10 @@ export default function WhatsAppConexaoPage() {
         })
       }
 
-      // 2. Carrega automações da config_factoring
+      // 2. Carrega automações + chave PIX da config_factoring
       const { data: cfData, error: cfErr } = await supabase
         .from('config_factoring')
-        .select('whatsapp_settings')
+        .select('whatsapp_settings, whatsapp_padrao')
         .eq('empresa_id', empresaAtual.id)
         .maybeSingle()
 
@@ -243,12 +326,11 @@ export default function WhatsAppConexaoPage() {
         } else {
           throw cfErr
         }
-      } else if (cfData?.whatsapp_settings) {
-        // Mescla com default caso falte algum trigger
-        setSettings({
-          ...DEFAULT_SETTINGS,
-          ...cfData.whatsapp_settings
-        })
+      } else if (cfData) {
+        if (cfData.whatsapp_padrao) setPixChave(cfData.whatsapp_padrao)
+        if (cfData.whatsapp_settings) {
+          setSettings({ ...DEFAULT_SETTINGS, ...cfData.whatsapp_settings })
+        }
       }
 
       // Carrega logs recentes de disparos
@@ -421,7 +503,7 @@ export default function WhatsAppConexaoPage() {
     }
   }
 
-  // Salva triggers / templates de automação
+  // Salva triggers / templates de automação + chave PIX
   const salvarSettings = async () => {
     if (!empresaAtual?.id) return
     setSavingSettings(true)
@@ -431,13 +513,14 @@ export default function WhatsAppConexaoPage() {
         .upsert(
           {
             empresa_id: empresaAtual.id,
-            whatsapp_settings: settings
+            whatsapp_settings: settings,
+            whatsapp_padrao: pixChave,
           },
           { onConflict: 'empresa_id' }
         )
 
       if (error) throw error
-      toast.success('Configurações de disparos salvas com sucesso!')
+      toast.success('Templates e chave PIX salvos com sucesso!')
     } catch (err: any) {
       toast.error('Erro ao salvar automações: ' + err.message)
     } finally {
@@ -551,13 +634,15 @@ export default function WhatsAppConexaoPage() {
   return (
     <AppShell empresa={tipoEmpresa} titulo="Conexão & Automação WhatsApp">
       {dbMigrationError && (
-        <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-5 mb-6 flex gap-3 items-start">
-          <AlertTriangle className="text-red-500 flex-shrink-0 mt-0.5" size={20} />
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-5 mb-6 flex gap-3 items-start">
+          <AlertTriangle className="text-amber-500 flex-shrink-0 mt-0.5" size={20} />
           <div>
-            <h3 className="font-semibold text-sm">Banco de Dados não Migrado</h3>
-            <p className="text-xs text-red-700 mt-1 leading-relaxed">
-              As tabelas ou colunas necessárias para gerenciar o WhatsApp não foram encontradas no banco de dados. 
-              Por favor, copie as instruções contidas no arquivo <code className="bg-red-100 px-1 py-0.5 rounded font-mono">src/lib/supabase/whatsapp_migration.sql</code> e execute-as no <strong>SQL Editor do seu Supabase Dashboard</strong>.
+            <h3 className="font-semibold text-sm">Configuração do WhatsApp pendente</h3>
+            <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+              A tabela de configurações do WhatsApp ainda não foi criada no banco de dados.
+              Acesse o <strong>SQL Editor do Supabase Dashboard</strong> e execute o script
+              <code className="bg-amber-100 mx-1 px-1 py-0.5 rounded font-mono text-[11px]">src/lib/supabase/whatsapp_migration.sql</code>
+              para habilitar esta funcionalidade.
             </p>
           </div>
         </div>
@@ -1016,6 +1101,25 @@ export default function WhatsAppConexaoPage() {
               {/* Editor de Mensagem e Preview */}
               <div className="lg:col-span-9 flex flex-col gap-4 overflow-y-auto pr-1">
                 
+                {/* Chave PIX para cobranças */}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center gap-4 shadow-sm">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="p-2 bg-green-50 border border-green-100 rounded-lg text-green-600 shrink-0">
+                      <Send size={18} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-bold text-slate-800">Chave PIX para Cobranças</h4>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Aparece como <code className="font-mono bg-slate-100 px-1 rounded">{'{{whatsapp_padrao}}'}</code> em todas as mensagens.</p>
+                    </div>
+                  </div>
+                  <input
+                    value={pixChave}
+                    onChange={e => setPixChave(e.target.value)}
+                    placeholder="CPF, CNPJ, e-mail, celular ou chave aleatória"
+                    className="flex-1 min-w-[220px] h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E5AA8]/30"
+                  />
+                </div>
+
                 {/* Horário Global de Envio de Cobrança */}
                 <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between gap-4 shadow-sm">
                   <div className="flex items-center gap-3">
@@ -1118,7 +1222,14 @@ export default function WhatsAppConexaoPage() {
                       className="font-mono text-sm leading-relaxed rounded-xl focus:ring-[#1E5AA8]"
                     />
                     <div className="flex justify-between text-[10px] text-slate-400 font-medium">
-                      <span>Não remova as chaves das variáveis.</span>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateTrigger(activeTrigger, 'template', DEFAULT_SETTINGS[activeTrigger].template)}
+                        className="flex items-center gap-1 hover:text-[#1E5AA8] transition-colors"
+                      >
+                        <RefreshCw size={10} />
+                        Restaurar template padrão
+                      </button>
                       <span>{(settings[activeTrigger]?.template ?? '').length} caracteres</span>
                     </div>
                   </div>

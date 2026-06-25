@@ -288,7 +288,7 @@ export default function EmprestimosPage() {
                 value={busca}
                 onChange={setBusca}
                 placeholder="Buscar por contrato ou cliente..."
-                className="max-w-md"
+                className="flex-1 min-w-48 max-w-md"
               />
               <Select value={filtroStatus} onValueChange={v => setFiltroStatus(v ?? 'todos')}>
                 <SelectTrigger className="h-9.5 text-xs font-semibold rounded-full px-5 border-border bg-background focus:ring-[var(--gt-blue)] focus:border-[var(--gt-blue)] w-44 hover:bg-accent transition-colors">

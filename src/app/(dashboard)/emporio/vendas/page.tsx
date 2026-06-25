@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { formatarData } from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/shared/SearchInput'
 import {
   Select,
   SelectContent,
@@ -333,12 +334,11 @@ export default function VendasPage() {
 
           {/* Filters */}
           <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap gap-3">
-            <div className="relative flex-1 min-w-48">
-              <Input
-                placeholder="Buscar por cliente ou nº da venda..."
+            <div className="flex-1 min-w-48">
+              <SearchInput
                 value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                className="h-8 text-sm"
+                onChange={setBusca}
+                placeholder="Buscar por cliente ou nº da venda..."
               />
             </div>
             <Select value={filtroStatus} onValueChange={(v) => setFiltroStatus(v ?? 'todos')}>

@@ -3,12 +3,26 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { z } from 'zod'
 
+async function verificarAdmin(supabase: Awaited<ReturnType<typeof createClient>>, userId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('usuario_empresa')
+    .select('papel')
+    .eq('usuario_id', userId)
+    .eq('papel', 'admin')
+    .eq('ativo', true)
+    .limit(1)
+  return (data?.length ?? 0) > 0
+}
+
 // GET /api/admin/usuarios — lista todos os usuários (bypassa RLS via admin client)
 export async function GET() {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
+
+    const isAdmin = await verificarAdmin(supabase, user.id)
+    if (!isAdmin) return NextResponse.json({ erro: 'Acesso negado. Apenas administradores.' }, { status: 403 })
 
     const admin = createAdminClient()
 
@@ -56,6 +70,9 @@ export async function PATCH(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
 
+    const isAdmin = await verificarAdmin(supabase, user.id)
+    if (!isAdmin) return NextResponse.json({ erro: 'Acesso negado. Apenas administradores.' }, { status: 403 })
+
     const body   = await request.json()
     const parsed = editSchema.safeParse(body)
     if (!parsed.success) {
@@ -102,6 +119,9 @@ export async function DELETE(request: NextRequest) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
+
+    const isAdmin = await verificarAdmin(supabase, user.id)
+    if (!isAdmin) return NextResponse.json({ erro: 'Acesso negado. Apenas administradores.' }, { status: 403 })
 
     const id = request.nextUrl.searchParams.get('id')
     if (!id || !/^[0-9a-f-]{36}$/.test(id)) {

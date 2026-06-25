@@ -687,7 +687,7 @@ export default function FactoringDashboard() {
             icone={CheckCircle}
             corIcone="#34A853"
             corFundo="#E6F4EA"
-            onClick={() => router.push('/factoring/parcelas')}
+            onClick={() => router.push('/factoring/parcelas?filtro=pago')}
             atalho="Relatório de Amortizações"
             delay={0.06}
           />
@@ -698,7 +698,7 @@ export default function FactoringDashboard() {
             icone={Clock}
             corIcone="#FBBC04"
             corFundo="#FEF7E0"
-            onClick={() => router.push('/factoring/parcelas')}
+            onClick={() => router.push('/factoring/parcelas?filtro=hoje')}
             atalho="Verificar Vencimentos"
             delay={0.12}
           />
@@ -911,10 +911,10 @@ export default function FactoringDashboard() {
                 {[
                   { label: 'Tomadores Cadastrados', valor: d.totalClientes, suffix: 'clientes', color: '#1A73E8', href: '/factoring/clientes' },
                   { label: 'Contratos Ativos Emitidos', valor: d.totalContratosAtivos, suffix: 'ativos', color: '#34A853', href: '/factoring/emprestimos' },
-                  { label: 'Baixas de Parcelas (Total)', valor: d.totalParcelasPagas, suffix: 'parcelas', color: '#FBBC04', href: '/factoring/parcelas' },
+                  { label: 'Baixas de Parcelas (Total)', valor: d.totalParcelasPagas, suffix: 'parcelas', color: '#FBBC04', href: '/factoring/parcelas?filtro=pago' },
                   { label: 'Inadimplentes em Carteira', valor: d.inadimplentes.length, suffix: 'parcelas', color: '#EA4335', href: '/factoring/parcelas/inadimplentes' },
-                  { label: 'Contas Vencendo Hoje', valor: d.parcelasVencendoHoje.length, suffix: 'parcelas', color: '#FA903E', href: '/factoring/parcelas' },
-                  { label: 'Previsões para 7 Dias', valor: d.parcelasProximos7.length, suffix: 'parcelas', color: '#A142F4', href: '/factoring/parcelas' },
+                  { label: 'Contas Vencendo Hoje', valor: d.parcelasVencendoHoje.length, suffix: 'parcelas', color: '#FA903E', href: '/factoring/parcelas?filtro=hoje' },
+                  { label: 'Previsões para 7 Dias', valor: d.parcelasProximos7.length, suffix: 'parcelas', color: '#A142F4', href: '/factoring/parcelas?filtro=proximos7' },
                 ].map(item => (
                   <button
                     key={item.label}

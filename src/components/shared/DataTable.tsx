@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -38,6 +38,9 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1)
   const totalPages = Math.max(1, Math.ceil(data.length / perPage))
+
+  useEffect(() => { setPage(1) }, [data.length])
+
   const slice = data.slice((page - 1) * perPage, page * perPage)
 
   if (loading) {

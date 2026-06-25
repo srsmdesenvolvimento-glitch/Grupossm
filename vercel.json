@@ -5,12 +5,12 @@
       "schedule": "5 0 * * *"
     },
     {
-      "path": "/api/cron/disparar-mensagens",
-      "schedule": "0 8 * * *"
+      "path": "/api/cron/atualizar-juros",
+      "schedule": "0 12 * * *"
     },
     {
-      "path": "/api/cron/gerar-recorrentes",
-      "schedule": "0 1 1 * *"
+      "path": "/api/cron/disparar-mensagens",
+      "schedule": "30 12 * * *"
     }
   ]
 }

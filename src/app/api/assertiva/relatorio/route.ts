@@ -13,7 +13,7 @@ const AUTH_URL      = `${API_BASE}/oauth2/v3/token`
 const LOCALIZE_BASE = `${API_BASE}/localize/v3`
 const MIX_BASE      = `${API_BASE}/mix-v3`
 
-const CACHE_TTL_MS  = 24 * 60 * 60 * 1000
+const CACHE_TTL_MS  = 30 * 24 * 60 * 60 * 1000 // 30 dias
 const TOKEN_TTL_MS  = 28 * 60 * 1000
 const ID_FINALIDADE = 2 // LGPD: Ciclo de crédito
 
@@ -95,14 +95,20 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (cached?.resultado) {
-      return NextResponse.json({ ...cached.resultado, _cache: true })
+      // Só usa cache se a entrada foi explicitamente marcada como produção (_sandbox: false).
+      // Entradas sem _sandbox (antigas) ou com _sandbox: true são ignoradas e re-buscadas.
+      const isProductionCache = cached.resultado._sandbox === false
+      if (isProductionCache || isSandbox) {
+        return NextResponse.json({ ...cached.resultado, _cache: true })
+      }
     }
 
     // ── Sem credenciais → sandbox imediato ───────────────────────────────────
     const clientId     = process.env.ASSERTIVA_CLIENT_ID
     const clientSecret = process.env.ASSERTIVA_CLIENT_SECRET
-    if (isSandbox && (!clientId || !clientSecret)) {
-      return NextResponse.json(generateSandboxReport(doc, tipo))
+    if (!clientId || !clientSecret) {
+      if (isSandbox) return NextResponse.json({ ...generateSandboxReport(doc, tipo), _sandbox: true })
+      return NextResponse.json({ erro: 'Credenciais Assertiva não configuradas' }, { status: 503 })
     }
 
     // ── Token OAuth2 ──────────────────────────────────────────────────────────
@@ -111,14 +117,15 @@ export async function POST(request: NextRequest) {
       token = await getToken()
     } catch (e: any) {
       const msg = e?.message || 'falha de autenticação'
-      console.warn('[Assertiva] Auth error, usando sandbox:', msg)
-      // Sem credenciais válidas → sandbox em vez de erro bloqueante
-      return NextResponse.json({ ...generateSandboxReport(doc, tipo), _auth_error: msg })
+      console.error('[Assertiva] Auth error:', msg)
+      if (isSandbox) return NextResponse.json({ ...generateSandboxReport(doc, tipo), _sandbox: true, _auth_error: msg })
+      return NextResponse.json({ erro: `Falha de autenticação Assertiva: ${msg}` }, { status: 502 })
     }
 
     if (!token) {
-      console.warn('[Assertiva] Token nulo, usando sandbox')
-      return NextResponse.json({ ...generateSandboxReport(doc, tipo), _auth_error: 'token_null' })
+      console.error('[Assertiva] Token nulo após autenticação')
+      if (isSandbox) return NextResponse.json({ ...generateSandboxReport(doc, tipo), _sandbox: true, _auth_error: 'token_null' })
+      return NextResponse.json({ erro: 'Falha de autenticação Assertiva: token nulo' }, { status: 502 })
     }
 
     // ── Chamadas paralelas: Localize + Mix ───────────────────────────────────
@@ -130,7 +137,7 @@ export async function POST(request: NextRequest) {
     if (tipo === 'pf') {
       const [locRes, mixRes] = await Promise.allSettled([
         callApi(`${LOCALIZE_BASE}/cpf?cpf=${doc}&idFinalidade=${ID_FINALIDADE}`, token),
-        callApi(`${MIX_BASE}/pf/${doc}?idFinalidade=${ID_FINALIDADE}&opcoes=ACOES,POSITIVO`, token),
+        callApi(`${MIX_BASE}/pf/${doc}?idFinalidade=${ID_FINALIDADE}&opcoes=SCORE,ACOES,POSITIVO`, token),
       ])
 
       if (locRes.status === 'fulfilled' && locRes.value.ok) {
@@ -179,11 +186,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Se Localize também falhou → sandbox ───────────────────────────────────
+    // ── Se Localize também falhou → sandbox ou erro ──────────────────────────
     if (!localizeRaw && !mixRaw) {
-      if (isSandbox) {
-        return NextResponse.json(generateSandboxReport(doc, tipo))
-      }
+      if (isSandbox) return NextResponse.json({ ...generateSandboxReport(doc, tipo), _sandbox: true })
       return NextResponse.json(
         { erro: 'Nenhuma resposta válida da Assertiva', detalhes: erros },
         { status: 502 }
@@ -214,6 +219,7 @@ export async function POST(request: NextRequest) {
       _gerado_em:   new Date().toISOString(),
       _erros:       erros.length ? erros : undefined,
       _mix_403:     mixSemPermissao || undefined,
+      _sandbox:     isSandbox,
     } as RelatorioCompleto
 
     // ── Salva cache ───────────────────────────────────────────────────────────

@@ -56,6 +56,10 @@ export default function UsuariosAdminPage() {
   const [excluindo, setExcluindo]           = useState(false)
   const [confirmNome, setConfirmNome]       = useState('')
 
+  // Limpar dados de teste
+  const [limpandoDados, setLimpandoDados]   = useState(false)
+  const [confirmLimpar, setConfirmLimpar]   = useState(false)
+
   // ── Load ────────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true)
@@ -77,6 +81,22 @@ export default function UsuariosAdminPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // ── Limpar dados de teste ────────────────────────────────────────────────────
+  async function limparDados() {
+    setLimpandoDados(true)
+    try {
+      const res  = await fetch('/api/admin/limpar-dados', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.erro ?? 'Erro ao limpar dados'); return }
+      toast.success(`Dados de teste removidos! (${data.limpos?.length ?? 0} tabelas limpas)`)
+      setConfirmLimpar(false)
+    } catch {
+      toast.error('Falha de conexão')
+    } finally {
+      setLimpandoDados(false)
+    }
+  }
 
   // ── Criar ───────────────────────────────────────────────────────────────────
   function openCriar() {
@@ -347,13 +367,39 @@ export default function UsuariosAdminPage() {
           </div>
         </div>
 
-        {/* Barra de busca + botão */}
-        <div className="flex items-center justify-between">
+        {/* Barra de busca + botões */}
+        <div className="flex flex-wrap items-center gap-3 justify-between">
           <SearchInput value={search} onChange={setSearch} placeholder="Buscar usuário..." />
-          <Button size="sm" onClick={openCriar} className="bg-[#1E5AA8] hover:bg-[#174d92] text-white">
-            <UserPlus size={14} className="mr-1.5" />
-            Novo Usuário
-          </Button>
+          <div className="flex items-center gap-2">
+            {!confirmLimpar ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmLimpar(true)}
+                className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 text-xs"
+              >
+                <Trash2 size={13} className="mr-1.5" />
+                Limpar dados de teste
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
+                <span className="text-xs text-red-700 font-medium">Confirmar limpeza?</span>
+                <Button
+                  size="sm"
+                  onClick={limparDados}
+                  disabled={limpandoDados}
+                  className="h-6 text-[11px] bg-red-600 hover:bg-red-700 text-white px-2.5"
+                >
+                  {limpandoDados ? 'Limpando...' : 'Sim, limpar'}
+                </Button>
+                <button onClick={() => setConfirmLimpar(false)} className="text-xs text-red-600 underline ml-1">Cancelar</button>
+              </div>
+            )}
+            <Button size="sm" onClick={openCriar} className="bg-[#1E5AA8] hover:bg-[#174d92] text-white">
+              <UserPlus size={14} className="mr-1.5" />
+              Novo Usuário
+            </Button>
+          </div>
         </div>
 
         {/* Tabela */}

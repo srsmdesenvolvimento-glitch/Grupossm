@@ -41,7 +41,19 @@ export async function POST(request: NextRequest) {
 
     const { nome, email, senha, empresas } = parsed.data
 
-    // Sem hierarquia de permissões — qualquer usuário autenticado pode criar usuários
+    // Verifica se o solicitante tem papel admin em alguma empresa
+    const { data: adminCheck } = await supabase
+      .from('usuario_empresa')
+      .select('papel')
+      .eq('usuario_id', user.id)
+      .eq('papel', 'admin')
+      .eq('ativo', true)
+      .limit(1)
+
+    if (!adminCheck?.length) {
+      return NextResponse.json({ erro: 'Acesso negado. Apenas administradores podem criar usuários.' }, { status: 403 })
+    }
+
     const admin = createAdminClient()
 
     // Cria o usuário no Auth

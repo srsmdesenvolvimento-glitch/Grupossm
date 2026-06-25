@@ -40,8 +40,9 @@ export default function EsqueciSenhaPage() {
 
   async function onSubmit(data: FormData) {
     const supabase = createClient()
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin
     const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/atualizar-senha`,
+      redirectTo: `${appUrl}/atualizar-senha`,
     })
     if (error) {
       toast.error('Erro ao enviar e-mail. Tente novamente.')

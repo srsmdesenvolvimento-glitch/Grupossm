@@ -115,7 +115,9 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
       {/* ── Score Header ──────────────────────────────────────────────────── */}
       <SectionCard>
         <div className="flex flex-col sm:flex-row items-center gap-6">
-          <ScoreGauge score={relatorio.score} size={180} />
+          <div className="shrink-0">
+            <ScoreGauge score={relatorio.score} size={150} />
+          </div>
 
           <div className="flex-1 space-y-3 w-full">
             <div>
@@ -278,12 +280,12 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
             {relatorio.telefones!.map((t: RelatorioTelefone, i: number) => {
               const num = t.numero ? ((t.ddd ?? '') + t.numero) : ''
               return (
-                <div key={i} className="flex items-center justify-between text-xs py-1.5 border-b border-border/30 last:border-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-medium">{num ? formatTel(num) : '—'}</span>
-                    {t.whatsapp && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-600">WhatsApp</span>}
+                <div key={i} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs py-1.5 border-b border-border/30 last:border-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-mono font-medium truncate">{num ? formatTel(num) : '—'}</span>
+                    {t.whatsapp && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-600 shrink-0">WhatsApp</span>}
                   </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="flex items-center gap-2 text-muted-foreground shrink-0">
                     {t.tipo && <span>{t.tipo}</span>}
                     {t.operadora && <span>· {t.operadora}</span>}
                     {t.score != null && <span className="text-[10px] font-mono">⭐ {t.score}</span>}
@@ -298,9 +300,9 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
         {(relatorio.emails?.length ?? 0) > 0 && (
           <Section title="E-mails" icon={Mail} count={relatorio.emails!.length} severity="ok">
             {relatorio.emails!.map((e: any, i: number) => (
-              <div key={i} className="flex items-center justify-between text-xs py-1.5 border-b border-border/30 last:border-0">
-                <span className="font-medium">{e.email}</span>
-                <div className="flex gap-2 text-muted-foreground">
+              <div key={i} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs py-1.5 border-b border-border/30 last:border-0">
+                <span className="font-medium truncate min-w-0">{e.email}</span>
+                <div className="flex gap-2 text-muted-foreground shrink-0">
                   {e.tipo && <span>{e.tipo}</span>}
                   {e.score != null && <span className="text-[10px] font-mono">⭐ {e.score}</span>}
                 </div>
