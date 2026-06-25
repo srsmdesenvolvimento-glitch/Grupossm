@@ -29,7 +29,7 @@ export function parseLocalizePf(raw: any) {
   if (rawTels) {
     for (const t of (rawTels.moveis ?? [])) {
       tels.push({
-        ddd: '', numero: t.numero ?? '',
+        ddd: t.ddd ?? '', numero: t.numero ?? '',
         tipo: 'Celular',
         whatsapp: t.aplicativos?.whatsApp ?? false,
         operadora: t.operadora,
@@ -37,7 +37,7 @@ export function parseLocalizePf(raw: any) {
     }
     for (const t of (rawTels.fixos ?? [])) {
       tels.push({
-        ddd: '', numero: t.numero ?? '',
+        ddd: t.ddd ?? '', numero: t.numero ?? '',
         tipo: 'Fixo',
         whatsapp: t.aplicativos?.whatsAppBusiness ?? false,
         operadora: t.operadora,
@@ -133,14 +133,14 @@ export function parseLocalizePj(raw: any) {
   if (rawTels) {
     for (const t of (rawTels.moveis ?? [])) {
       tels.push({
-        ddd: '', numero: t.numero ?? '',
+        ddd: t.ddd ?? '', numero: t.numero ?? '',
         tipo: 'Celular',
         whatsapp: t.aplicativos?.whatsApp ?? false,
       })
     }
     for (const t of (rawTels.fixos ?? [])) {
       tels.push({
-        ddd: '', numero: t.numero ?? '',
+        ddd: t.ddd ?? '', numero: t.numero ?? '',
         tipo: 'Fixo',
         whatsapp: t.aplicativos?.whatsAppBusiness ?? false,
       })
