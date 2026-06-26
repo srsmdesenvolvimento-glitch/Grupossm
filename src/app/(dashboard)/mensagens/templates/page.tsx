@@ -14,24 +14,15 @@ import { Save, Eye, FileText } from 'lucide-react'
 
 // ── Template definitions ────────────────────────────────────────────────────
 
-type TemplateFactoring = {
-  chave: keyof ConfigFactoring
-  nome: string
-}
+type TriggerKey =
+  | 'contrato_criado'
+  | 'contrato_assinado'
+  | 'lembrete_pre_vencimento'
+  | 'lembrete_vencimento'
+  | 'cobranca_pos_vencimento'
 
-type TemplateEmporio = {
-  chave: keyof ConfigEmporio
-  nome: string
-}
-
-type ConfigFactoring = {
-  msg_boas_vindas: string
-  msg_aprovacao: string
-  msg_liberacao: string
-  msg_vencimento: string
-  msg_cobranca: string
-  msg_quitacao: string
-}
+type TemplateFactoring = { chave: TriggerKey; nome: string }
+type TemplateEmporio   = { chave: keyof ConfigEmporio; nome: string }
 
 type ConfigEmporio = {
   msg_orcamento: string
@@ -42,19 +33,18 @@ type ConfigEmporio = {
 }
 
 const TEMPLATES_FACTORING: TemplateFactoring[] = [
-  { chave: 'msg_boas_vindas', nome: 'Boas-vindas' },
-  { chave: 'msg_aprovacao', nome: 'Aprovação' },
-  { chave: 'msg_liberacao', nome: 'Liberação' },
-  { chave: 'msg_vencimento', nome: 'Aviso vencimento' },
-  { chave: 'msg_cobranca', nome: 'Cobrança' },
-  { chave: 'msg_quitacao', nome: 'Quitação' },
+  { chave: 'contrato_criado',         nome: 'Contrato Criado' },
+  { chave: 'contrato_assinado',       nome: 'Contrato Assinado' },
+  { chave: 'lembrete_pre_vencimento', nome: 'Lembrete Pré-Vencimento' },
+  { chave: 'lembrete_vencimento',     nome: 'Vence Hoje' },
+  { chave: 'cobranca_pos_vencimento', nome: 'Cobrança em Atraso' },
 ]
 
 const TEMPLATES_EMPORIO: TemplateEmporio[] = [
-  { chave: 'msg_orcamento', nome: 'Orçamento' },
-  { chave: 'msg_aprovacao', nome: 'Aprovação' },
-  { chave: 'msg_entrega', nome: 'Entrega' },
-  { chave: 'msg_cobranca', nome: 'Cobrança' },
+  { chave: 'msg_orcamento',  nome: 'Orçamento' },
+  { chave: 'msg_aprovacao',  nome: 'Aprovação' },
+  { chave: 'msg_entrega',    nome: 'Entrega' },
+  { chave: 'msg_cobranca',   nome: 'Cobrança' },
   { chave: 'msg_aniversario', nome: 'Aniversário' },
 ]
 
@@ -68,9 +58,9 @@ function inserirVariavel(
   const el = ref.current
   if (!el) return
   const start = el.selectionStart
-  const end = el.selectionEnd
+  const end   = el.selectionEnd
   const before = el.value.slice(0, start)
-  const after = el.value.slice(end)
+  const after  = el.value.slice(end)
   const tag = `{{${chave}}}`
   setValue(before + tag + after)
   setTimeout(() => {
@@ -87,42 +77,38 @@ export default function TemplatesMensagensPage() {
 
   const isEmporio = empresaAtual?.tipo === 'emporio'
 
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [loading,  setLoading]  = useState(true)
+  const [saving,   setSaving]   = useState(false)
 
-  // Factoring config
-  const [configFactoring, setConfigFactoring] = useState<ConfigFactoring>({
-    msg_boas_vindas: '',
-    msg_aprovacao: '',
-    msg_liberacao: '',
-    msg_vencimento: '',
-    msg_cobranca: '',
-    msg_quitacao: '',
+  // Factoring: armazena os 5 templates de automação + o objeto raw do BD para não perder outros campos
+  const [rawSettings, setRawSettings] = useState<Record<string, any>>({})
+  const [templatesFactoring, setTemplatesFactoring] = useState<Record<TriggerKey, string>>({
+    contrato_criado:         '',
+    contrato_assinado:       '',
+    lembrete_pre_vencimento: '',
+    lembrete_vencimento:     '',
+    cobranca_pos_vencimento: '',
   })
 
-  // Emporio config
+  // Empório
   const [configEmporio, setConfigEmporio] = useState<ConfigEmporio>({
-    msg_orcamento: '',
-    msg_aprovacao: '',
-    msg_entrega: '',
-    msg_cobranca: '',
-    msg_aniversario: '',
+    msg_orcamento: '', msg_aprovacao: '', msg_entrega: '', msg_cobranca: '', msg_aniversario: '',
   })
 
-  const templates = isEmporio ? TEMPLATES_EMPORIO : TEMPLATES_FACTORING
+  const templates   = isEmporio ? TEMPLATES_EMPORIO : TEMPLATES_FACTORING
   const [selectedKey, setSelectedKey] = useState<string>(templates[0].chave)
 
   const textareaRef = useRef<HTMLTextAreaElement | undefined>(undefined)
 
   const currentValue = isEmporio
     ? configEmporio[selectedKey as keyof ConfigEmporio] ?? ''
-    : configFactoring[selectedKey as keyof ConfigFactoring] ?? ''
+    : templatesFactoring[selectedKey as TriggerKey] ?? ''
 
   function setCurrentValue(v: string) {
     if (isEmporio) {
       setConfigEmporio(prev => ({ ...prev, [selectedKey]: v }))
     } else {
-      setConfigFactoring(prev => ({ ...prev, [selectedKey]: v }))
+      setTemplatesFactoring(prev => ({ ...prev, [selectedKey]: v } as Record<TriggerKey, string>))
     }
   }
 
@@ -136,31 +122,29 @@ export default function TemplatesMensagensPage() {
           .select('msg_orcamento, msg_aprovacao, msg_entrega, msg_cobranca, msg_aniversario')
           .eq('empresa_id', empresaAtual.id)
           .maybeSingle()
-        if (data) {
-          setConfigEmporio({
-            msg_orcamento: data.msg_orcamento ?? '',
-            msg_aprovacao: data.msg_aprovacao ?? '',
-            msg_entrega: data.msg_entrega ?? '',
-            msg_cobranca: data.msg_cobranca ?? '',
-            msg_aniversario: data.msg_aniversario ?? '',
-          })
-        }
+        if (data) setConfigEmporio({
+          msg_orcamento:  data.msg_orcamento  ?? '',
+          msg_aprovacao:  data.msg_aprovacao  ?? '',
+          msg_entrega:    data.msg_entrega    ?? '',
+          msg_cobranca:   data.msg_cobranca   ?? '',
+          msg_aniversario: data.msg_aniversario ?? '',
+        })
       } else {
         const { data } = await supabase
           .from('config_factoring')
-          .select('msg_aprovacao, msg_liberacao, msg_vencimento, msg_cobranca, msg_quitacao, msg_boas_vindas')
+          .select('whatsapp_settings')
           .eq('empresa_id', empresaAtual.id)
           .maybeSingle()
-        if (data) {
-          setConfigFactoring({
-            msg_boas_vindas: data.msg_boas_vindas ?? '',
-            msg_aprovacao: data.msg_aprovacao ?? '',
-            msg_liberacao: data.msg_liberacao ?? '',
-            msg_vencimento: data.msg_vencimento ?? '',
-            msg_cobranca: data.msg_cobranca ?? '',
-            msg_quitacao: data.msg_quitacao ?? '',
-          })
-        }
+
+        const ws = (data?.whatsapp_settings ?? {}) as Record<string, any>
+        setRawSettings(ws)
+        setTemplatesFactoring({
+          contrato_criado:         ws.contrato_criado?.template         ?? '',
+          contrato_assinado:       ws.contrato_assinado?.template       ?? '',
+          lembrete_pre_vencimento: ws.lembrete_pre_vencimento?.template ?? '',
+          lembrete_vencimento:     ws.lembrete_vencimento?.template     ?? '',
+          cobranca_pos_vencimento: ws.cobranca_pos_vencimento?.template ?? '',
+        })
       }
     } catch {
       toast.error('Erro ao carregar templates')
@@ -171,7 +155,6 @@ export default function TemplatesMensagensPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Reset selected key when empresa type changes
   useEffect(() => {
     const newTemplates = isEmporio ? TEMPLATES_EMPORIO : TEMPLATES_FACTORING
     setSelectedKey(newTemplates[0].chave)
@@ -184,25 +167,22 @@ export default function TemplatesMensagensPage() {
       if (isEmporio) {
         const { error } = await supabase
           .from('config_emporio')
-          .upsert(
-            {
-              empresa_id: empresaAtual.id,
-              ...configEmporio,
-            },
-            { onConflict: 'empresa_id' },
-          )
+          .upsert({ empresa_id: empresaAtual.id, ...configEmporio }, { onConflict: 'empresa_id' })
         if (error) throw error
       } else {
+        // Merge: preserva ativo, dias_antes, hora_envio — só atualiza templates
+        const merged: Record<string, any> = { ...rawSettings }
+        for (const key of Object.keys(templatesFactoring) as TriggerKey[]) {
+          merged[key] = {
+            ...(rawSettings[key] ?? { ativo: true }),
+            template: templatesFactoring[key],
+          }
+        }
         const { error } = await supabase
           .from('config_factoring')
-          .upsert(
-            {
-              empresa_id: empresaAtual.id,
-              ...configFactoring,
-            },
-            { onConflict: 'empresa_id' },
-          )
+          .upsert({ empresa_id: empresaAtual.id, whatsapp_settings: merged }, { onConflict: 'empresa_id' })
         if (error) throw error
+        setRawSettings(merged)
       }
       toast.success('Templates salvos com sucesso')
     } catch {
@@ -213,8 +193,7 @@ export default function TemplatesMensagensPage() {
   }
 
   const variaveis = isEmporio ? VARIAVEIS_EMPORIO : VARIAVEIS_FACTORING
-  const preview = currentValue ? previewMensagem(currentValue, isEmporio ? 'emporio' : 'factoring') : ''
-
+  const preview   = currentValue ? previewMensagem(currentValue, isEmporio ? 'emporio' : 'factoring') : ''
   const selectedTemplateName = templates.find(t => t.chave === selectedKey)?.nome ?? ''
 
   if (loading) return <LoadingPage />
@@ -322,7 +301,6 @@ export default function TemplatesMensagensPage() {
             </div>
             {preview ? (
               <div className="bg-green-50 rounded-xl p-4 border border-green-200">
-                {/* WhatsApp bubble mock */}
                 <div className="max-w-sm">
                   <div className="bg-white rounded-xl rounded-tl-none shadow-sm p-3 border border-green-100">
                     <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
@@ -359,10 +337,7 @@ export default function TemplatesMensagensPage() {
                 </thead>
                 <tbody>
                   {variaveis.map((v, idx) => (
-                    <tr
-                      key={v.chave}
-                      className={idx % 2 === 0 ? 'bg-slate-50/50' : ''}
-                    >
+                    <tr key={v.chave} className={idx % 2 === 0 ? 'bg-slate-50/50' : ''}>
                       <td className="py-1.5 pr-4">
                         <code className="text-xs bg-slate-100 text-[#1E5AA8] px-1.5 py-0.5 rounded font-mono">
                           {`{{${v.chave}}}`}

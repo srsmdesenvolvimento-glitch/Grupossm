@@ -80,10 +80,16 @@ export async function POST(
       return NextResponse.json({ erro: 'Falha ao salvar arquivos de evidências no armazenamento de segurança.' }, { status: 500 })
     }
 
-    // 7. Retrieve Public URLs
-    const selfieUrl = supabase.storage.from('documentos-clientes').getPublicUrl(selfiePath).data.publicUrl
-    const docUrl = supabase.storage.from('documentos-clientes').getPublicUrl(docPath).data.publicUrl
-    const sigUrl = supabase.storage.from('documentos-clientes').getPublicUrl(sigPath).data.publicUrl
+    // 7. Signed URLs para evidências (1 ano — uso interno pelo admin)
+    const YEAR = 31_536_000
+    const [selfieSign, docSign, sigSign] = await Promise.all([
+      supabase.storage.from('documentos-clientes').createSignedUrl(selfiePath, YEAR),
+      supabase.storage.from('documentos-clientes').createSignedUrl(docPath, YEAR),
+      supabase.storage.from('documentos-clientes').createSignedUrl(sigPath, YEAR),
+    ])
+    const selfieUrl = selfieSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(selfiePath).data.publicUrl
+    const docUrl = docSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(docPath).data.publicUrl
+    const sigUrl = sigSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(sigPath).data.publicUrl
 
     // 8. Generate Signed PDF Contract combining original pages and electronic signature page
     const assinaturaEvidencia = {
@@ -123,7 +129,17 @@ export async function POST(
       return NextResponse.json({ erro: 'Falha ao salvar o PDF final assinado.' }, { status: 500 })
     }
 
-    const finalPdfUrl = supabase.storage.from('documentos-clientes').getPublicUrl(finalContractPath).data.publicUrl
+    // URL assinada com validade de 10 anos — acessível sem autenticação (cliente recebe via WhatsApp)
+    const { data: signedData, error: signedUrlError } = await supabase.storage
+      .from('documentos-clientes')
+      .createSignedUrl(finalContractPath, 315_360_000)
+
+    if (signedUrlError || !signedData?.signedUrl) {
+      console.error('Erro ao gerar URL assinada do contrato:', signedUrlError)
+      return NextResponse.json({ erro: 'Falha ao gerar link de acesso ao contrato.' }, { status: 500 })
+    }
+
+    const finalPdfUrl = signedData.signedUrl
 
     // 10. Update Loan Record Documents List
     const existingDocs = Array.isArray(emprestimo.documentos) ? emprestimo.documentos : []
