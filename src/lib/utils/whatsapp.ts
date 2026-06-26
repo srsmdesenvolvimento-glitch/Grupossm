@@ -211,8 +211,13 @@ export async function enviarMensagem(
     }
   }
 
-  // MODO C: Dry-run
-  console.log('[WhatsApp Dry-run]', { para: numeroFormatado, empresaId, imediato, linkPdf, textoFinal })
-  return { ok: true, messageId: `mock_${Math.random().toString(36).substring(2, 11)}` }
+  // MODO C: Sem credenciais configuradas — falha explícita (nunca simular sucesso)
+  console.error('[WhatsApp] Nenhuma credencial configurada.', { empresaId, apiUrl: !!apiUrl, apiKey: !!apiKey, useMeta })
+  return {
+    ok: false,
+    erro: empresaId
+      ? 'WhatsApp não configurado para esta empresa. Acesse Mensagens → Conexão & Automação e salve as credenciais com o switch "Ativar envio" ligado.'
+      : 'WhatsApp não configurado. Defina EVOLUTION_API_URL e EVOLUTION_API_KEY nas variáveis de ambiente.',
+  }
 }
 
