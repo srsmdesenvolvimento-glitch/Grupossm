@@ -3,11 +3,10 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
-import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion'
+import { motion, useReducedMotion } from 'framer-motion'
 import {
   LayoutDashboard, Users, Package, ShoppingCart, Banknote, BarChart3,
-  Settings, History, FileText, ChevronDown, ChevronLeft, ChevronRight, X, Building2,
+  Settings, History, FileText, ChevronLeft, ChevronRight, X, Building2,
   Wallet, Globe, TrendingUp, TrendingDown, Calculator, CalendarDays,
   CheckCircle, AlertTriangle, AlertCircle, Tag, Boxes, List, Plus,
   MessageCircle, Armchair, UserCog, CreditCard, ShieldCheck, Link as LinkIcon,
@@ -20,36 +19,299 @@ import type { TipoEmpresa } from '@/lib/types/database'
 import type { MenuItem } from '@/lib/constants/menus'
 import { MENU_ADMIN } from '@/lib/constants/menus'
 
+// ─── Icon registry ────────────────────────────────────────────────────────────
+
 const ICON_MAP: Record<string, React.ReactNode> = {
-  LayoutDashboard: <LayoutDashboard size={18} />,
-  Users: <Users size={18} />,
-  Package: <Package size={18} />,
-  ShoppingCart: <ShoppingCart size={18} />,
-  Banknote: <Banknote size={18} />,
-  BarChart3: <BarChart3 size={18} />,
-  Settings: <Settings size={18} />,
-  History: <History size={18} />,
-  FileText: <FileText size={18} />,
-  Wallet: <Wallet size={18} />,
-  Globe: <Globe size={18} />,
-  TrendingUp: <TrendingUp size={18} />,
-  TrendingDown: <TrendingDown size={18} />,
-  Calculator: <Calculator size={18} />,
-  CalendarDays: <CalendarDays size={18} />,
-  CheckCircle: <CheckCircle size={18} />,
-  AlertTriangle: <AlertTriangle size={18} />,
-  AlertCircle: <AlertCircle size={18} />,
-  Tag: <Tag size={18} />,
-  Boxes: <Boxes size={18} />,
-  List: <List size={18} />,
-  Plus: <Plus size={18} />,
-  MessageCircle: <MessageCircle size={18} />,
-  Armchair: <Armchair size={18} />,
-  UserCog: <UserCog size={18} />,
-  CreditCard: <CreditCard size={18} />,
-  ShieldCheck: <ShieldCheck size={18} />,
-  Link: <LinkIcon size={18} />,
+  LayoutDashboard: <LayoutDashboard size={16} />,
+  Users: <Users size={16} />,
+  Package: <Package size={16} />,
+  ShoppingCart: <ShoppingCart size={16} />,
+  Banknote: <Banknote size={16} />,
+  BarChart3: <BarChart3 size={16} />,
+  Settings: <Settings size={16} />,
+  History: <History size={16} />,
+  FileText: <FileText size={16} />,
+  Wallet: <Wallet size={16} />,
+  Globe: <Globe size={16} />,
+  TrendingUp: <TrendingUp size={16} />,
+  TrendingDown: <TrendingDown size={16} />,
+  Calculator: <Calculator size={16} />,
+  CalendarDays: <CalendarDays size={16} />,
+  CheckCircle: <CheckCircle size={16} />,
+  AlertTriangle: <AlertTriangle size={16} />,
+  AlertCircle: <AlertCircle size={16} />,
+  Tag: <Tag size={16} />,
+  Boxes: <Boxes size={16} />,
+  List: <List size={16} />,
+  Plus: <Plus size={16} />,
+  MessageCircle: <MessageCircle size={16} />,
+  Armchair: <Armchair size={16} />,
+  UserCog: <UserCog size={16} />,
+  CreditCard: <CreditCard size={16} />,
+  ShieldCheck: <ShieldCheck size={16} />,
+  Link: <LinkIcon size={16} />,
 }
+
+const BADGE_ROUTES: Record<string, 'inadimplentes' | 'vencendoHoje'> = {
+  '/factoring/parcelas/inadimplentes': 'inadimplentes',
+  '/factoring/parcelas/pagamento': 'vencendoHoje',
+}
+
+const EMPRESA_CONFIG = {
+  emporio: {
+    bg: '#1A1A2E',
+    bgSecondary: '#16162A',
+    primary: '#D4A528',
+    activeItemBg: 'rgba(212,165,40,0.10)',
+    nome: 'Empório dos Móveis',
+    logo: '/logos/emporio.png',
+  },
+  factoring: {
+    bg: '#07101E',
+    bgSecondary: '#040B16',
+    primary: '#8AB4F8',
+    activeItemBg: 'rgba(138,180,248,0.10)',
+    nome: 'SRS M Factoring',
+    logo: '/logos/factoring.png',
+  },
+} as const
+
+type EmpresaConfig = (typeof EMPRESA_CONFIG)[TipoEmpresa]
+
+// ─── Nav context ──────────────────────────────────────────────────────────────
+
+interface NavCtx {
+  cfg: EmpresaConfig
+  collapsed: boolean
+  isActive: (href: string) => boolean
+  onClose?: () => void
+  badges: Record<string, number>
+}
+
+// ─── Badge ────────────────────────────────────────────────────────────────────
+
+function Badge({ count, type }: { count: number; type: 'inadimplentes' | 'vencendoHoje' }) {
+  if (!count) return null
+  return (
+    <span
+      className="shrink-0 min-w-[18px] h-[18px] rounded-full text-white text-[10px] font-semibold flex items-center justify-center px-1"
+      style={{ backgroundColor: type === 'inadimplentes' ? '#ef4444' : '#d97706' }}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
+// ─── NavItem — single flat item (leaf or subitem, same visual level) ──────────
+
+interface NavItemProps {
+  href: string
+  label: string
+  icon?: React.ReactNode
+  badgeKey?: 'inadimplentes' | 'vencendoHoje'
+  ctx: NavCtx
+  dim?: boolean
+}
+
+function NavItem({ href, label, icon, badgeKey, ctx, dim = false }: NavItemProps) {
+  const { cfg, collapsed, isActive, onClose, badges } = ctx
+  const active = isActive(href)
+
+  if (collapsed) {
+    return (
+      <Link
+        href={href}
+        onClick={onClose}
+        title={label}
+        className={cn(
+          'flex items-center justify-center h-9 w-9 mx-auto rounded-lg transition-all duration-150',
+          active ? 'text-white' : 'text-white/40 hover:text-white/80 hover:bg-white/[0.06]',
+        )}
+        style={active ? { backgroundColor: cfg.activeItemBg } : {}}
+      >
+        <span style={{ color: active ? cfg.primary : 'inherit' }}>{icon}</span>
+      </Link>
+    )
+  }
+
+  return (
+    <Link
+      href={href}
+      onClick={onClose}
+      className={cn(
+        'group flex items-center gap-2.5 px-3 py-[7px] rounded-lg text-[13px] transition-all duration-150 relative cursor-pointer',
+        active
+          ? 'text-white font-medium'
+          : dim
+            ? 'text-white/38 hover:text-white/70 hover:bg-white/[0.04]'
+            : 'text-white/55 hover:text-white/85 hover:bg-white/[0.05]',
+      )}
+      style={active ? { backgroundColor: cfg.activeItemBg } : {}}
+    >
+      {active && (
+        <span
+          className="absolute left-0 inset-y-[5px] w-[3px] rounded-r-full"
+          style={{ backgroundColor: cfg.primary }}
+        />
+      )}
+      {icon && (
+        <span
+          className="shrink-0 transition-colors duration-150"
+          style={{ color: active ? cfg.primary : undefined }}
+        >
+          {icon}
+        </span>
+      )}
+      <span className="flex-1 truncate leading-snug">{label}</span>
+      {badgeKey && <Badge count={badges[badgeKey] ?? 0} type={badgeKey} />}
+    </Link>
+  )
+}
+
+// ─── SectionLabel — group header (replaces accordion button) ──────────────────
+
+function SectionLabel({
+  label,
+  badgeCount,
+  cfg,
+  first = false,
+}: {
+  label: string
+  badgeCount?: number
+  cfg: EmpresaConfig
+  first?: boolean
+}) {
+  return (
+    <div className={cn('flex items-center gap-2 px-3 pb-1', first ? 'pt-1' : 'pt-4')}>
+      <span
+        className="flex-1 text-[10px] font-semibold uppercase tracking-[0.1em] truncate"
+        style={{ color: `${cfg.primary}55` }}
+      >
+        {label}
+      </span>
+      {!!badgeCount && badgeCount > 0 && (
+        <Badge count={badgeCount} type="inadimplentes" />
+      )}
+    </div>
+  )
+}
+
+// ─── CollapsedFlyout — group popup in collapsed mode ─────────────────────────
+
+function CollapsedFlyout({ item, ctx }: { item: MenuItem; ctx: NavCtx }) {
+  const { cfg, isActive, onClose, badges } = ctx
+  const hasActive = item.subitems!.some(s => isActive(s.href))
+  const icon = ICON_MAP[item.icon] ?? <LayoutDashboard size={16} />
+
+  return (
+    <div className="relative group/fly">
+      <button
+        title={item.label}
+        className={cn(
+          'flex items-center justify-center h-9 w-9 mx-auto rounded-lg transition-all duration-150 cursor-pointer',
+          hasActive ? 'text-white' : 'text-white/40 hover:text-white/80 hover:bg-white/[0.06]',
+        )}
+        style={hasActive ? { backgroundColor: cfg.activeItemBg } : {}}
+      >
+        <span style={{ color: hasActive ? cfg.primary : 'inherit' }}>{icon}</span>
+      </button>
+
+      {/* flyout */}
+      <div className="absolute left-full top-0 ml-2 z-50 opacity-0 invisible group-hover/fly:opacity-100 group-hover/fly:visible transition-all duration-150 pointer-events-none group-hover/fly:pointer-events-auto">
+        <div
+          className="rounded-xl min-w-[192px] py-2 overflow-hidden"
+          style={{
+            backgroundColor: cfg.bgSecondary,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3)',
+            border: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
+          <p
+            className="text-[10px] font-semibold uppercase tracking-[0.12em] px-3.5 py-1.5 border-b border-white/[0.05] mb-1.5"
+            style={{ color: cfg.primary }}
+          >
+            {item.label}
+          </p>
+          {item.subitems!.map(sub => {
+            const active = isActive(sub.href)
+            const badgeKey = BADGE_ROUTES[sub.href]
+            return (
+              <Link
+                key={sub.href}
+                href={sub.href}
+                onClick={onClose}
+                className={cn(
+                  'flex items-center gap-2.5 px-3.5 py-2 mx-1 rounded-lg text-[13px] transition-all duration-150 cursor-pointer',
+                  active ? 'font-medium' : 'text-white/50 hover:text-white hover:bg-white/[0.06]',
+                )}
+                style={active ? { color: cfg.primary, backgroundColor: cfg.activeItemBg } : {}}
+              >
+                {ICON_MAP[sub.icon] && (
+                  <span className="shrink-0 opacity-70">{ICON_MAP[sub.icon]}</span>
+                )}
+                <span className="flex-1 truncate">{sub.label}</span>
+                {badgeKey && <Badge count={badges[badgeKey] ?? 0} type={badgeKey} />}
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── NavGroup — section label + flat items ────────────────────────────────────
+
+function NavGroup({ item, ctx, first = false }: { item: MenuItem; ctx: NavCtx; first?: boolean }) {
+  const { cfg, collapsed, badges } = ctx
+  const subitems = item.subitems!
+
+  if (collapsed) return <CollapsedFlyout item={item} ctx={ctx} />
+
+  const hasInadimplente = subitems.some(s => BADGE_ROUTES[s.href] === 'inadimplentes')
+  const groupBadge = hasInadimplente ? (badges['inadimplentes'] ?? 0) : 0
+
+  return (
+    <div>
+      <SectionLabel label={item.label} badgeCount={groupBadge} cfg={cfg} first={first} />
+      {subitems.map(sub => (
+        <NavItem
+          key={sub.href}
+          href={sub.href}
+          label={sub.label}
+          icon={ICON_MAP[sub.icon]}
+          badgeKey={BADGE_ROUTES[sub.href]}
+          ctx={ctx}
+          dim
+        />
+      ))}
+    </div>
+  )
+}
+
+// ─── NavSection — renders a list of menu items ────────────────────────────────
+
+function NavSection({ items, ctx }: { items: MenuItem[]; ctx: NavCtx }) {
+  return (
+    <>
+      {items.map((item, i) =>
+        item.subitems?.length ? (
+          <NavGroup key={item.label} item={item} ctx={ctx} first={i === 0} />
+        ) : (
+          <NavItem
+            key={item.href ?? item.label}
+            href={item.href ?? '/'}
+            label={item.label}
+            icon={ICON_MAP[item.icon]}
+            ctx={ctx}
+          />
+        ),
+      )}
+    </>
+  )
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
   empresa: TipoEmpresa
@@ -59,69 +321,24 @@ interface SidebarProps {
   onToggleCollapsed?: () => void
 }
 
-const EMPRESA_CONFIG = {
-  emporio: {
-    bg: '#1A1A2E',
-    bgSecondary: '#16162A',
-    primary: '#D4A528',
-    activeItemBg: 'rgba(212,165,40,0.12)',
-    activeBorder: '#D4A528',
-    nome: 'Empório dos Móveis',
-    tipo: 'Móveis & Decoração',
-    logo: '/logos/emporio.png',
-  },
-  factoring: {
-    bg: '#07101E',
-    bgSecondary: '#040B16',
-    primary: '#8AB4F8',
-    activeItemBg: 'rgba(138,180,248,0.12)',
-    activeBorder: '#8AB4F8',
-    nome: 'SRS M Factoring',
-    tipo: 'Financeiro',
-    logo: '/logos/factoring.png',
-  },
-}
-
-const BADGE_ROUTES_FACTORING: Record<string, 'inadimplentes' | 'vencendoHoje'> = {
-  '/factoring/parcelas/inadimplentes': 'inadimplentes',
-  '/factoring/parcelas/pagamento': 'vencendoHoje',
-}
-
-export function Sidebar({
-  empresa,
-  menu,
-  onClose,
-  collapsed = false,
-  onToggleCollapsed,
-}: SidebarProps) {
+export function Sidebar({ empresa, menu, onClose, collapsed = false, onToggleCollapsed }: SidebarProps) {
   const pathname = usePathname()
   const cfg = EMPRESA_CONFIG[empresa]
   const shouldReduceMotion = useReducedMotion()
   const { perfil, user } = useAuth()
   const { empresaAtual } = useEmpresa()
   const counts = useFactoringCounts(empresa === 'factoring')
-  const logoSrc = empresaAtual?.logo_url ?? cfg.logo
   const isFactoring = empresa === 'factoring'
+
+  const logoSrc = empresaAtual?.logo_url ?? cfg.logo
   const displayLogoSrc = collapsed && isFactoring ? '/logos/factoring_emblem.png' : logoSrc
-
-  const defaultOpen = menu
-    .filter(item => item.subitems && item.subitems.length > 0)
-    .map(item => item.label)
-
-  const [openGroups, setOpenGroups] = useState<string[]>(defaultOpen)
-
-  function toggleGroup(label: string) {
-    setOpenGroups(prev =>
-      prev.includes(label) ? prev.filter(g => g !== label) : [...prev, label],
-    )
-  }
 
   function isActive(href: string) {
     return pathname === href || (href !== '/' && pathname.startsWith(href + '/'))
   }
 
   const userName = perfil?.nome ?? user?.email ?? 'Usuário'
-  const userRole = empresa === 'emporio' ? 'Empório dos Móveis' : 'SRS M Factoring'
+  const userRole = isFactoring ? 'SRS M Factoring' : 'Empório dos Móveis'
   const userInitials = userName
     .trim()
     .split(/\s+/)
@@ -130,69 +347,63 @@ export function Sidebar({
     .join('')
     .toUpperCase()
 
-  const submenuVariants: Variants = {
-    open: {
-      height: 'auto',
-      opacity: 1,
-      transition: shouldReduceMotion
-        ? { duration: 0 }
-        : { duration: 0.25, ease: [0.2, 0, 0, 1] },
-    },
-    closed: {
-      height: 0,
-      opacity: 0,
-      transition: shouldReduceMotion
-        ? { duration: 0 }
-        : { duration: 0.2, ease: [0.4, 0, 1, 1] },
+  const navCtx: NavCtx = {
+    cfg,
+    collapsed,
+    isActive,
+    onClose,
+    badges: {
+      inadimplentes: counts.inadimplentes,
+      vencendoHoje: counts.vencendoHoje,
     },
   }
 
+  const px = collapsed ? 'px-2' : 'px-3'
+
   return (
     <motion.aside
-      animate={{ width: collapsed ? 64 : 256 }}
-      transition={
-        shouldReduceMotion ? { duration: 0 } : { duration: 0.25, ease: [0.2, 0, 0, 1] }
-      }
+      animate={{ width: collapsed ? 60 : 248 }}
+      transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.22, ease: [0.2, 0, 0, 1] }}
       className="flex flex-col h-full shrink-0 overflow-hidden"
       style={{ backgroundColor: cfg.bg }}
     >
-      {/* ── Brand ─────────────────────────────────────────────── */}
+      {/* ── Brand ── */}
       <div
         className={cn(
-          'flex items-center shrink-0 relative',
-          collapsed ? 'justify-center px-2 py-5' : 'px-5 py-5',
+          'flex items-center shrink-0',
+          collapsed ? 'justify-center px-2 py-4' : 'px-4 py-4',
         )}
         style={{
           backgroundColor: cfg.bgSecondary,
-          boxShadow: `inset 0 -1px 0 ${cfg.primary}12`,
+          borderBottom: `1px solid ${cfg.primary}10`,
         }}
       >
         {collapsed ? (
           <div
-            className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10 flex items-center justify-center p-1 transition-all duration-300 hover:scale-[1.05] relative"
-            style={{ boxShadow: '0 2px 10px rgba(0,0,0,0.3)' }}
+            className="w-9 h-9 rounded-xl overflow-hidden bg-white/5 border border-white/8 flex items-center justify-center p-1 transition-transform duration-200 hover:scale-105"
+            style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
           >
             <Image
               src={displayLogoSrc}
               alt={cfg.nome}
-              width={36}
-              height={36}
+              width={32}
+              height={32}
               className="object-contain w-full h-full select-none"
               unoptimized
               priority
             />
           </div>
         ) : (
-          <div className="flex items-center justify-between w-full relative">
-            <div className="relative flex items-center h-14 w-[180px] overflow-hidden pl-1">
+          <div className="flex items-center justify-between w-full">
+            <div className="relative flex items-center h-12 w-[168px] overflow-hidden">
               <Image
                 src={displayLogoSrc}
                 alt={cfg.nome}
-                width={180}
-                height={50}
+                width={168}
+                height={48}
                 className={cn(
-                  "object-contain w-full h-full select-none transition-transform duration-300",
-                  isFactoring ? "scale-100 hover:scale-[1.03]" : "scale-[1.2] origin-left hover:scale-[1.25]"
+                  'object-contain w-full h-full select-none transition-transform duration-200',
+                  isFactoring ? 'scale-100 hover:scale-[1.02]' : 'scale-[1.15] origin-left hover:scale-[1.2]',
                 )}
                 unoptimized
                 priority
@@ -201,388 +412,65 @@ export function Sidebar({
             {onClose && (
               <button
                 onClick={onClose}
-                className="lg:hidden p-1.5 rounded-xl text-white/40 hover:text-white hover:bg-white/10 transition-all duration-200 shrink-0 z-10"
+                className="lg:hidden p-1.5 rounded-lg text-white/30 hover:text-white hover:bg-white/8 transition-all duration-150 shrink-0 cursor-pointer"
                 aria-label="Fechar menu"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             )}
           </div>
         )}
       </div>
 
-      {/* ── Navigation ────────────────────────────────────────── */}
-      <nav className={cn('flex-1 overflow-y-auto scrollbar-none py-3 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-        {menu.map(item => {
-          if (item.subitems && item.subitems.length > 0) {
-            const hasActive = item.subitems.some(s => isActive(s.href))
-
-            /* ── Collapsed: ícone + submenu flutuante no hover ── */
-            if (collapsed) {
-              return (
-                <div key={item.label} className="relative group/nav">
-                  <button
-                    title={item.label}
-                    className={cn(
-                      'w-full flex items-center justify-center h-10 rounded-xl transition-all duration-200',
-                      hasActive
-                        ? 'text-white'
-                        : 'text-white/50 hover:text-white hover:bg-white/[0.06]',
-                    )}
-                    style={hasActive ? { backgroundColor: cfg.activeItemBg, boxShadow: `0 0 12px ${cfg.primary}15` } : {}}
-                  >
-                    <span style={{ color: hasActive ? cfg.primary : 'inherit' }}>
-                      {ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}
-                    </span>
-                  </button>
-
-                  {/* Submenu flutuante */}
-                  <div className="absolute left-full top-0 ml-3 z-50 opacity-0 invisible group-hover/nav:opacity-100 group-hover/nav:visible transition-all duration-200 pointer-events-none group-hover/nav:pointer-events-auto">
-                    <div
-                      className="rounded-2xl min-w-[200px] py-2.5 overflow-hidden"
-                      style={{
-                        backgroundColor: cfg.bgSecondary,
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)',
-                        border: '1px solid rgba(255,255,255,0.06)',
-                      }}
-                    >
-                      <p
-                        className="text-[10px] font-semibold uppercase tracking-[0.15em] px-4 py-2 border-b border-white/[0.06] mb-1"
-                        style={{ color: cfg.primary }}
-                      >
-                        {item.label}
-                      </p>
-                      {item.subitems.map(sub => {
-                        const active = isActive(sub.href)
-                        const badgeKey = BADGE_ROUTES_FACTORING[sub.href]
-                        const badgeCount = badgeKey ? counts[badgeKey] : 0
-                        return (
-                          <Link
-                            key={sub.href}
-                            href={sub.href}
-                            onClick={onClose}
-                            className={cn(
-                              'flex items-center gap-2.5 px-4 py-2.5 mx-1.5 rounded-xl text-sm transition-all duration-200',
-                              active
-                                ? 'font-semibold'
-                                : 'text-white/50 hover:text-white hover:bg-white/[0.06]',
-                            )}
-                            style={
-                              active
-                                ? { color: cfg.primary, backgroundColor: cfg.activeItemBg }
-                                : {}
-                            }
-                          >
-                            {ICON_MAP[sub.icon] && (
-                              <span className="opacity-70 shrink-0">{ICON_MAP[sub.icon]}</span>
-                            )}
-                            <span className="flex-1">{sub.label}</span>
-                            {badgeCount > 0 && (
-                              <span
-                                className="shrink-0 min-w-[20px] h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center px-1.5"
-                                style={{
-                                  backgroundColor:
-                                    badgeKey === 'inadimplentes' ? '#ef4444' : '#d97706',
-                                }}
-                              >
-                                {badgeCount > 99 ? '99+' : badgeCount}
-                              </span>
-                            )}
-                          </Link>
-                        )
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )
-            }
-
-            /* ── Expanded: accordion ── */
-            const isOpen = openGroups.includes(item.label)
-
-            return (
-              <div key={item.label}>
-                <button
-                  onClick={() => toggleGroup(item.label)}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 relative overflow-hidden',
-                    hasActive ? 'text-white font-medium' : 'text-white/50 hover:text-white hover:bg-white/[0.06]',
-                  )}
-                  style={hasActive ? { backgroundColor: cfg.activeItemBg, boxShadow: `0 0 12px ${cfg.primary}08` } : {}}
-                >
-                  {hasActive && (
-                    <span 
-                      className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-r-full" 
-                      style={{ backgroundColor: cfg.primary }} 
-                    />
-                  )}
-                  <span
-                    className="shrink-0 transition-colors duration-200"
-                    style={{ color: hasActive ? cfg.primary : 'inherit' }}
-                  >
-                    {ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}
-                  </span>
-                  <span className="flex-1 text-left font-medium">{item.label}</span>
-                  {empresa === 'factoring' &&
-                    item.href === '/factoring/parcelas' &&
-                    counts.inadimplentes > 0 && (
-                      <span className="shrink-0 min-w-[20px] h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1.5 mr-1">
-                        {counts.inadimplentes > 99 ? '99+' : counts.inadimplentes}
-                      </span>
-                    )}
-                  <motion.span
-                    animate={shouldReduceMotion ? {} : { rotate: isOpen ? 180 : 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="shrink-0"
-                  >
-                    <ChevronDown size={14} className="text-white/30" />
-                  </motion.span>
-                </button>
-
-                <AnimatePresence initial={false}>
-                  {isOpen && (
-                    <motion.div
-                      key="submenu"
-                      initial="closed"
-                      animate="open"
-                      exit="closed"
-                      variants={submenuVariants}
-                      style={{ overflow: 'hidden' }}
-                    >
-                      <div
-                        className="ml-4 mt-1 mb-1 space-y-0.5 pl-3.5 border-l"
-                        style={{ borderColor: `${cfg.primary}18` }}
-                      >
-                        {item.subitems.map(sub => {
-                          const active = isActive(sub.href)
-                          return (
-                            <Link
-                              key={sub.href}
-                              href={sub.href}
-                              onClick={onClose}
-                              className={cn(
-                                'flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-200 relative overflow-hidden',
-                                active
-                                  ? 'font-semibold'
-                                  : 'text-white/40 hover:text-white/90 hover:bg-white/[0.05]',
-                              )}
-                              style={active ? { color: cfg.primary, backgroundColor: cfg.activeItemBg } : {}}
-                            >
-                              {active && (
-                                <span 
-                                  className="absolute left-0 top-2.5 bottom-2.5 w-0.5 rounded-r-full" 
-                                  style={{ backgroundColor: cfg.primary }} 
-                                />
-                              )}
-                              {ICON_MAP[sub.icon] && (
-                                <span className="opacity-70 shrink-0">{ICON_MAP[sub.icon]}</span>
-                              )}
-                              <span className="flex-1">{sub.label}</span>
-                              {empresa === 'factoring' &&
-                                BADGE_ROUTES_FACTORING[sub.href] &&
-                                (() => {
-                                  const key = BADGE_ROUTES_FACTORING[sub.href]
-                                  const n = counts[key]
-                                  if (!n) return null
-                                  return (
-                                    <span
-                                      className="shrink-0 min-w-[20px] h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center px-1.5"
-                                      style={{
-                                        backgroundColor:
-                                          key === 'inadimplentes' ? '#ef4444' : '#d97706',
-                                      }}
-                                    >
-                                      {n > 99 ? '99+' : n}
-                                    </span>
-                                  )
-                                })()}
-                            </Link>
-                          )
-                        })}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )
-          }
-
-          /* ── Item sem subitems ── */
-          const active = isActive(item.href ?? '/')
-
-          if (collapsed) {
-            return (
-              <Link
-                key={item.href}
-                href={item.href ?? '/'}
-                onClick={onClose}
-                title={item.label}
-                className={cn(
-                  'flex items-center justify-center h-10 rounded-xl text-sm transition-all duration-200',
-                  active
-                    ? 'text-white'
-                    : 'text-white/50 hover:text-white hover:bg-white/[0.06]',
-                )}
-                style={
-                  active
-                    ? { backgroundColor: cfg.activeItemBg, boxShadow: `0 0 12px ${cfg.primary}15` }
-                    : {}
-                }
-              >
-                <span className="shrink-0" style={{ color: active ? cfg.primary : 'inherit' }}>
-                  {ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}
-                </span>
-              </Link>
-            )
-          }
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href ?? '/'}
-              onClick={onClose}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 relative overflow-hidden',
-                active
-                  ? 'text-white font-semibold'
-                  : 'text-white/50 hover:text-white hover:bg-white/[0.06]',
-              )}
-              style={
-                active
-                  ? {
-                      backgroundColor: cfg.activeItemBg,
-                      boxShadow: `0 0 12px ${cfg.primary}08`,
-                    }
-                  : {}
-              }
-            >
-              {active && (
-                <span 
-                  className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-r-full" 
-                  style={{ backgroundColor: cfg.primary }} 
-                />
-              )}
-              <span className="shrink-0" style={{ color: active ? cfg.primary : 'inherit' }}>
-                {ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}
-              </span>
-              <span>{item.label}</span>
-            </Link>
-          )
-        })}
+      {/* ── Main nav ── */}
+      <nav className={cn('flex-1 overflow-y-auto scrollbar-none py-2', px)}>
+        <NavSection items={menu} ctx={navCtx} />
       </nav>
 
-      {/* ── Admin Section ─────────────────────────────────────── */}
-      <>
-        {collapsed ? (
-            <div className="px-2 py-1.5">
-              <div className="h-px w-full" style={{ background: `linear-gradient(to right, transparent, ${cfg.primary}25, transparent)` }} />
-            </div>
-          ) : (
-            <div className="px-4 pb-1 pt-2.5 flex items-center gap-2">
-              <div className="h-px flex-1" style={{ background: `linear-gradient(to right, ${cfg.primary}20, transparent)` }} />
-              <p className="text-[9px] font-bold uppercase tracking-[0.2em] shrink-0" style={{ color: `${cfg.primary}50` }}>Admin</p>
-              <div className="h-px flex-1" style={{ background: `linear-gradient(to left, ${cfg.primary}20, transparent)` }} />
-            </div>
-          )}
-          <nav className={cn('pb-2 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-            {MENU_ADMIN.map(item => {
-              if (item.subitems && item.subitems.length > 0) {
-                const hasActive = item.subitems.some(s => isActive(s.href))
-                if (collapsed) {
-                  return (
-                    <div key={item.label} className="relative group/nav">
-                      <button
-                        title={item.label}
-                        className={cn(
-                          'w-full flex items-center justify-center h-10 rounded-xl transition-all duration-200',
-                          hasActive ? 'text-white' : 'text-white/50 hover:text-white hover:bg-white/[0.06]',
-                        )}
-                        style={hasActive ? { backgroundColor: cfg.activeItemBg } : {}}
-                      >
-                        <span style={{ color: hasActive ? cfg.primary : 'inherit' }}>
-                          {ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}
-                        </span>
-                      </button>
-                      <div className="absolute left-full top-0 ml-3 z-50 opacity-0 invisible group-hover/nav:opacity-100 group-hover/nav:visible transition-all duration-200 pointer-events-none group-hover/nav:pointer-events-auto">
-                        <div className="rounded-2xl min-w-[200px] py-2.5 overflow-hidden" style={{ backgroundColor: cfg.bgSecondary, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] px-4 py-2 border-b border-white/[0.06] mb-1" style={{ color: cfg.primary }}>{item.label}</p>
-                          {item.subitems.map(sub => {
-                            const active = isActive(sub.href)
-                            return (
-                              <Link key={sub.href} href={sub.href} onClick={onClose} className={cn('flex items-center gap-2.5 px-4 py-2.5 mx-1.5 rounded-xl text-sm transition-all duration-200', active ? 'font-semibold' : 'text-white/50 hover:text-white hover:bg-white/[0.06]')} style={active ? { color: cfg.primary, backgroundColor: cfg.activeItemBg } : {}}>
-                                {ICON_MAP[sub.icon] && <span className="opacity-70 shrink-0">{ICON_MAP[sub.icon]}</span>}
-                                <span className="flex-1">{sub.label}</span>
-                              </Link>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                }
-                const isOpen = openGroups.includes(item.label)
-                return (
-                  <div key={item.label}>
-                    <button onClick={() => toggleGroup(item.label)} className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 relative overflow-hidden', hasActive ? 'text-white font-medium' : 'text-white/50 hover:text-white hover:bg-white/[0.06]')} style={hasActive ? { backgroundColor: cfg.activeItemBg } : {}}>
-                      {hasActive && <span className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-r-full" style={{ backgroundColor: cfg.primary }} />}
-                      <span className="shrink-0" style={{ color: hasActive ? cfg.primary : 'inherit' }}>{ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}</span>
-                      <span className="flex-1 text-left font-medium">{item.label}</span>
-                      <motion.span animate={shouldReduceMotion ? {} : { rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }} className="shrink-0"><ChevronDown size={14} className="text-white/30" /></motion.span>
-                    </button>
-                    <AnimatePresence initial={false}>
-                      {isOpen && (
-                        <motion.div key="submenu-admin" initial="closed" animate="open" exit="closed" variants={submenuVariants} style={{ overflow: 'hidden' }}>
-                          <div className="ml-4 mt-1 mb-1 space-y-0.5 pl-3.5 border-l" style={{ borderColor: `${cfg.primary}18` }}>
-                            {item.subitems.map(sub => {
-                              const active = isActive(sub.href)
-                              return (
-                                <Link key={sub.href} href={sub.href} onClick={onClose} className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-200 relative overflow-hidden', active ? 'font-semibold' : 'text-white/40 hover:text-white/90 hover:bg-white/[0.05]')} style={active ? { color: cfg.primary, backgroundColor: cfg.activeItemBg } : {}}>
-                                  {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-0.5 rounded-r-full" style={{ backgroundColor: cfg.primary }} />}
-                                  {ICON_MAP[sub.icon] && <span className="opacity-70 shrink-0">{ICON_MAP[sub.icon]}</span>}
-                                  <span className="flex-1">{sub.label}</span>
-                                </Link>
-                              )
-                            })}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )
-              }
-              const active = isActive(item.href ?? '/')
-              if (collapsed) {
-                return (
-                  <Link key={item.href} href={item.href ?? '/'} onClick={onClose} title={item.label} className={cn('flex items-center justify-center h-10 rounded-xl text-sm transition-all duration-200', active ? 'text-white' : 'text-white/50 hover:text-white hover:bg-white/[0.06]')} style={active ? { backgroundColor: cfg.activeItemBg } : {}}>
-                    <span className="shrink-0" style={{ color: active ? cfg.primary : 'inherit' }}>{ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}</span>
-                  </Link>
-                )
-              }
-              return (
-                <Link key={item.href} href={item.href ?? '/'} onClick={onClose} className={cn('flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 relative overflow-hidden', active ? 'text-white font-semibold' : 'text-white/50 hover:text-white hover:bg-white/[0.06]')} style={active ? { backgroundColor: cfg.activeItemBg } : {}}>
-                  {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-r-full" style={{ backgroundColor: cfg.primary }} />}
-                  <span className="shrink-0" style={{ color: active ? cfg.primary : 'inherit' }}>{ICON_MAP[item.icon] ?? <LayoutDashboard size={18} />}</span>
-                  <span>{item.label}</span>
-                </Link>
-              )
-            })}
-          </nav>
-      </>
+      {/* ── Admin divider ── */}
+      {collapsed ? (
+        <div className="px-3 py-2">
+          <div
+            className="h-px w-full"
+            style={{ background: `linear-gradient(to right, transparent, ${cfg.primary}20, transparent)` }}
+          />
+        </div>
+      ) : (
+        <div className="px-4 py-2 flex items-center gap-2">
+          <div className="h-px flex-1" style={{ background: `linear-gradient(to right, ${cfg.primary}18, transparent)` }} />
+          <span
+            className="text-[9px] font-bold uppercase tracking-[0.18em] shrink-0"
+            style={{ color: `${cfg.primary}45` }}
+          >
+            Admin
+          </span>
+          <div className="h-px flex-1" style={{ background: `linear-gradient(to left, ${cfg.primary}18, transparent)` }} />
+        </div>
+      )}
 
-      {/* ── Footer ────────────────────────────────────────────── */}
+      {/* ── Admin nav ── */}
+      <nav className={cn('pb-2', px)}>
+        <NavSection items={MENU_ADMIN} ctx={navCtx} />
+      </nav>
+
+      {/* ── Footer ── */}
       <div
-        className={cn('shrink-0 border-t border-white/[0.05]', collapsed ? 'px-2 py-3' : 'p-3')}
-        style={{ backgroundColor: cfg.bgSecondary }}
+        className={cn('shrink-0', collapsed ? 'px-1.5 py-3' : 'px-3 pt-2.5 pb-3')}
+        style={{
+          backgroundColor: cfg.bgSecondary,
+          borderTop: `1px solid ${cfg.primary}08`,
+        }}
       >
         {collapsed ? (
-          <div className="flex flex-col items-center gap-2.5">
+          /* collapsed: avatar + toggle stacked */
+          <div className="flex flex-col items-center gap-2">
             <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold cursor-default select-none"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold select-none"
               title={userName}
               style={{
-                background: `linear-gradient(135deg, ${cfg.primary}30, ${cfg.primary}15)`,
+                background: `linear-gradient(135deg, ${cfg.primary}35, ${cfg.primary}18)`,
                 color: cfg.primary,
-                boxShadow: `0 0 0 1.5px ${cfg.primary}35, 0 2px 8px rgba(0,0,0,0.3)`,
+                boxShadow: `0 0 0 1.5px ${cfg.primary}30`,
               }}
             >
               {userInitials}
@@ -590,62 +478,58 @@ export function Sidebar({
             {onToggleCollapsed && (
               <button
                 onClick={onToggleCollapsed}
-                className="w-8 h-8 rounded-xl flex items-center justify-center text-white/30 hover:text-white hover:bg-white/[0.08] transition-all duration-200"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-white/25 hover:text-white/70 hover:bg-white/[0.07] transition-all duration-150 cursor-pointer"
                 title="Expandir menu"
               >
-                <ChevronRight size={16} />
+                <ChevronRight size={14} />
               </button>
             )}
           </div>
         ) : (
-          <div className="space-y-2">
-            {/* User card */}
-            <div
-              className="flex items-center gap-3 px-3 py-2.5 rounded-2xl"
-              style={{
-                background: `linear-gradient(135deg, ${cfg.primary}08, transparent)`,
-                border: `1px solid ${cfg.primary}12`,
-              }}
-            >
+          /* expanded: 2-row compact footer */
+          <div>
+            {/* row 1: avatar + name + collapse */}
+            <div className="flex items-center gap-2.5 px-1">
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 select-none"
                 style={{
-                  background: `linear-gradient(135deg, ${cfg.primary}40, ${cfg.primary}20)`,
+                  background: `linear-gradient(135deg, ${cfg.primary}38, ${cfg.primary}18)`,
                   color: cfg.primary,
-                  boxShadow: `0 0 0 1.5px ${cfg.primary}30, 0 2px 8px rgba(0,0,0,0.25)`,
+                  boxShadow: `0 0 0 1.5px ${cfg.primary}28`,
                 }}
               >
                 {userInitials}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-white/90 text-xs font-semibold truncate tracking-[-0.01em]">{userName}</p>
-                <p className="text-white/30 text-[10px] truncate mt-0.5 font-medium">{userRole}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-white/85 text-[12px] font-semibold truncate leading-none">{userName}</p>
+                <p className="text-white/28 text-[10px] truncate mt-0.5 leading-none">{userRole}</p>
               </div>
               {onToggleCollapsed && (
                 <button
                   onClick={onToggleCollapsed}
-                  className="p-1.5 rounded-xl text-white/20 hover:text-white/70 hover:bg-white/[0.06] transition-all duration-200 shrink-0"
+                  className="p-1 rounded-md text-white/20 hover:text-white/55 hover:bg-white/[0.05] transition-all duration-150 shrink-0 cursor-pointer"
                   title="Recolher menu"
                 >
-                  <ChevronLeft size={15} />
+                  <ChevronLeft size={13} />
                 </button>
               )}
             </div>
 
-            {/* Trocar Empresa */}
-            <Link
-              href="/selecionar-empresa"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-white/35 hover:text-white/80 hover:bg-white/[0.05] transition-all duration-200 group"
+            {/* row 2: trocar empresa + version */}
+            <div
+              className="flex items-center justify-between mt-2.5 pt-2.5 px-1"
+              style={{ borderTop: `1px solid ${cfg.primary}08` }}
             >
-              <Building2 size={14} className="opacity-60 group-hover:opacity-100 transition-opacity" />
-              <span>Trocar Empresa</span>
-            </Link>
-
-            {/* Version badge */}
-            <div className="flex justify-center pt-0.5">
+              <Link
+                href="/selecionar-empresa"
+                className="flex items-center gap-1.5 text-white/28 hover:text-white/60 text-[11px] transition-colors duration-150 group cursor-pointer"
+              >
+                <Building2 size={12} className="shrink-0 group-hover:opacity-100 opacity-70 transition-opacity" />
+                <span>Trocar Empresa</span>
+              </Link>
               <span
-                className="text-[9px] font-semibold tracking-widest px-2.5 py-0.5 rounded-full"
-                style={{ color: `${cfg.primary}50`, border: `1px solid ${cfg.primary}15` }}
+                className="text-[9px] font-medium tracking-widest"
+                style={{ color: `${cfg.primary}35` }}
               >
                 v1.0.0
               </span>

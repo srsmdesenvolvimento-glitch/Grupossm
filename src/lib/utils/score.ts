@@ -34,7 +34,7 @@ export async function recalcularScoreCliente(
     // Busca empréstimos quitados
     const { data: emprestimos } = await supabase
       .from('emprestimos')
-      .select('status')
+      .select('status, created_at')
       .eq('cliente_id', clienteId)
       .eq('empresa_id', empresaId)
 
@@ -52,24 +52,36 @@ export async function recalcularScoreCliente(
       .filter(p => p.status === 'pago')
       .reduce((s: number, p: any) => s + (p.valor_pago ?? p.valor ?? 0), 0)
 
+    // Tempo de relacionamento em meses desde o primeiro contrato
+    const datasContratos = es
+      .map((e: any) => e.created_at ? new Date(e.created_at).getTime() : null)
+      .filter(Boolean) as number[]
+    const tempoRelacionamentoMeses = datasContratos.length > 0
+      ? Math.floor((Date.now() - Math.min(...datasContratos)) / (1000 * 60 * 60 * 24 * 30))
+      : 0
+
     const dadosScore = {
-      total_parcelas:            ps.length,
-      pagas_pontualmente:        ps.filter((p: any) => p.status === 'pago' && (p.dias_atraso ?? 0) <= 0).length,
-      pagas_antecipado:          ps.filter((p: any) => p.status === 'pago' && (p.dias_atraso ?? 0) < -5).length,
-      emprestimos_quitados:      es.filter((e: any) => e.status === 'quitado').length,
-      parcelas_atrasadas_atuais: ps.filter((p: any) => p.status === 'atrasado').length,
-      max_dias_atraso:           Math.max(0, ...ps.map((p: any) => p.dias_atraso ?? 0)),
-      cliente_bloqueado:         cliente?.status === 'bloqueado',
-      cadastro_completo:         !!(cliente?.cpf && cliente?.telefone && cliente?.endereco && cliente?.renda_mensal),
-      volume_total_pago:         totalPago,
-      assertiva_score:           cliente?.score_assertiva ?? null,
-      assertiva_negativacoes:    (cliente?.dados_assertiva as any)?.total_negativacoes ?? 0,
-      assertiva_protestos:       (cliente?.dados_assertiva as any)?.total_protestos ?? 0,
-      assertiva_ccf:             (cliente?.dados_assertiva as any)?.total_ccf ?? 0,
-      assertiva_acoes_judiciais: (cliente?.dados_assertiva as any)?.total_acoes_judiciais ?? 0,
-      assertiva_pep:             (cliente?.dados_assertiva as any)?.pep ?? false,
-      assertiva_obito:           (cliente?.dados_assertiva as any)?.indicador_obito ?? false,
-      assertiva_renda_estimada:  cliente?.renda_estimada_assertiva ?? null,
+      total_parcelas:             ps.length,
+      pagas_pontualmente:         ps.filter((p: any) => p.status === 'pago' && (p.dias_atraso ?? 0) <= 0).length,
+      pagas_antecipado:           ps.filter((p: any) => p.status === 'pago' && (p.dias_atraso ?? 0) < -5).length,
+      emprestimos_quitados:       es.filter((e: any) => e.status === 'quitado').length,
+      parcelas_atrasadas_atuais:  ps.filter((p: any) => p.status === 'atrasado').length,
+      max_dias_atraso:            Math.max(0, ...ps.map((p: any) => p.dias_atraso ?? 0)),
+      pagas_com_atraso_leve:      ps.filter((p: any) => (p.dias_atraso ?? 0) >= 1  && (p.dias_atraso ?? 0) <= 30).length,
+      pagas_com_atraso_moderado:  ps.filter((p: any) => (p.dias_atraso ?? 0) >= 31 && (p.dias_atraso ?? 0) <= 60).length,
+      pagas_com_atraso_severo:    ps.filter((p: any) => (p.dias_atraso ?? 0) >= 61 && (p.dias_atraso ?? 0) <= 90).length,
+      tempo_relacionamento_meses: tempoRelacionamentoMeses,
+      cliente_bloqueado:          cliente?.status === 'bloqueado',
+      cadastro_completo:          !!(cliente?.cpf && cliente?.telefone && cliente?.endereco && cliente?.renda_mensal),
+      volume_total_pago:          totalPago,
+      assertiva_score:            cliente?.score_assertiva ?? null,
+      assertiva_negativacoes:     (cliente?.dados_assertiva as any)?.total_negativacoes ?? 0,
+      assertiva_protestos:        (cliente?.dados_assertiva as any)?.total_protestos ?? 0,
+      assertiva_ccf:              (cliente?.dados_assertiva as any)?.total_ccf ?? 0,
+      assertiva_acoes_judiciais:  (cliente?.dados_assertiva as any)?.total_acoes_judiciais ?? 0,
+      assertiva_pep:              (cliente?.dados_assertiva as any)?.pep ?? false,
+      assertiva_obito:            (cliente?.dados_assertiva as any)?.indicador_obito ?? false,
+      assertiva_renda_estimada:   cliente?.renda_estimada_assertiva ?? null,
     }
 
     const resultado = calcularScore(

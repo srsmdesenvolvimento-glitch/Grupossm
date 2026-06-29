@@ -21,18 +21,23 @@ export async function POST(
 
     const supabase = createAdminClient()
 
-    // 1. Fetch Loan Details
-    const { data: emprestimo, error: empError } = await supabase
-      .from('emprestimos')
-      .select('*')
-      .eq('id', id)
-      .single()
+    // 1. Fetch loan + installments in parallel (both only need `id`)
+    const [
+      { data: emprestimo, error: empError },
+      { data: parcelas, error: parcError },
+    ] = await Promise.all([
+      supabase.from('emprestimos').select('*').eq('id', id).single(),
+      supabase.from('parcelas_emprestimo').select('*').eq('emprestimo_id', id).order('numero_parcela', { ascending: true }),
+    ])
 
     if (empError || !emprestimo) {
       return NextResponse.json({ erro: 'Contrato não localizado.' }, { status: 404 })
     }
+    if (parcError || !parcelas) {
+      return NextResponse.json({ erro: 'Parcelas do contrato não localizadas.' }, { status: 500 })
+    }
 
-    // 2. Fetch Customer Details
+    // 2. Fetch customer (needs cliente_id from loan)
     const { data: cliente, error: cliError } = await supabase
       .from('clientes_factoring')
       .select('*')
@@ -41,17 +46,6 @@ export async function POST(
 
     if (cliError || !cliente) {
       return NextResponse.json({ erro: 'Cliente associado ao contrato não localizado.' }, { status: 404 })
-    }
-
-    // 3. Fetch Installments List
-    const { data: parcelas, error: parcError } = await supabase
-      .from('parcelas_emprestimo')
-      .select('*')
-      .eq('emprestimo_id', id)
-      .order('numero_parcela', { ascending: true })
-
-    if (parcError || !parcelas) {
-      return NextResponse.json({ erro: 'Parcelas do contrato não localizadas.' }, { status: 500 })
     }
 
     // 4. Capture Request Metadata
@@ -64,15 +58,17 @@ export async function POST(
     const docBuffer = Buffer.from(documento.replace(/^data:image\/\w+;base64,/, ''), 'base64')
     const sigBuffer = Buffer.from(assinatura.replace(/^data:image\/\w+;base64,/, ''), 'base64')
 
-    // 6. Upload Evidence to Supabase Storage
-    const selfiePath = `signatures/${id}/selfie_${Date.now()}.jpg`
-    const docPath = `signatures/${id}/documento_${Date.now()}.jpg`
-    const sigPath = `signatures/${id}/assinatura_${Date.now()}.png`
+    // 6. Upload evidence + prefetch WhatsApp config in parallel
+    const ts = Date.now()
+    const selfiePath = `signatures/${id}/selfie_${ts}.jpg`
+    const docPath = `signatures/${id}/documento_${ts}.jpg`
+    const sigPath = `signatures/${id}/assinatura_${ts}.png`
 
-    const [selfieUpload, docUpload, sigUpload] = await Promise.all([
+    const [selfieUpload, docUpload, sigUpload, configFact] = await Promise.all([
       supabase.storage.from('documentos-clientes').upload(selfiePath, selfieBuffer, { contentType: 'image/jpeg', upsert: true }),
       supabase.storage.from('documentos-clientes').upload(docPath, docBuffer, { contentType: 'image/jpeg', upsert: true }),
       supabase.storage.from('documentos-clientes').upload(sigPath, sigBuffer, { contentType: 'image/png', upsert: true }),
+      supabase.from('config_factoring').select('whatsapp_settings').eq('empresa_id', emprestimo.empresa_id).maybeSingle(),
     ])
 
     if (selfieUpload.error || docUpload.error || sigUpload.error) {
@@ -91,14 +87,16 @@ export async function POST(
     const docUrl = docSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(docPath).data.publicUrl
     const sigUrl = sigSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(sigPath).data.publicUrl
 
-    // 8. Generate Signed PDF Contract combining original pages and electronic signature page
+    // 8. Generate PDF — pass base64 directly to skip re-downloading from storage
     const assinaturaEvidencia = {
       signed_at: signedAt,
       ip,
       user_agent: userAgent,
       selfie_url: selfieUrl,
       doc_url: docUrl,
-      signature_base64: assinatura, // Base64 needed directly inside jsPDF.addImage
+      selfie_base64: selfie,
+      doc_base64: documento,
+      signature_base64: assinatura,
       geolocation,
     }
 
@@ -173,98 +171,52 @@ export async function POST(
       return NextResponse.json({ erro: 'Falha ao registrar a assinatura digital no banco de dados.' }, { status: 500 })
     }
 
-    // 10.5 Update Client Record Documents List
-    const existingClientDocs = Array.isArray(cliente.documentos) ? cliente.documentos : []
-    const updatedClientDocs = [
-      ...existingClientDocs.filter((d: any) => d.path !== finalContractPath && d.path !== selfiePath && d.path !== docPath),
-      {
-        id: `doc_selfie_${id}`,
-        categoria: 'foto',
-        label: `Selfie de Confirmação (Contrato ${emprestimo.numero_contrato})`,
-        nome_original: `selfie_${id}.jpg`,
-        path: selfiePath,
-        url: selfieUrl,
-        tipo_mime: 'image/jpeg',
-        tamanho: selfieBuffer.length,
-        criado_em: signedAt,
-      },
-      {
-        id: `doc_idcard_${id}`,
-        categoria: 'rg_cnh',
-        label: `Documento de Identidade (Contrato ${emprestimo.numero_contrato})`,
-        nome_original: `documento_${id}.jpg`,
-        path: docPath,
-        url: docUrl,
-        tipo_mime: 'image/jpeg',
-        tamanho: docBuffer.length,
-        criado_em: signedAt,
-      },
-      {
-        id: `doc_contract_${id}`,
-        categoria: 'contrato_assinado',
-        label: `Contrato Assinado - ${emprestimo.numero_contrato}`,
-        nome_original: `contrato_assinado_${emprestimo.numero_contrato}.pdf`,
-        path: finalContractPath,
-        url: finalPdfUrl,
-        tipo_mime: 'application/pdf',
-        tamanho: pdfBuffer.length,
-        criado_em: signedAt,
-      }
-    ]
-
-    const { error: clientUpdateError } = await supabase
-      .from('clientes_factoring')
-      .update({
-        documentos: updatedClientDocs,
-      })
-      .eq('id', emprestimo.cliente_id)
-
-    if (clientUpdateError) {
-      console.error('Erro ao atualizar cliente com documentos da assinatura:', clientUpdateError)
-    }
-
-    // 11. Enqueue WhatsApp Notification (Template Personalizado)
-    try {
-      const { data: configFact } = await supabase
-        .from('config_factoring')
-        .select('whatsapp_settings')
-        .eq('empresa_id', emprestimo.empresa_id)
-        .maybeSingle()
-
-      const wSettings = configFact?.whatsapp_settings as any
-      const trigger = wSettings?.contrato_assinado ?? {
-        ativo: true,
-        template: "Olá, {{nome}}! Seu contrato {{numero_contrato}} foi assinado digitalmente com sucesso. Segue em anexo a sua via do documento oficial com validade jurídica: {{link_contrato}}"
+    // 10.5 + 11. Update client record + WhatsApp — fire-and-forget (don't block response)
+    void (async () => {
+      try {
+        const existingClientDocs = Array.isArray(cliente.documentos) ? cliente.documentos : []
+        await supabase.from('clientes_factoring').update({
+          documentos: [
+            ...existingClientDocs.filter((d: any) => d.path !== finalContractPath && d.path !== selfiePath && d.path !== docPath),
+            { id: `doc_selfie_${id}`, categoria: 'foto', label: `Selfie de Confirmação (Contrato ${emprestimo.numero_contrato})`, nome_original: `selfie_${id}.jpg`, path: selfiePath, url: selfieUrl, tipo_mime: 'image/jpeg', tamanho: selfieBuffer.length, criado_em: signedAt },
+            { id: `doc_idcard_${id}`, categoria: 'rg_cnh', label: `Documento de Identidade (Contrato ${emprestimo.numero_contrato})`, nome_original: `documento_${id}.jpg`, path: docPath, url: docUrl, tipo_mime: 'image/jpeg', tamanho: docBuffer.length, criado_em: signedAt },
+            { id: `doc_contract_${id}`, categoria: 'contrato_assinado', label: `Contrato Assinado - ${emprestimo.numero_contrato}`, nome_original: `contrato_assinado_${emprestimo.numero_contrato}.pdf`, path: finalContractPath, url: finalPdfUrl, tipo_mime: 'application/pdf', tamanho: pdfBuffer.length, criado_em: signedAt },
+          ],
+        }).eq('id', emprestimo.cliente_id)
+      } catch (err) {
+        console.error('Erro ao atualizar cliente com documentos da assinatura:', err)
       }
 
-      if (trigger.ativo) {
-        const msgTexto = trigger.template
-          .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
-          .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo.numero_contrato)
-          .replace(/\{\{\s*link_contrato\s*\}\}/g, finalPdfUrl)
-
-        // Envia a mensagem imediatamente e registra o log com o status de retorno
-        const result = await enviarMensagem(cliente.telefone, msgTexto, emprestimo.empresa_id, true)
-
-        const { error: notifError } = await supabase.from('notificacoes_log').insert({
-          empresa_id: emprestimo.empresa_id,
-          canal: 'whatsapp',
-          destinatario: cliente.telefone,
-          assunto: `Contrato ${emprestimo.numero_contrato} Assinado Digitalmente`,
-          mensagem: msgTexto,
-          referencia_tipo: 'emprestimo',
-          referencia_id: id,
-          status: result.ok ? 'enviado' : 'erro',
-          erro: result.ok ? null : (result.erro || 'Falha ao enviar mensagem imediatamente após assinatura.'),
-          whatsapp_message_id: result.ok ? (result.messageId || null) : null,
-          enviado_em: result.ok ? new Date().toISOString() : null,
-        })
-
-        if (notifError) console.error('Erro ao registrar log de notificação de assinatura:', notifError.message)
+      try {
+        const wSettings = configFact.data?.whatsapp_settings as any
+        const trigger = wSettings?.contrato_assinado ?? {
+          ativo: true,
+          template: "Olá, {{nome}}! Seu contrato {{numero_contrato}} foi assinado digitalmente com sucesso. Segue em anexo a sua via do documento oficial com validade jurídica: {{link_contrato}}"
+        }
+        if (trigger.ativo) {
+          const msgTexto = trigger.template
+            .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
+            .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo.numero_contrato)
+            .replace(/\{\{\s*link_contrato\s*\}\}/g, finalPdfUrl)
+          const result = await enviarMensagem(cliente.telefone, msgTexto, emprestimo.empresa_id, true)
+          await supabase.from('notificacoes_log').insert({
+            empresa_id: emprestimo.empresa_id,
+            canal: 'whatsapp',
+            destinatario: cliente.telefone,
+            assunto: `Contrato ${emprestimo.numero_contrato} Assinado Digitalmente`,
+            mensagem: msgTexto,
+            referencia_tipo: 'emprestimo',
+            referencia_id: id,
+            status: result.ok ? 'enviado' : 'erro',
+            erro: result.ok ? null : (result.erro || 'Falha ao enviar mensagem após assinatura.'),
+            whatsapp_message_id: result.ok ? (result.messageId || null) : null,
+            enviado_em: result.ok ? new Date().toISOString() : null,
+          })
+        }
+      } catch (err) {
+        console.error('Erro ao enviar notificação WhatsApp pós-assinatura:', err)
       }
-    } catch (notifErr) {
-      console.error('Erro ao criar notificação:', notifErr)
-    }
+    })()
 
     return NextResponse.json({
       sucesso: true,

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 15_000): Promise<Response> {
+// Render free tier pode demorar 45s+ para acordar — usar 65s como margem
+const TIMEOUT_LONGO   = 65_000
+const TIMEOUT_RAPIDO  = 20_000
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = TIMEOUT_LONGO): Promise<Response> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer))
@@ -9,9 +13,18 @@ function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 15_000)
 
 function evolutionError(err: any, ctx: string): string {
   if (err?.name === 'AbortError') {
-    return `Timeout: Evolution API não respondeu em 15s. Verifique se o servidor está online. (${ctx})`
+    return `Timeout: Evolution API não respondeu em ${Math.round(TIMEOUT_LONGO / 1000)}s. O servidor pode estar iniciando (Render cold start). Aguarde 1 minuto e tente novamente.`
   }
   return `${ctx}: ${err?.message ?? 'Erro desconhecido'}`
+}
+
+/** Acorda o servidor Render com uma requisição rápida antes das operações principais */
+async function wakeUpServer(apiUrl: string): Promise<void> {
+  try {
+    await fetchWithTimeout(`${apiUrl}/`, { method: 'GET', cache: 'no-store' }, TIMEOUT_LONGO)
+  } catch {
+    // Ignora erro — mesmo que falhe, tentamos a operação principal
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -57,24 +70,25 @@ export async function POST(request: NextRequest) {
     }
 
     const { api_url: apiUrl, api_key: apiKey, instance_name: instanceName } = config
-    const baseHeaders = { apikey: apiKey }
-    const jsonHeaders = { 'Content-Type': 'application/json', apikey: apiKey }
+    const baseHeaders  = { apikey: apiKey }
+    const jsonHeaders  = { 'Content-Type': 'application/json', apikey: apiKey }
 
     // ─── AÇÃO: STATUS ──────────────────────────────────────────────────────────
     if (acao === 'status') {
       try {
-        const stateRes = await fetchWithTimeout(`${apiUrl}/instance/connectionState/${instanceName}`, {
-          method: 'GET',
-          headers: baseHeaders,
-          cache: 'no-store',
-        })
+        const stateRes = await fetchWithTimeout(
+          `${apiUrl}/instance/connectionState/${instanceName}`,
+          { method: 'GET', headers: baseHeaders, cache: 'no-store' },
+          TIMEOUT_LONGO
+        )
 
         if (stateRes.status === 404) {
+          // Instância não existe — cria
           const createRes = await fetchWithTimeout(`${apiUrl}/instance/create`, {
             method: 'POST',
             headers: jsonHeaders,
             body: JSON.stringify({ instanceName, integration: 'WHATSAPP-BAILEYS', qrcode: true }),
-          })
+          }, TIMEOUT_RAPIDO)
 
           if (!createRes.ok) {
             const err = await createRes.text()
@@ -86,12 +100,14 @@ export async function POST(request: NextRequest) {
 
         if (!stateRes.ok) {
           const err = await stateRes.text()
-          return NextResponse.json({ status: 'erro', erro: `Erro ao obter status da Evolution: ${err}` })
+          return NextResponse.json({ status: 'erro', erro: `Erro ao obter status: ${err}` })
         }
 
         const stateData = await stateRes.json()
         const state = stateData.instance?.state || stateData.state || 'close'
-        const friendlyStatus = state === 'open' ? 'conectado' : state === 'connecting' ? 'conectando' : 'desconectado'
+        const friendlyStatus =
+          state === 'open'       ? 'conectado'    :
+          state === 'connecting' ? 'conectando'   : 'desconectado'
 
         await supabase
           .from('config_whatsapp')
@@ -100,36 +116,39 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ status: friendlyStatus, state })
       } catch (err: any) {
-        return NextResponse.json({ status: 'erro', erro: evolutionError(err, 'Falha ao conectar no servidor Evolution') })
+        return NextResponse.json({ status: 'erro', erro: evolutionError(err, 'Status') })
       }
     }
 
     // ─── AÇÃO: CONECTAR (Obter QR Code) ─────────────────────────────────────────
     if (acao === 'conectar') {
       try {
-        let connectRes = await fetchWithTimeout(`${apiUrl}/instance/connect/${instanceName}`, {
-          method: 'GET',
-          headers: baseHeaders,
-          cache: 'no-store',
-        })
+        // Acorda o servidor antes de tentar operações sensíveis
+        await wakeUpServer(apiUrl)
+
+        let connectRes = await fetchWithTimeout(
+          `${apiUrl}/instance/connect/${instanceName}`,
+          { method: 'GET', headers: baseHeaders, cache: 'no-store' },
+          TIMEOUT_RAPIDO
+        )
 
         if (connectRes.status === 404) {
           const createRes = await fetchWithTimeout(`${apiUrl}/instance/create`, {
             method: 'POST',
             headers: jsonHeaders,
             body: JSON.stringify({ instanceName, integration: 'WHATSAPP-BAILEYS', qrcode: true }),
-          })
+          }, TIMEOUT_RAPIDO)
 
           if (!createRes.ok) {
             const err = await createRes.text()
             return NextResponse.json({ erro: `Falha ao criar instância: ${err}` }, { status: 400 })
           }
 
-          connectRes = await fetchWithTimeout(`${apiUrl}/instance/connect/${instanceName}`, {
-            method: 'GET',
-            headers: baseHeaders,
-            cache: 'no-store',
-          })
+          connectRes = await fetchWithTimeout(
+            `${apiUrl}/instance/connect/${instanceName}`,
+            { method: 'GET', headers: baseHeaders, cache: 'no-store' },
+            TIMEOUT_RAPIDO
+          )
         }
 
         if (!connectRes.ok) {
@@ -139,41 +158,46 @@ export async function POST(request: NextRequest) {
 
         let connectData = await connectRes.json()
 
-        if (!connectData.base64 && !connectData.code && !connectData.qrcode?.base64 && !connectData.qrcode?.code) {
-          console.log('[WhatsApp API] Instância sem QR Code. Tentando logout para resetar...')
-          await fetchWithTimeout(`${apiUrl}/instance/logout/${instanceName}`, {
-            method: 'DELETE',
-            headers: baseHeaders,
-          }).catch(() => null)
+        // Se não retornou QR, faz logout e tenta de novo para gerar QR limpo
+        const temQR = connectData.base64 || connectData.code || connectData.qrcode?.base64 || connectData.qrcode?.code
+        if (!temQR) {
+          await fetchWithTimeout(
+            `${apiUrl}/instance/logout/${instanceName}`,
+            { method: 'DELETE', headers: baseHeaders },
+            TIMEOUT_RAPIDO
+          ).catch(() => null)
 
-          connectRes = await fetchWithTimeout(`${apiUrl}/instance/connect/${instanceName}`, {
-            method: 'GET',
-            headers: baseHeaders,
-            cache: 'no-store',
-          })
+          await new Promise(r => setTimeout(r, 1500))
 
-          if (connectRes.ok) {
-            connectData = await connectRes.json()
+          const retryRes = await fetchWithTimeout(
+            `${apiUrl}/instance/connect/${instanceName}`,
+            { method: 'GET', headers: baseHeaders, cache: 'no-store' },
+            TIMEOUT_RAPIDO
+          ).catch(() => null)
+
+          if (retryRes?.ok) {
+            connectData = await retryRes.json()
           }
         }
 
         return NextResponse.json(connectData)
       } catch (err: any) {
-        return NextResponse.json({ erro: evolutionError(err, 'Erro ao requisitar QR Code') }, { status: 500 })
+        return NextResponse.json({ erro: evolutionError(err, 'QR Code') }, { status: 500 })
       }
     }
 
-    // ─── AÇÃO: DESCONECTAR (Logout) ─────────────────────────────────────────────
+    // ─── AÇÃO: DESCONECTAR ───────────────────────────────────────────────────────
     if (acao === 'desconectar') {
       try {
-        const logoutRes = await fetchWithTimeout(`${apiUrl}/instance/logout/${instanceName}`, {
-          method: 'DELETE',
-          headers: baseHeaders,
-        })
+        const logoutRes = await fetchWithTimeout(
+          `${apiUrl}/instance/logout/${instanceName}`,
+          { method: 'DELETE', headers: baseHeaders },
+          TIMEOUT_RAPIDO
+        )
 
         if (!logoutRes.ok) {
           const err = await logoutRes.text()
-          return NextResponse.json({ erro: `Falha ao desconectar instância: ${err}` }, { status: 400 })
+          return NextResponse.json({ erro: `Falha ao desconectar: ${err}` }, { status: 400 })
         }
 
         await supabase
@@ -183,13 +207,13 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ sucesso: true })
       } catch (err: any) {
-        return NextResponse.json({ erro: evolutionError(err, 'Erro ao desconectar instância') }, { status: 500 })
+        return NextResponse.json({ erro: evolutionError(err, 'Desconectar') }, { status: 500 })
       }
     }
 
     return NextResponse.json({ erro: 'Ação inválida.' }, { status: 400 })
   } catch (err: any) {
-    console.error('[WhatsApp API Conexao] Erro:', err)
+    console.error('[WhatsApp Conexao] Erro:', err)
     return NextResponse.json({ erro: 'Erro interno do servidor.' }, { status: 500 })
   }
 }

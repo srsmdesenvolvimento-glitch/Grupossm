@@ -50,12 +50,28 @@ export default function ConfiguracoesFactoringPage() {
     if (!empresaAtual) return
     setSalvandoScore(true)
     try {
-      const { error } = await supabase
-        .from('config_factoring')
-        .upsert({
-          empresa_id: empresaAtual.id,
-          regras_score: regrasScore,
-        }, { onConflict: 'empresa_id' })
+      // Se a config já existe → UPDATE simples (evita NOT NULL violations do upsert insert)
+      // Se não existe → INSERT com defaults financeiros
+      const { error } = config
+        ? await supabase
+            .from('config_factoring')
+            .update({ regras_score: regrasScore })
+            .eq('empresa_id', empresaAtual.id)
+        : await supabase
+            .from('config_factoring')
+            .insert({
+              empresa_id: empresaAtual.id,
+              regras_score: regrasScore,
+              taxa_juros_padrao: 5,
+              tipo_taxa_padrao: 'mensal',
+              dias_carencia: 0,
+              prazo_minimo_meses: 3,
+              prazo_maximo_meses: 60,
+              valor_minimo_emprestimo: 500,
+              valor_maximo_emprestimo: 50000,
+              multa_atraso: 2,
+              juros_mora_diario: 0.0333,
+            })
 
       if (error) throw error
       toast.success('Motor de Score atualizado com sucesso!')
@@ -103,7 +119,13 @@ export default function ConfiguracoesFactoringPage() {
         setSaldoInicialCaixa(formatBRL(Number(c.saldo_inicial_caixa ?? 0)))
         setMultaAtraso(String(c.multa_atraso ?? 2))
         setJurosMoraDiario(String(c.juros_mora_diario ?? 0.0333))
-        setRegrasScore(c.regras_score || REGRAS_SCORE_PADRAO)
+        // Merge: preserva pesos/ativo salvos pelo usuário e inclui regras novas com defaults
+        const dbRules: RegraScore[] = Array.isArray(c.regras_score) ? c.regras_score : []
+        const merged = REGRAS_SCORE_PADRAO.map(def => {
+          const saved = dbRules.find(r => r.id === def.id)
+          return saved ? { ...def, peso: saved.peso, ativo: saved.ativo, limite_maximo_pontos: saved.limite_maximo_pontos } : def
+        })
+        setRegrasScore(merged)
       } else {
         setRegrasScore(REGRAS_SCORE_PADRAO)
       }
@@ -445,7 +467,7 @@ export default function ConfiguracoesFactoringPage() {
 
               <div className="border-t border-border/40 pt-5 space-y-8">
                 {/* Agrupa por Categoria */}
-                {['historico_pagamento', 'historico_contrato', 'relacionamento', 'cadastro', 'inadimplencia', 'bureau', 'compliance', 'status'].map(cat => {
+                {['historico_pagamento', 'historico_contrato', 'relacionamento', 'capacidade', 'cadastro', 'inadimplencia', 'bureau', 'compliance', 'status'].map(cat => {
                   const regrasDaCat = regrasScore.filter(r => r.categoria === cat)
                   if (regrasDaCat.length === 0) return null
 
@@ -454,6 +476,7 @@ export default function ConfiguracoesFactoringPage() {
                     case 'historico_pagamento': catLabel = 'Histórico de Pagamento'; break;
                     case 'historico_contrato': catLabel = 'Histórico de Contrato'; break;
                     case 'relacionamento': catLabel = 'Relacionamento Comercial'; break;
+                    case 'capacidade': catLabel = 'Capacidade de Pagamento'; break;
                     case 'cadastro': catLabel = 'Ficha Cadastral'; break;
                     case 'inadimplencia': catLabel = 'Inadimplência Interna'; break;
                     case 'bureau': catLabel = 'Bureau de Crédito (Assertiva)'; break;

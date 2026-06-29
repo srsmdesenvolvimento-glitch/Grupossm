@@ -77,6 +77,8 @@ export default function EmprestimoDetalhePage() {
   const [partialOption, setPartialOption] = useState<'proxima' | 'diluir' | 'extra'>('proxima')
   const [partialDueDate, setPartialDueDate] = useState('')
   const [partialJurosPct, setPartialJurosPct] = useState('')
+  const [pagMultaOverride, setPagMultaOverride] = useState('')
+  const [pagJurosOverride, setPagJurosOverride] = useState('')
 
   async function handleGerarRecibo(p: ParcelaEmprestimo) {
     if (!cliente || !emprestimo) return
@@ -281,6 +283,8 @@ export default function EmprestimoDetalhePage() {
     setPagValorParcial('')
     setPagValorRecebido('')
     setPartialOption('proxima')
+    setPagMultaOverride('')
+    setPagJurosOverride('')
     try {
       const d = new Date(p.data_vencimento + 'T12:00:00')
       d.setMonth(d.getMonth() + 1)
@@ -302,12 +306,14 @@ export default function EmprestimoDetalhePage() {
     const moraDiario = matchMora ? parseFloat(matchMora[1]) : (configFactoring?.juros_mora_diario ?? 0.033)
     const multaAtrasoPct = configFactoring?.multa_atraso ?? 2.0
 
-    const multaCalculada = dias > 0
+    const multaCalculadaBase = dias > 0
       ? (pagarParcela.status === 'pendente' ? pagarParcela.valor * (multaAtrasoPct / 100) : (pagarParcela.multa || pagarParcela.valor * (multaAtrasoPct / 100)))
       : 0
-    const jurosCalculado = dias > 0
-      ? pagarParcela.valor * (moraDiario / 100) * dias
+    const jurosCalculadoBase = dias > 0
+      ? pagarParcela.valor * (Math.pow(1 + moraDiario / 100, dias) - 1)
       : 0
+    const multaCalculada = pagMultaOverride !== '' ? Number(pagMultaOverride) : multaCalculadaBase
+    const jurosCalculado = pagJurosOverride !== '' ? Number(pagJurosOverride) : jurosCalculadoBase
 
     const subtotal = (pagarParcela.valor + multaCalculada + jurosCalculado) - (pagarParcela.valor_pago ?? 0)
     const descontoNum = Number(pagDesconto) || 0
@@ -444,17 +450,30 @@ export default function EmprestimoDetalhePage() {
         toast.success(`${formatarMoeda(valorFinal)} registrado com sucesso!`)
       }
 
-      // Decrement Outstanding Balance
-      const novoSaldoDevedor = Math.round(Math.max(0, (emprestimo.saldo_devedor ?? 0) - valorFinal) * 100) / 100
+      // Saldo devedor só diminui pelo capital (amortização), não pelos juros/encargos
+      const principalPago = valorFinal >= pagarParcela.valor - 0.009
+        ? pagarParcela.valor_principal
+        : Math.max(0, valorFinal - pagarParcela.valor_juros)
+      const novoSaldoDevedor = Math.round(Math.max(0, (emprestimo.saldo_devedor ?? 0) - principalPago) * 100) / 100
       const { error: saldoError } = await supabase.from('emprestimos').update({ saldo_devedor: novoSaldoDevedor }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
       if (saldoError) throw saldoError
 
-      const { error: caixaError } = await supabase.from('movimentacoes_caixa').insert({
-        empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'pagamento_parcela',
-        descricao: `Pagamento parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — ${cliente?.nome ?? ''}`,
-        valor: valorFinal, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
+      // Caixa: entrada separada por capital (amortização) e juros/encargos
+      const jurosTotalPago = Math.round(Math.max(0, valorFinal - principalPago) * 100) / 100
+      const { error: caixaCapError } = await supabase.from('movimentacoes_caixa').insert({
+        empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'amortizacao_emprestimo',
+        descricao: `Parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — Capital — ${cliente?.nome ?? ''}`,
+        valor: principalPago, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
       })
-      if (caixaError) throw caixaError
+      if (caixaCapError) throw caixaCapError
+      if (jurosTotalPago > 0) {
+        const { error: caixaJurError } = await supabase.from('movimentacoes_caixa').insert({
+          empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'juros_recebidos',
+          descricao: `Parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — Juros — ${cliente?.nome ?? ''}`,
+          valor: jurosTotalPago, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
+        })
+        if (caixaJurError) throw caixaJurError
+      }
 
       // ── Enviar Recibo Automático via WhatsApp ──
       try {
@@ -678,7 +697,7 @@ export default function EmprestimoDetalhePage() {
       // Mark all pending/atrasado parcelas as PAGO (not cancelled)
       const { data: pendentes } = await supabase
         .from('parcelas_emprestimo')
-        .select('id, valor, numero_parcela, total_parcelas, data_vencimento')
+        .select('id, valor, valor_principal, valor_juros, numero_parcela, total_parcelas, data_vencimento')
         .eq('emprestimo_id', emprestimo.id)
         .eq('empresa_id', empresaAtual.id)
         .in('status', ['pendente', 'atrasado'])
@@ -692,19 +711,24 @@ export default function EmprestimoDetalhePage() {
           .in('status', ['pendente', 'atrasado'])
         if (parcelasQuitError) throw parcelasQuitError
 
-        // Register one caixa entry for the total settled amount
+        // Caixa quitação: separar capital de juros
         const totalQuitado = pendentes.reduce((s, p) => s + (p.valor ?? 0), 0)
-        const { error: caixaQuitError } = await supabase.from('movimentacoes_caixa').insert({
-          empresa_id: empresaAtual.id,
-          tipo: 'entrada',
-          categoria: 'quitacao_antecipada',
-          descricao: `Quitação antecipada contrato ${emprestimo.numero_contrato} — ${pendentes.length} parcela(s)`,
-          valor: totalQuitado,
-          referencia_tipo: 'emprestimo',
-          referencia_id: emprestimo.id,
-          data_movimentacao: hoje,
+        const totalPrincipalQuitado = Math.round(pendentes.reduce((s, p) => s + (p.valor_principal ?? 0), 0) * 100) / 100
+        const totalJurosQuitado = Math.round(Math.max(0, totalQuitado - totalPrincipalQuitado) * 100) / 100
+        const { error: caixaQuitCapError } = await supabase.from('movimentacoes_caixa').insert({
+          empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'quitacao_antecipada',
+          descricao: `Quitação antecipada ${emprestimo.numero_contrato} — Capital — ${pendentes.length} parcela(s)`,
+          valor: totalPrincipalQuitado, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
         })
-        if (caixaQuitError) throw caixaQuitError
+        if (caixaQuitCapError) throw caixaQuitCapError
+        if (totalJurosQuitado > 0) {
+          const { error: caixaQuitJurError } = await supabase.from('movimentacoes_caixa').insert({
+            empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'juros_recebidos',
+            descricao: `Quitação antecipada ${emprestimo.numero_contrato} — Juros — ${pendentes.length} parcela(s)`,
+            valor: totalJurosQuitado, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
+          })
+          if (caixaQuitJurError) throw caixaQuitJurError
+        }
       }
 
       // Generate Termo de Quitação PDF and trigger notifications
@@ -843,6 +867,8 @@ export default function EmprestimoDetalhePage() {
   const taxaAnual = taxaMensalParaAnual(emprestimo.taxa_juros)
   const totalJurosPagos = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + (p.valor_juros ?? 0), 0)
   const totalPrincipalPago = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + (p.valor_principal ?? 0), 0)
+  const encargosAtrasados = parcelas.filter(p => p.status === 'atrasado').reduce((s, p) => s + (p.juros_mora ?? 0) + (p.multa ?? 0), 0)
+  const saldoComEncargos = (emprestimo.saldo_devedor ?? 0) + encargosAtrasados
 
   function rowClass(p: ParcelaEmprestimo) {
     if (p.status === 'pago') return 'bg-[#E6F4EA]/10 border-b border-border/40 hover:bg-[#E6F4EA]/20'
@@ -1034,7 +1060,7 @@ export default function EmprestimoDetalhePage() {
                 {[
                   { l: 'Total Pactuado', v: emprestimo.total_pagar, color: '#1A73E8' },
                   { l: 'Total Recebido', v: totalPago, color: '#34A853' },
-                  { l: 'Saldo Devedor', v: emprestimo.saldo_devedor, color: '#FA903E' },
+                  { l: encargosAtrasados > 0 ? 'Saldo c/ Encargos' : 'Saldo Devedor', v: encargosAtrasados > 0 ? saldoComEncargos : emprestimo.saldo_devedor, color: '#FA903E' },
                   { l: 'Parcelas Quitadas', v: `${parcelasPagas}/${emprestimo.prazo_meses}`, color: 'var(--muted-foreground)', isText: true },
                 ].map(c => (
                   <div key={c.l} className="text-center space-y-0.5">
@@ -1042,6 +1068,9 @@ export default function EmprestimoDetalhePage() {
                     <p className="text-base font-black" style={{ color: c.color }}>
                       {c.isText ? c.v : formatarMoeda(c.v as number)}
                     </p>
+                    {c.l === 'Saldo c/ Encargos' && (
+                      <p className="text-[9px] text-[#EA4335] font-bold">+{formatarMoeda(encargosAtrasados)} mora</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1111,6 +1140,9 @@ export default function EmprestimoDetalhePage() {
                   const statusColor: Record<string, string> = { pago: '#34A853', atrasado: '#EA4335', pendente: '#64748b', cancelado: '#94a3b8', renegociado: '#FA903E' }
                   const statusLabel: Record<string, string> = { pago: 'Pago', atrasado: 'Atrasado', pendente: 'Pendente', cancelado: 'Cancelado', renegociado: 'Renegoc.' }
                   const cor = statusColor[p.status] ?? '#64748b'
+                  const diasAtrasoReal = (p.status === 'atrasado' || (p.status === 'pendente' && new Date(p.data_vencimento + 'T12:00:00') < new Date()))
+                    ? Math.max(0, Math.floor((Date.now() - new Date(p.data_vencimento + 'T12:00:00').getTime()) / 86400000))
+                    : (p.dias_atraso ?? 0)
                   return (
                     <div key={p.id} className={cn('grid grid-cols-[40px_1.2fr_1.1fr_1.1fr_100px_auto] gap-2 px-5 py-3.5 text-sm items-center transition-all', rowClass(p))}>
                       <span className="text-muted-foreground/80 font-bold tabular-nums text-xs">{p.numero_parcela}</span>
@@ -1118,9 +1150,9 @@ export default function EmprestimoDetalhePage() {
                         <span className="tabular-nums truncate text-xs">
                           {formatarData(p.data_vencimento)}
                         </span>
-                        {p.dias_atraso > 0 && (
+                        {diasAtrasoReal > 0 && (
                           <span className="shrink-0 text-[9px] font-black text-[#EA4335] bg-[#FCE8E6] px-1.5 py-0.5 rounded-full">
-                            {p.dias_atraso}d
+                            {diasAtrasoReal}d
                           </span>
                         )}
                       </div>
@@ -1343,12 +1375,14 @@ export default function EmprestimoDetalhePage() {
         const moraDiario = matchMora ? parseFloat(matchMora[1]) : (configFactoring?.juros_mora_diario ?? 0.033)
         const multaAtrasoPct = configFactoring?.multa_atraso ?? 2.0
 
-        const multaCalculada = dias > 0
+        const multaCalculadaBase = dias > 0
           ? (pagarParcela.status === 'pendente' ? pagarParcela.valor * (multaAtrasoPct / 100) : (pagarParcela.multa || pagarParcela.valor * (multaAtrasoPct / 100)))
           : 0
-        const jurosCalculado = dias > 0
-          ? pagarParcela.valor * (moraDiario / 100) * dias
+        const jurosCalculadoBase = dias > 0
+          ? pagarParcela.valor * (Math.pow(1 + moraDiario / 100, dias) - 1)
           : 0
+        const multaCalculada = pagMultaOverride !== '' ? Number(pagMultaOverride) : multaCalculadaBase
+        const jurosCalculado = pagJurosOverride !== '' ? Number(pagJurosOverride) : jurosCalculadoBase
 
         const subtotal = (pagarParcela.valor + multaCalculada + jurosCalculado) - (pagarParcela.valor_pago ?? 0)
         const descontoNum = Number(pagDesconto) || 0
@@ -1382,14 +1416,41 @@ export default function EmprestimoDetalhePage() {
                   
                   {dias > 0 && (
                     <>
-                      <div className="flex justify-between items-center text-xs font-semibold text-[#C5221F]">
-                        <span>Multa por Atraso ({multaAtrasoPct}%)</span>
-                        <span>+{formatarMoeda(multaCalculada)}</span>
+                      <div className="flex justify-between items-center text-xs font-semibold text-[#C5221F] gap-2">
+                        <span className="shrink-0">Multa por Atraso ({multaAtrasoPct}%)</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[#C5221F]/50 text-[10px] font-bold">R$</span>
+                          <input
+                            type="number" min="0" step="0.01"
+                            placeholder={multaCalculadaBase.toFixed(2)}
+                            value={pagMultaOverride}
+                            onChange={e => setPagMultaOverride(e.target.value)}
+                            className="w-24 h-7 px-2 rounded-lg border border-[#EA4335]/30 bg-white/70 dark:bg-background text-[#C5221F] font-bold text-xs text-right focus:outline-none focus:border-[#EA4335] focus:ring-1 focus:ring-[#EA4335]/20"
+                          />
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center text-xs font-semibold text-[#C5221F]">
-                        <span>Juros de Mora ({moraDiario}% a.d. - {dias}d)</span>
-                        <span>+{formatarMoeda(jurosCalculado)}</span>
+                      <div className="flex justify-between items-center text-xs font-semibold text-[#C5221F] gap-2">
+                        <span className="shrink-0">Juros Compostos ({moraDiario}% a.d. × {dias}d)</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[#C5221F]/50 text-[10px] font-bold">R$</span>
+                          <input
+                            type="number" min="0" step="0.01"
+                            placeholder={jurosCalculadoBase.toFixed(2)}
+                            value={pagJurosOverride}
+                            onChange={e => setPagJurosOverride(e.target.value)}
+                            className="w-24 h-7 px-2 rounded-lg border border-[#EA4335]/30 bg-white/70 dark:bg-background text-[#C5221F] font-bold text-xs text-right focus:outline-none focus:border-[#EA4335] focus:ring-1 focus:ring-[#EA4335]/20"
+                          />
+                        </div>
                       </div>
+                      {(pagMultaOverride !== '' || pagJurosOverride !== '') && (
+                        <button
+                          type="button"
+                          onClick={() => { setPagMultaOverride(''); setPagJurosOverride('') }}
+                          className="text-[10px] text-muted-foreground/60 hover:text-foreground font-semibold underline text-right w-full"
+                        >
+                          Restaurar valores calculados
+                        </button>
+                      )}
                     </>
                   )}
 

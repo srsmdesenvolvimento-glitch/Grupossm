@@ -40,23 +40,25 @@ export async function GET(request: NextRequest) {
   const erros = resultados.filter(r => !r.ok)
   const agora = new Date().toISOString()
 
-  // Updates individuais para sucessos — persiste messageId para rastreio de status via webhook
+  // Updates para sucessos — tenta com whatsapp_message_id, fallback sem ele
   if (sucessos.length > 0) {
     await Promise.all(
-      sucessos.map(r =>
-        supabase
-          .from('notificacoes_log')
-          .update({
-            status: 'enviado',
-            enviado_em: agora,
-            ...(r.messageId ? { whatsapp_message_id: r.messageId } : {}),
-          })
-          .eq('id', r.id),
-      ),
+      sucessos.map(async r => {
+        const payload: Record<string, any> = { status: 'enviado', enviado_em: agora }
+        if (r.messageId) payload.whatsapp_message_id = r.messageId
+        try {
+          await supabase.from('notificacoes_log').update(payload).eq('id', r.id)
+        } catch {
+          // Fallback: salva sem whatsapp_message_id caso coluna não exista ainda
+          await supabase.from('notificacoes_log')
+            .update({ status: 'enviado', enviado_em: agora })
+            .eq('id', r.id)
+        }
+      }),
     )
   }
 
-  // Updates individuais apenas para erros (normalmente poucos)
+  // Updates para erros
   if (erros.length > 0) {
     await Promise.all(
       erros.map(r =>

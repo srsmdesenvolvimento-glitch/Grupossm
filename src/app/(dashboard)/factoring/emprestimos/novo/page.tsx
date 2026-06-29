@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { gerarContratoPDF } from '@/lib/utils/documentos'
 import { formatarMoeda, formatarData, formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
+import { handleCurrencyChange, parseBRL, formatBRL, valorPorExtenso } from '@/lib/utils/currency'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { toast } from 'sonner'
 import type { ClienteFactoring } from '@/lib/types/database'
@@ -45,23 +46,22 @@ type TabelaLinha = {
   saldo_apos: number
 }
 
-function calcularPrice(valor: number, taxa: number, n: number, dataInicio: string) {
+function calcularJurosSimples(valor: number, taxa: number, n: number, dataInicio: string) {
   if (!valor || !taxa || !n) return { parcela: 0, total: 0, totalJuros: 0, tabela: [] as TabelaLinha[] }
   const i = taxa / 100
-  const parcela = valor * (i * Math.pow(1 + i, n)) / (Math.pow(1 + i, n) - 1)
-  let saldo = valor
+  const amortizacao = valor / n
+  const juros = valor * i  // sempre sobre o principal original
+  const parcela = amortizacao + juros
   const base = new Date(dataInicio || new Date().toISOString().split('T')[0])
   const tabela: TabelaLinha[] = []
   for (let k = 1; k <= n; k++) {
-    const saldo_antes = saldo
-    const juros = saldo * i
-    const principal = parcela - juros
-    saldo = Math.max(0, saldo - principal)
+    const saldo_antes = valor - (k - 1) * amortizacao
+    const saldo_apos = Math.max(0, valor - k * amortizacao)
     const venc = new Date(base)
     venc.setMonth(venc.getMonth() + (k - 1))
-    tabela.push({ numero: k, vencimento: venc.toISOString().split('T')[0], principal, juros, parcela, saldo_antes, saldo_apos: saldo })
+    tabela.push({ numero: k, vencimento: venc.toISOString().split('T')[0], principal: amortizacao, juros, parcela, saldo_antes, saldo_apos })
   }
-  return { parcela, total: parcela * n, totalJuros: parcela * n - valor, tabela }
+  return { parcela, total: parcela * n, totalJuros: juros * n, tabela }
 }
 
 const defaultVenc = (() => {
@@ -121,7 +121,7 @@ export default function NovoEmprestimoPage() {
   const [dataVenc, setDataVenc] = useState(defaultVenc)
   const [garantias, setGarantias] = useState('')
   const [observacoes, setObservacoes] = useState('')
-  const [jurosMoraDiarioInput, setJurosMoraDiarioInput] = useState('0.033')
+  const [jurosMoraDiarioInput, setJurosMoraDiarioInput] = useState('')
 
   const [salvando, setSalvando] = useState(false)
 
@@ -175,7 +175,7 @@ export default function NovoEmprestimoPage() {
     const parcelasParam = searchParams.get('parcelas')
     const taxaParam = searchParams.get('taxa')
     const vencParam = searchParams.get('venc')
-    if (valorParam) setValor(valorParam)
+    if (valorParam) setValor(formatBRL(parseFloat(valorParam) || 0))
     if (parcelasParam) setNumParcelas(parcelasParam)
     if (taxaParam) setTaxa(taxaParam)
     if (vencParam) setDataVenc(vencParam)
@@ -208,13 +208,13 @@ export default function NovoEmprestimoPage() {
 
 
 
-  const valorNum = Number(valor) || 0
+  const valorNum = parseBRL(valor)
   const taxaNum = Number(taxa) || 0
   const parcelasNum = Number(numParcelas) || 0
 
   const resultado = useMemo(() => {
     if (!valorNum || !taxaNum || !parcelasNum) return null
-    return calcularPrice(valorNum, taxaNum, parcelasNum, dataVenc)
+    return calcularJurosSimples(valorNum, taxaNum, parcelasNum, dataVenc)
   }, [valorNum, taxaNum, parcelasNum, dataVenc])
 
   const tabelaColumns: Column<TabelaLinha>[] = [
@@ -273,7 +273,7 @@ export default function NovoEmprestimoPage() {
           data_primeiro_vencimento: resultado.tabela[0]?.vencimento ?? dataVenc,
           data_liberacao: hojeStr,
           data_quitacao: null,
-          observacoes: jurosMoraDiarioInput ? `[Mora: ${jurosMoraDiarioInput}% ao dia] ${observacoes || ''}` : (observacoes || null),
+          observacoes: `[Mora: ${jurosMoraDiarioInput || '0.0333'}% ao dia]${observacoes ? ` ${observacoes}` : ''}`.trim() || null,
           garantias: garantias || null,
           documentos: [],
           status: 'ativo',
@@ -359,7 +359,7 @@ export default function NovoEmprestimoPage() {
               data_liberacao: hojeStr,
               data_primeiro_vencimento: resultado.tabela[0]?.vencimento ?? dataVenc,
               garantias: garantias || null,
-              observacoes: jurosMoraDiarioInput ? `[Mora: ${jurosMoraDiarioInput}% ao dia] ${observacoes || ''}` : (observacoes || null),
+              observacoes: `[Mora: ${jurosMoraDiarioInput || '0.0333'}% ao dia]${observacoes ? ` ${observacoes}` : ''}`.trim() || null,
             },
             cliente: {
               nome: fullCliente.nome,
@@ -463,7 +463,7 @@ export default function NovoEmprestimoPage() {
 
   return (
     <AppShell empresa="factoring" titulo="Novo Empréstimo">
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in-up">
+      <div className="max-w-3xl mx-auto space-y-6">
         
         {/* Step indicator */}
         <div className="bg-card rounded-3xl border border-border/50 shadow-m3-1 p-5 overflow-hidden">
@@ -554,7 +554,7 @@ export default function NovoEmprestimoPage() {
               )}
 
               {/* Hint "não achou?" */}
-              {busca.length >= 2 && resultados.length === 0 && !buscando && (
+              {busca.length >= 2 && resultados.length === 0 && !buscando && !cliente && (
                 <div className="mt-3 flex items-center justify-between rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground bg-muted/10">
                   <span className="font-semibold text-xs text-muted-foreground/75">Nenhum tomador ativo localizado para &quot;{busca}&quot;</span>
                   <button
@@ -672,8 +672,20 @@ export default function NovoEmprestimoPage() {
               <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Valor do Empréstimo</Label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60 text-sm font-semibold">R$</span>
-                <Input type="number" min={100} value={valor} onChange={e => setValor(e.target.value)} className="h-11 pl-10 pr-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-mono font-bold text-sm bg-card border-border/60" placeholder="0,00" />
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={valor}
+                  onChange={e => setValor(handleCurrencyChange(e.target.value))}
+                  className="h-11 pl-10 pr-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-mono font-bold text-sm bg-card border-border/60"
+                  placeholder="0,00"
+                />
               </div>
+              {valorNum > 0 && (
+                <p className="text-[11px] text-muted-foreground/65 italic font-medium px-1">
+                  {valorPorExtenso(valorNum)}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -696,9 +708,18 @@ export default function NovoEmprestimoPage() {
                 <Input type="date" value={dataVenc} onChange={e => setDataVenc(e.target.value)} className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-bold text-sm bg-card border-border/60" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Juros por Atraso (% ao dia)</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Juros por Atraso (% ao dia)</Label>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/factoring/configuracoes')}
+                    className="flex items-center gap-1 text-[10px] font-bold text-[#1A73E8] hover:underline"
+                  >
+                    <Settings size={10} /> Das configurações
+                  </button>
+                </div>
                 <div className="relative">
-                  <Input type="number" min={0} step={0.001} value={jurosMoraDiarioInput} onChange={e => setJurosMoraDiarioInput(e.target.value)} className="h-11 pl-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-bold text-sm bg-card border-border/60" />
+                  <Input type="number" min={0} step={0.001} value={jurosMoraDiarioInput} onChange={e => setJurosMoraDiarioInput(e.target.value)} className="h-11 pl-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-xl font-bold text-sm bg-card border-border/60" placeholder="0,0333" />
                   <Percent size={15} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
                 </div>
               </div>
@@ -732,6 +753,40 @@ export default function NovoEmprestimoPage() {
                   <p className="text-lg font-black truncate" style={{ color: card.color }}>{card.value}</p>
                 </div>
               ))}
+            </div>
+
+            {/* Composição do Caixa */}
+            <div className="bg-card rounded-2xl border border-border/50 shadow-m3-1 p-5 space-y-4">
+              <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider">Composição do Fluxo de Caixa</p>
+              <div className="space-y-2.5">
+                {[
+                  { label: 'Capital Liberado', desc: 'Valor entregue ao tomador', value: valorNum, color: '#1A73E8', bg: '#E8F0FE' },
+                  { label: 'Total de Juros', desc: `${taxa}% a.m. × ${numParcelas} meses sobre o principal`, value: resultado.totalJuros, color: '#FA903E', bg: '#FEF0E1' },
+                ].map(row => {
+                  const pct = Math.round((row.value / resultado.total) * 100)
+                  return (
+                    <div key={row.label} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-bold text-foreground">{row.label}</span>
+                          <span className="ml-2 text-[10px] text-muted-foreground/70">{row.desc}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: row.bg, color: row.color }}>{pct}%</span>
+                          <span className="text-xs font-black tabular-nums" style={{ color: row.color }}>{formatarMoeda(row.value)}</span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: row.color }} />
+                      </div>
+                    </div>
+                  )
+                })}
+                <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                  <span className="text-xs font-bold text-foreground">Total a Receber</span>
+                  <span className="text-sm font-black text-foreground tabular-nums">{formatarMoeda(resultado.total)}</span>
+                </div>
+              </div>
             </div>
 
             {/* Table wrapper */}

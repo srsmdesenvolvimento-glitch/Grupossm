@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
         const matchMora = obsText.match(/\[Mora:\s*([\d.]+)%\s*ao\s*dia\]/)
         const jurosMoraDiario = matchMora ? parseFloat(matchMora[1]) : cfg.juros_mora_diario
 
-        const novosJuros = Number(p.valor) * (jurosMoraDiario / 100) * dias
+        const novosJuros = Number(p.valor) * (Math.pow(1 + jurosMoraDiario / 100, dias) - 1)
         const valorTotalComEncargos = Number(p.valor) + novaMulta + novosJuros
 
         // Atualiza a parcela no banco

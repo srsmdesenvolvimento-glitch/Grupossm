@@ -48,6 +48,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
 
   // Refs for drawing canvas
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const signButtonRef = useRef<HTMLButtonElement | null>(null)
   const isDrawing = useRef(false)
   const lastX = useRef(0)
   const lastY = useRef(0)
@@ -116,6 +117,15 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
   useEffect(() => {
     obterLocalizacao(true)
   }, [obterLocalizacao])
+
+  // After GPS success on step 4, scroll the sign button into view
+  useEffect(() => {
+    if (geolocationStatus === 'success' && passo === 4 && signButtonRef.current) {
+      setTimeout(() => {
+        signButtonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 400)
+    }
+  }, [geolocationStatus, passo])
 
   // Control camera session on Step 3
   const iniciarCamera = async () => {
@@ -1045,14 +1055,16 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
             >
               Voltar
             </Button>
-            <Button
-              className="flex-1 h-12 rounded-full font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40 shadow-lg shadow-emerald-950/50 transition-all gap-1.5 cursor-pointer"
-              disabled={geolocationStatus !== 'success' && !geolocation}
-              onClick={handleSubmitSignature}
-            >
-              <CheckCircle2 size={16} />
-              <span>Confirmar & Assinar</span>
-            </Button>
+            <div ref={signButtonRef} className="flex-1">
+              <Button
+                className="w-full h-12 rounded-full font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40 shadow-lg shadow-emerald-950/50 transition-all gap-1.5 cursor-pointer"
+                disabled={geolocationStatus !== 'success'}
+                onClick={handleSubmitSignature}
+              >
+                <CheckCircle2 size={16} />
+                <span>Confirmar & Assinar</span>
+              </Button>
+            </div>
           </div>
         </div>
       )}

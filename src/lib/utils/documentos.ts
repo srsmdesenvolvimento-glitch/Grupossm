@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { valorPorExtenso } from './currency'
 
 // ── Helpers & Formatting ───────────────────────────────────────────────────
 
@@ -608,8 +609,8 @@ export async function gerarContratoPDF(params: ContratoParams, options?: { outpu
   const jurosMoraDiario = matchMora ? parseFloat(matchMora[1]) : 0.033
   const obsLimpa = obsText.replace(/\[Mora:\s*[\d.]+%\s*ao\s*dia\]/, '').trim()
 
-  const obs = `GARANTIAS APRESENTADAS: ${params.contrato.garantias || 'NÃO ESPECIFICADAS'}. JUROS DE MORA POR ATRASO PACTUADO: ${jurosMoraDiario}% AO DIA. OBSERVACÕES GERAIS: ${obsLimpa || 'SEM OBSERVAÇÕES ADICIONAIS'}. ESTE CONTRATO SERVE COMO TÍTULO EXECUTIVO EXTRAJUDICIAL CONFORME LEGISLAÇÃO VIGENTE.`
-  
+  const obs = `VALOR DO MÚTUO: ${fmt(params.contrato.valor_principal)} (${valorPorExtenso(params.contrato.valor_principal).toUpperCase()}). GARANTIAS APRESENTADAS: ${params.contrato.garantias || 'NÃO ESPECIFICADAS'}. JUROS DE MORA POR ATRASO PACTUADO: ${jurosMoraDiario}% AO DIA. OBSERVACÕES GERAIS: ${obsLimpa || 'SEM OBSERVAÇÕES ADICIONAIS'}. ESTE CONTRATO SERVE COMO TÍTULO EXECUTIVO EXTRAJUDICIAL CONFORME LEGISLAÇÃO VIGENTE.`
+
   drawMarketUpFooterAndSignatures(doc, company, params.cliente.nome, obs, y, W)
 
   if (options?.output === 'blob') {
@@ -968,6 +969,8 @@ export interface AssinaturaEvidencia {
   user_agent: string
   selfie_url?: string
   doc_url?: string
+  selfie_base64?: string
+  doc_base64?: string
   signature_base64?: string
   geolocation?: string
 }
@@ -1042,8 +1045,8 @@ export async function gerarContratoComAssinaturaPDF(
   const jurosMoraDiario = matchMora ? parseFloat(matchMora[1]) : 0.033
   const obsLimpa = obsText.replace(/\[Mora:\s*[\d.]+%\s*ao\s*dia\]/, '').trim()
 
-  const obs = `GARANTIAS APRESENTADAS: ${params.contrato.garantias || 'NÃO ESPECIFICADAS'}. JUROS DE MORA POR ATRASO PACTUADO: ${jurosMoraDiario}% AO DIA. OBSERVACÕES GERAIS: ${obsLimpa || 'SEM OBSERVACÕES ADICIONAIS'}. ESTE CONTRATO SERVE COMO TÍTULO EXECUTIVO EXTRAJUDICIAL CONFORME LEGISLAÇÃO VIGENTE.`
-  
+  const obs = `VALOR DO MÚTUO: ${fmt(params.contrato.valor_principal)} (${valorPorExtenso(params.contrato.valor_principal).toUpperCase()}). GARANTIAS APRESENTADAS: ${params.contrato.garantias || 'NÃO ESPECIFICADAS'}. JUROS DE MORA POR ATRASO PACTUADO: ${jurosMoraDiario}% AO DIA. OBSERVACÕES GERAIS: ${obsLimpa || 'SEM OBSERVACÕES ADICIONAIS'}. ESTE CONTRATO SERVE COMO TÍTULO EXECUTIVO EXTRAJUDICIAL CONFORME LEGISLAÇÃO VIGENTE.`
+
   drawMarketUpFooterAndSignatures(doc, company, params.cliente.nome, obs, y, W, params.assinatura.signature_base64)
 
 
@@ -1160,27 +1163,36 @@ export async function gerarContratoComAssinaturaPDF(
   let selfieLoaded = false
   let docLoaded = false
 
-  if (params.assinatura.selfie_url) {
-    const selfieBase64 = await loadLogo(params.assinatura.selfie_url)
-    if (selfieBase64) {
-      try {
-        doc.addImage(selfieBase64, 'JPEG', 14, 100, 86, 86)
-        selfieLoaded = true
-      } catch (err) {
-        console.error('Erro ao renderizar selfie:', err)
-      }
+  // Use base64 directly if available (avoids re-downloading from storage)
+  // Fallback to URL fetch for backwards compatibility
+  const [selfieData, docData] = await Promise.all([
+    params.assinatura.selfie_base64
+      ? Promise.resolve(params.assinatura.selfie_base64)
+      : params.assinatura.selfie_url
+        ? loadLogo(params.assinatura.selfie_url)
+        : Promise.resolve(''),
+    params.assinatura.doc_base64
+      ? Promise.resolve(params.assinatura.doc_base64)
+      : params.assinatura.doc_url
+        ? loadLogo(params.assinatura.doc_url)
+        : Promise.resolve(''),
+  ])
+
+  if (selfieData) {
+    try {
+      doc.addImage(selfieData, 'JPEG', 14, 100, 86, 86)
+      selfieLoaded = true
+    } catch (err) {
+      console.error('Erro ao renderizar selfie:', err)
     }
   }
 
-  if (params.assinatura.doc_url) {
-    const docBase64 = await loadLogo(params.assinatura.doc_url)
-    if (docBase64) {
-      try {
-        doc.addImage(docBase64, 'JPEG', 110, 100, 86, 86)
-        docLoaded = true
-      } catch (err) {
-        console.error('Erro ao renderizar documento:', err)
-      }
+  if (docData) {
+    try {
+      doc.addImage(docData, 'JPEG', 110, 100, 86, 86)
+      docLoaded = true
+    } catch (err) {
+      console.error('Erro ao renderizar documento:', err)
     }
   }
 

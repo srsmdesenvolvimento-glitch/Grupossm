@@ -15,16 +15,16 @@ import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
-import { 
-  Link2, 
-  Settings, 
-  MessageSquare, 
-  CheckCircle, 
-  XCircle, 
-  Loader2, 
-  RefreshCw, 
-  Send, 
-  FileText, 
+import {
+  Link2,
+  Settings,
+  MessageSquare,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  RefreshCw,
+  Send,
+  FileText,
   AlertTriangle,
   Info,
   Calendar,
@@ -33,7 +33,8 @@ import {
   AlertOctagon,
   Eye,
   FileCode2,
-  History
+  History,
+  Stethoscope
 } from 'lucide-react'
 
 type WhatsAppConfig = {
@@ -255,6 +256,35 @@ export default function WhatsAppConexaoPage() {
   // Trigger selecionado para edição
   const [activeTrigger, setActiveTrigger] = useState<TriggerKey>('contrato_criado')
 
+  // Diagnóstico
+  const [diagnosticoAberto, setDiagnosticoAberto] = useState(false)
+  const [loadingDiagnostico, setLoadingDiagnostico] = useState(false)
+  const [resultadoDiagnostico, setResultadoDiagnostico] = useState<{
+    ok: boolean
+    checks: { ok: boolean; msg: string; detail?: string }[]
+    recentLogs: any[]
+  } | null>(null)
+
+  const executarDiagnostico = async () => {
+    if (!empresaAtual?.id) return
+    setLoadingDiagnostico(true)
+    setDiagnosticoAberto(true)
+    setResultadoDiagnostico(null)
+    try {
+      const res = await fetch(`/api/whatsapp/diagnostico?empresa_id=${empresaAtual.id}`)
+      const data = await res.json()
+      setResultadoDiagnostico(data)
+    } catch (err: any) {
+      setResultadoDiagnostico({
+        ok: false,
+        checks: [{ ok: false, msg: 'Falha ao executar diagnóstico: ' + err.message }],
+        recentLogs: [],
+      })
+    } finally {
+      setLoadingDiagnostico(false)
+    }
+  }
+
   // Carrega logs recentes
   const loadRecentLogs = useCallback(async () => {
     if (!empresaAtual?.id) return
@@ -404,13 +434,13 @@ export default function WhatsAppConexaoPage() {
     return () => clearInterval(interval)
   }, [config.api_url, config.instance_name, loading, dbMigrationError, checkConnectionStatus])
 
-  // Auto-fetch do QR quando estado muda para 'close' — apenas uma vez por ciclo
+  // Auto-fetch do QR quando estado é 'close' ou 'connecting' (QR disponível nos dois) — apenas uma vez por ciclo
   useEffect(() => {
-    if (connectionState === 'close' && !qrFetchedRef.current && config.api_url && config.instance_name) {
+    const precisaQR = (connectionState === 'close' || connectionState === 'connecting') && !qrCodeData
+    if (precisaQR && !qrFetchedRef.current && config.api_url && config.instance_name) {
       qrFetchedRef.current = true
       getQrCode()
     }
-    // getQrCode é uma função estável no render atual; qrFetchedRef garante single-fire
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionState, config.api_url, config.instance_name])
 
@@ -759,6 +789,72 @@ export default function WhatsAppConexaoPage() {
                     </CardFooter>
                   </Card>
                 </form>
+
+                {/* Botão de Diagnóstico */}
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={executarDiagnostico}
+                    disabled={loadingDiagnostico || !empresaAtual?.id}
+                    className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-[#1E5AA8] transition-colors disabled:opacity-50 border border-slate-200 rounded-lg px-3 py-2 hover:border-[#1E5AA8]/30 hover:bg-[#EDF4FE]/50"
+                  >
+                    {loadingDiagnostico
+                      ? <Loader2 className="animate-spin" size={14} />
+                      : <Stethoscope size={14} />}
+                    Executar Diagnóstico Completo
+                  </button>
+                </div>
+
+                {/* Modal/Panel de Diagnóstico */}
+                {diagnosticoAberto && (
+                  <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+                      <div className="flex items-center gap-2">
+                        <Stethoscope size={16} className="text-[#1E5AA8]" />
+                        <span className="text-sm font-bold text-slate-700">Resultado do Diagnóstico</span>
+                        {resultadoDiagnostico && (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${resultadoDiagnostico.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                            {resultadoDiagnostico.ok ? '✓ TUDO OK' : '✗ PROBLEMAS ENCONTRADOS'}
+                          </span>
+                        )}
+                      </div>
+                      <button onClick={() => setDiagnosticoAberto(false)} className="text-slate-400 hover:text-slate-600 text-xs">Fechar</button>
+                    </div>
+                    <div className="p-4">
+                      {loadingDiagnostico ? (
+                        <div className="flex items-center gap-2 text-slate-500 text-sm py-4">
+                          <Loader2 className="animate-spin" size={18} />
+                          Verificando banco de dados e Evolution API...
+                        </div>
+                      ) : resultadoDiagnostico ? (
+                        <div className="space-y-2">
+                          {resultadoDiagnostico.checks.map((check, i) => (
+                            <div key={i} className={`flex items-start gap-2.5 p-2.5 rounded-lg text-xs ${check.ok ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
+                              {check.ok
+                                ? <CheckCircle size={14} className="text-green-600 mt-0.5 flex-shrink-0" />
+                                : <XCircle size={14} className="text-red-600 mt-0.5 flex-shrink-0" />}
+                              <div>
+                                <p className={`font-semibold ${check.ok ? 'text-green-800' : 'text-red-800'}`}>{check.msg}</p>
+                                {check.detail && <p className="text-slate-500 mt-0.5">{check.detail}</p>}
+                              </div>
+                            </div>
+                          ))}
+                          {!resultadoDiagnostico.ok && (
+                            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                              <p className="font-bold mb-1">Como corrigir:</p>
+                              <ol className="list-decimal pl-4 space-y-1">
+                                <li>Acesse o <strong>Supabase Dashboard → SQL Editor</strong></li>
+                                <li>Cole e execute o arquivo <code className="font-mono bg-amber-100 px-1 rounded">src/lib/supabase/whatsapp_master_migration.sql</code></li>
+                                <li>Volte aqui e execute o diagnóstico novamente</li>
+                                <li>Se as tabelas existirem, certifique-se que as credenciais da Evolution API estão preenchidas e salvas</li>
+                              </ol>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
 
                 {/* Card de Teste de Disparo */}
                 {config.api_url && config.instance_name && connectionState === 'open' && (

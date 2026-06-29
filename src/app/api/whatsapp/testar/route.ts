@@ -37,19 +37,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ erro: result.erro || 'Falha ao enviar mensagem.' }, { status: 400 })
     }
 
-    // Registra o teste silenciosamente no log de notificações
-    await supabase.from('notificacoes_log').insert({
-      empresa_id,
-      canal: 'whatsapp',
-      destinatario,
-      assunto: 'Mensagem de Teste WhatsApp',
-      mensagem,
-      status: 'enviado',
-      enviado_em: new Date().toISOString(),
-      ...(result.messageId ? { whatsapp_message_id: result.messageId } : {}),
-    })
+    // Registra o teste — falha silenciosa para não esconder sucesso de envio
+    try {
+      const logPayload: Record<string, any> = {
+        empresa_id,
+        canal: 'whatsapp',
+        destinatario,
+        assunto: 'Mensagem de Teste WhatsApp',
+        mensagem,
+        status: 'enviado',
+        enviado_em: new Date().toISOString(),
+      }
+      if (result.messageId) logPayload.whatsapp_message_id = result.messageId
+      await supabase.from('notificacoes_log').insert(logPayload)
+    } catch (logErr) {
+      console.error('[WhatsApp Testar] Falha ao registrar log (não crítico):', logErr)
+    }
 
-    return NextResponse.json({ sucesso: true })
+    return NextResponse.json({ sucesso: true, messageId: result.messageId })
   } catch (err: any) {
     console.error('[WhatsApp API Testar] Erro:', err)
     return NextResponse.json({ erro: 'Erro interno do servidor.' }, { status: 500 })

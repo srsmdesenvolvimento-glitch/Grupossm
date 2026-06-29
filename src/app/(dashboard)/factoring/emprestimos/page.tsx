@@ -209,7 +209,7 @@ export default function EmprestimosPage() {
     {
       key: 'saldo',
       header: 'Saldo Devedor',
-      render: e => <MoneyDisplay valor={e.saldo_devedor} tamanho="sm" negativo={e.saldo_devedor > 0} />,
+      render: e => <MoneyDisplay valor={e.status === 'quitado' ? 0 : e.saldo_devedor} tamanho="sm" negativo={e.status !== 'quitado' && e.saldo_devedor > 0} />,
     },
   ]
 
