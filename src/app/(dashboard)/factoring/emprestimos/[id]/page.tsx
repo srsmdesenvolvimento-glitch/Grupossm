@@ -65,6 +65,7 @@ export default function EmprestimoDetalhePage() {
   const [cancelarDialog, setCancelarDialog] = useState(false)
   const [processando, setProcessando] = useState(false)
   const [gerandoPDF, setGerandoPDF] = useState(false)
+  const [enviandoWhatsApp, setEnviandoWhatsApp] = useState(false)
 
   // Payment dialog
   const [pagarParcela, setPagarParcela] = useState<ParcelaEmprestimo | null>(null)
@@ -992,12 +993,45 @@ export default function EmprestimoDetalhePage() {
             toast.success('Link de assinatura eletrônica copiado!')
           }
           
-          const handleEnviarWhatsApp = () => {
-            if (!cliente) return
-            const tel = (cliente.telefone ?? '').replace(/\D/g, '')
-            const numero = tel.startsWith('55') ? tel : `55${tel}`
-            const msg = `Olá, ${cliente.nome.split(' ')[0]}! Por favor, realize a assinatura eletrônica segura do seu contrato de empréstimo ${emprestimo.numero_contrato} clicando no link abaixo:\n\n🔗 ${linkAssinatura}\n\nVocê precisará capturar a foto do seu documento de identidade e uma selfie do seu rosto para comprovação.`
-            window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank')
+          const handleEnviarWhatsApp = async () => {
+            if (!cliente || !empresaAtual?.id || enviandoWhatsApp) return
+            setEnviandoWhatsApp(true)
+            try {
+              const wSettings = configFactoring?.whatsapp_settings as any
+              const trigger = wSettings?.contrato_criado
+              let msg: string
+              if (trigger?.ativo && trigger?.template) {
+                msg = trigger.template
+                  .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
+                  .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo.numero_contrato)
+                  .replace(/\{\{\s*valor_principal\s*\}\}/g, formatarMoeda(emprestimo.valor_principal))
+                  .replace(/\{\{\s*link_assinatura\s*\}\}/g, linkAssinatura)
+              } else {
+                msg = `Olá, ${cliente.nome.split(' ')[0]}! Seu contrato ${emprestimo.numero_contrato} aguarda assinatura digital. Acesse o link seguro:\n\n🔗 ${linkAssinatura}\n\nVocê precisará foto do documento e selfie para biometria.`
+              }
+              const res = await fetch('/api/whatsapp/enviar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  empresa_id: empresaAtual.id,
+                  destinatario: cliente.telefone,
+                  mensagem: msg,
+                  assunto: `Link de Assinatura — ${emprestimo.numero_contrato}`,
+                  referencia_tipo: 'emprestimo',
+                  referencia_id: id,
+                }),
+              })
+              const data = await res.json()
+              if (!res.ok) {
+                toast.error(data.erro || 'Falha ao enviar via WhatsApp.')
+              } else {
+                toast.success('Link de assinatura enviado via WhatsApp!')
+              }
+            } catch {
+              toast.error('Erro de rede ao enviar WhatsApp.')
+            } finally {
+              setEnviandoWhatsApp(false)
+            }
           }
           
           return (
@@ -1016,9 +1050,12 @@ export default function EmprestimoDetalhePage() {
                 <Button size="sm" variant="outline" className="h-9.5 rounded-full border-border/80 hover:bg-muted font-bold text-xs" onClick={handleCopiarLink}>
                   Copiar Link
                 </Button>
-                <Button size="sm" className="h-9.5 rounded-full text-white bg-[#1A73E8] hover:bg-[#1557B0] font-bold text-xs gap-1.5 shadow-sm" onClick={handleEnviarWhatsApp}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-send"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                  Enviar via WhatsApp
+                <Button size="sm" className="h-9.5 rounded-full text-white bg-[#25D366] hover:bg-[#1ebe59] font-bold text-xs gap-1.5 shadow-sm" onClick={handleEnviarWhatsApp} disabled={enviandoWhatsApp}>
+                  {enviandoWhatsApp
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  }
+                  {enviandoWhatsApp ? 'Enviando...' : 'Enviar via WhatsApp'}
                 </Button>
               </div>
             </div>

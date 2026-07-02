@@ -434,6 +434,9 @@ export default function NovoEmprestimoPage() {
                       empresa_id: empresaAtual.id,
                       destinatario: fullCliente.telefone,
                       mensagem: msgTexto,
+                      assunto: `Link de Assinatura — ${numero_contrato}`,
+                      referencia_tipo: 'emprestimo',
+                      referencia_id: empId,
                     })
                   })
                   if (!sendRes.ok) {
