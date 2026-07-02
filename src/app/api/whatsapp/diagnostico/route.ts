@@ -7,81 +7,57 @@ type CheckResult = { ok: boolean; msg: string; detail?: string }
 async function checkTable(admin: ReturnType<typeof createAdminClient>, table: string): Promise<CheckResult> {
   const { error } = await admin.from(table as any).select('id').limit(1)
   if (error?.message?.includes('does not exist') || error?.message?.includes('relation')) {
-    return { ok: false, msg: `Tabela "${table}" não existe`, detail: 'Execute whatsapp_master_migration.sql no Supabase' }
+    return { ok: false, msg: `Tabela "${table}" não existe`, detail: 'Execute whatsapp_master_migration.sql no Supabase SQL Editor' }
   }
-  return { ok: true, msg: `Tabela "${table}" existe` }
+  return { ok: true, msg: `Tabela "${table}" OK` }
 }
 
 async function checkColumn(admin: ReturnType<typeof createAdminClient>, table: string, column: string): Promise<CheckResult> {
-  const { data, error } = await admin.rpc('check_column_exists' as any, { p_table: table, p_column: column }).maybeSingle()
-  // Fallback: tenta uma query que usa a coluna
+  const { error } = await admin.from(table as any).select(column).limit(0)
   if (error) {
-    // Tenta via information_schema
-    const { data: colData } = await admin
-      .from('information_schema.columns' as any)
-      .select('column_name')
-      .eq('table_name', table)
-      .eq('column_name', column)
-      .maybeSingle()
-    if (!colData) {
-      return { ok: false, msg: `Coluna "${column}" não existe em "${table}"`, detail: 'Execute whatsapp_master_migration.sql' }
-    }
+    return { ok: false, msg: `Coluna "${column}" não existe em "${table}"`, detail: 'Execute whatsapp_master_migration.sql' }
   }
-  return { ok: true, msg: `Coluna "${column}" existe em "${table}"` }
+  return { ok: true, msg: `Coluna "${column}" em "${table}" OK` }
 }
 
-async function checkEvolutionApi(apiUrl: string, apiKey: string, instanceName: string): Promise<CheckResult[]> {
+async function checkMetaApi(): Promise<CheckResult[]> {
+  const token = process.env.WHATSAPP_TOKEN
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const version = process.env.WHATSAPP_VERSION ?? 'v21.0'
   const results: CheckResult[] = []
+
+  if (!token) {
+    results.push({ ok: false, msg: 'WHATSAPP_TOKEN não configurado', detail: 'Adicione WHATSAPP_TOKEN nas variáveis de ambiente do servidor (Vercel/Railway)' })
+    return results
+  }
+  results.push({ ok: true, msg: 'WHATSAPP_TOKEN configurado' })
+
+  if (!phoneId) {
+    results.push({ ok: false, msg: 'WHATSAPP_PHONE_NUMBER_ID não configurado', detail: 'Adicione WHATSAPP_PHONE_NUMBER_ID nas variáveis de ambiente' })
+    return results
+  }
+  results.push({ ok: true, msg: `WHATSAPP_PHONE_NUMBER_ID configurado: ${phoneId}` })
+
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 10_000)
-
   try {
-    // Testa conectividade básica
-    const pingRes = await fetch(`${apiUrl}/instance/fetchInstances`, {
-      headers: { apikey: apiKey },
-      signal: ctrl.signal,
-    })
-    clearTimeout(timer)
+    const res = await fetch(
+      `https://graph.facebook.com/${version}/${phoneId}?fields=display_phone_number,verified_name`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal },
+    ).finally(() => clearTimeout(timer))
 
-    if (!pingRes.ok) {
-      results.push({ ok: false, msg: `Evolution API retornou HTTP ${pingRes.status}`, detail: 'Verifique se a URL e a API Key estão corretas' })
-      return results
-    }
-
-    results.push({ ok: true, msg: 'Evolution API acessível' })
-
-    // Verifica se a instância existe
-    const stateRes = await fetch(`${apiUrl}/instance/connectionState/${instanceName}`, {
-      headers: { apikey: apiKey },
-    })
-
-    if (stateRes.status === 404) {
-      results.push({ ok: false, msg: `Instância "${instanceName}" não existe`, detail: 'Salve a configuração para criar a instância automaticamente' })
-      return results
-    }
-
-    if (!stateRes.ok) {
-      results.push({ ok: false, msg: `Erro ao verificar instância: HTTP ${stateRes.status}` })
-      return results
-    }
-
-    const stateData = await stateRes.json()
-    const state = stateData.instance?.state || stateData.state || 'unknown'
-
-    if (state === 'open') {
-      results.push({ ok: true, msg: `Instância "${instanceName}" conectada ao WhatsApp ✓` })
-    } else if (state === 'connecting') {
-      results.push({ ok: false, msg: `Instância "${instanceName}" está conectando (aguardando QR)`, detail: 'Escaneie o QR Code na aba Conectar WhatsApp' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      const msg = err?.error?.message ?? `HTTP ${res.status}`
+      results.push({ ok: false, msg: `Meta API erro: ${msg}`, detail: 'Verifique se o token não expirou no Meta Developer Console' })
     } else {
-      results.push({ ok: false, msg: `Instância "${instanceName}" desconectada (state: ${state})`, detail: 'Escaneie o QR Code na aba Conectar WhatsApp' })
+      const data = await res.json()
+      results.push({ ok: true, msg: `Meta API ativa — número: ${data.display_phone_number ?? phoneId} (${data.verified_name ?? 'sem nome verificado'})` })
     }
   } catch (err: any) {
     clearTimeout(timer)
-    if (err?.name === 'AbortError') {
-      results.push({ ok: false, msg: 'Evolution API não respondeu em 10s', detail: 'Verifique se o servidor está online e a URL está correta' })
-    } else {
-      results.push({ ok: false, msg: `Erro ao conectar na Evolution API: ${err?.message}`, detail: 'Verifique a URL da API' })
-    }
+    const msg = err?.name === 'AbortError' ? 'Meta API não respondeu em 10s' : err.message
+    results.push({ ok: false, msg: `Meta API inacessível: ${msg}` })
   }
 
   return results
@@ -110,9 +86,12 @@ export async function GET(request: NextRequest) {
     const checks: CheckResult[] = []
 
     // 1. Tabelas obrigatórias
-    checks.push(await checkTable(admin, 'config_whatsapp'))
-    checks.push(await checkTable(admin, 'notificacoes_log'))
-    checks.push(await checkTable(admin, 'webhook_logs'))
+    const tableChecks = await Promise.all([
+      checkTable(admin, 'config_whatsapp'),
+      checkTable(admin, 'notificacoes_log'),
+      checkTable(admin, 'webhook_logs'),
+    ])
+    checks.push(...tableChecks)
 
     // 2. Colunas extras
     const colChecks = await Promise.all([
@@ -122,33 +101,27 @@ export async function GET(request: NextRequest) {
     ])
     checks.push(...colChecks)
 
-    // 3. Config da empresa
-    const { data: config, error: configErr } = await admin
+    // 3. Meta Cloud API
+    const metaChecks = await checkMetaApi()
+    checks.push(...metaChecks)
+
+    // 4. Config de envio da empresa
+    const { data: config } = await admin
       .from('config_whatsapp')
-      .select('api_url, api_key, instance_name, ativo, status, delay_ms')
+      .select('ativo, delay_ms')
       .eq('empresa_id', empresaId)
       .maybeSingle()
 
-    if (configErr?.message?.includes('does not exist')) {
-      checks.push({ ok: false, msg: 'config_whatsapp não existe — migration não executada', detail: 'Execute whatsapp_master_migration.sql' })
-    } else if (!config) {
-      checks.push({ ok: false, msg: 'Nenhuma configuração salva para esta empresa', detail: 'Preencha e salve as credenciais da Evolution API na aba Conectar WhatsApp' })
+    if (!config) {
+      checks.push({ ok: false, msg: 'Nenhuma configuração salva para esta empresa', detail: 'Salve as configurações na aba WhatsApp para habilitar o envio' })
     } else {
-      checks.push({ ok: true, msg: `Config encontrada — api_url: ${config.api_url || '(vazio)'}` })
-
-      if (!config.api_url) checks.push({ ok: false, msg: 'api_url está vazia', detail: 'Preencha a URL da Evolution API' })
-      if (!config.api_key) checks.push({ ok: false, msg: 'api_key está vazia', detail: 'Preencha a chave da API' })
-      if (!config.instance_name) checks.push({ ok: false, msg: 'instance_name está vazia', detail: 'Preencha o nome da instância' })
-      if (!config.ativo) checks.push({ ok: false, msg: 'Envio desativado (ativo = false)', detail: 'Ligue o switch "Ativar envio" e salve' })
-
-      // 4. Testa Evolution API se config válida
-      if (config.api_url && config.api_key && config.instance_name) {
-        const evolutionChecks = await checkEvolutionApi(config.api_url, config.api_key, config.instance_name)
-        checks.push(...evolutionChecks)
+      checks.push({ ok: true, msg: `Configuração da empresa: envio ${config.ativo ? 'ativado' : 'desativado'}, delay ${config.delay_ms ?? 1200}ms` })
+      if (!config.ativo) {
+        checks.push({ ok: false, msg: 'Envio desativado para esta empresa', detail: 'Ative o switch "Ativar envio" nas configurações e salve' })
       }
     }
 
-    // 5. Mensagens pendentes na fila
+    // 5. Fila de mensagens pendentes
     const { count: pendentes } = await admin
       .from('notificacoes_log')
       .select('id', { count: 'exact', head: true })
@@ -158,24 +131,20 @@ export async function GET(request: NextRequest) {
     checks.push({
       ok: true,
       msg: `Mensagens na fila (pendente): ${pendentes ?? 0}`,
-      detail: pendentes ? 'O cron disparar-mensagens irá processá-las às 09:30 (Brasília)' : undefined,
+      detail: pendentes ? 'Serão processadas pelo cron disparar-mensagens às 09:30 (Brasília)' : undefined,
     })
 
-    // 6. Últimos logs
+    // 6. Logs recentes
     const { data: recentLogs } = await admin
       .from('notificacoes_log')
-      .select('status, enviado_em, erro')
+      .select('status, enviado_em, erro, destinatario')
       .eq('empresa_id', empresaId)
       .order('created_at', { ascending: false })
       .limit(5)
 
     const allOk = checks.every(c => c.ok)
 
-    return NextResponse.json({
-      ok: allOk,
-      checks,
-      recentLogs: recentLogs ?? [],
-    })
+    return NextResponse.json({ ok: allOk, checks, recentLogs: recentLogs ?? [] })
   } catch (err: any) {
     console.error('[WhatsApp Diagnóstico] Erro:', err)
     return NextResponse.json({ erro: 'Erro interno: ' + err.message }, { status: 500 })

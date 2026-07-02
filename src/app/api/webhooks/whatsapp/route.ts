@@ -1,95 +1,96 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-function verificarAutenticidadeWebhook(request: Request): boolean {
-  // Opção 1: token na query string (ex: URL = /api/webhooks/whatsapp?token=SEU_SECRET)
-  const url = new URL(request.url)
-  const queryToken = url.searchParams.get('token')
-  const webhookSecret = process.env.WEBHOOK_SECRET
+const VERIFY_TOKEN = process.env.WEBHOOK_SECRET ?? process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
 
-  // Se WEBHOOK_SECRET está configurado, exige validação
-  if (webhookSecret) {
-    if (queryToken === webhookSecret) return true
+// GET — verificação do webhook pela Meta (obrigatório para configurar no Developer Console)
+export async function GET(request: NextRequest) {
+  const url = request.nextUrl
+  const mode = url.searchParams.get('hub.mode')
+  const token = url.searchParams.get('hub.verify_token')
+  const challenge = url.searchParams.get('hub.challenge')
 
-    // Opção 2: header apikey (Evolution API envia o apikey da instância)
-    const headerApiKey = request.headers.get('apikey')
-    if (headerApiKey && headerApiKey === webhookSecret) return true
-
-    return false
+  if (mode === 'subscribe' && token && token === VERIFY_TOKEN && challenge) {
+    console.log('[Webhook WhatsApp] Verificação Meta aceita')
+    return new NextResponse(challenge, { status: 200, headers: { 'Content-Type': 'text/plain' } })
   }
 
-  // Sem WEBHOOK_SECRET configurado: permite mas loga aviso
-  console.warn('[Webhook WhatsApp] WEBHOOK_SECRET não configurado — endpoint público. Configure para segurança.')
-  return true
+  return NextResponse.json({ ok: true, service: 'whatsapp-webhook-meta' })
 }
 
+// POST — recebe eventos da Meta Cloud API
 export async function POST(request: Request) {
   try {
-    if (!verificarAutenticidadeWebhook(request)) {
-      console.warn('[Webhook WhatsApp] Requisição rejeitada: token inválido')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const body = await request.json()
     const supabase = createAdminClient()
 
-    // 1. Grava o log bruto na webhook_logs para fins de auditoria/segurança
-    const { error: logError } = await supabase.from('webhook_logs').insert({
+    // Grava log bruto para auditoria
+    await supabase.from('webhook_logs').insert({
       tipo: 'whatsapp',
       payload: body,
       created_at: new Date().toISOString(),
+    }).then(({ error }) => {
+      if (error) console.error('[Webhook WhatsApp] Falha ao gravar log:', error.message)
     })
-    if (logError) console.error('Falha ao gravar webhook log:', logError.message)
 
-    // 2. Processa atualização de status de envio da Evolution API
-    // Formato da Evolution API para atualização de mensagens: messages.update
-    const event = body.event || body.type
-    const data = body.data
+    // Valida estrutura Meta
+    if (body.object !== 'whatsapp_business_account') {
+      return NextResponse.json({ ok: true })
+    }
 
-    if (event === 'messages.update' && Array.isArray(data)) {
-      for (const item of data) {
-        const messageId = item.key?.id
-        const updateStatus = item.update?.status
+    const entries: any[] = body.entry ?? []
+    const updates: Array<{ id: string; status: string }> = []
 
-        if (messageId && updateStatus !== undefined) {
-          // Mapeamento de Status Baileys/Evolution:
-          // 2 = DELIVERY_ACK (Entregue - dois checks cinzas) -> 'entregue'
-          // 3, 4, 5 = READ/PLAYED (Lido - checks azuis) -> 'lido'
-          let statusText: 'entregue' | 'lido' | null = null
+    for (const entry of entries) {
+      for (const change of (entry.changes ?? [])) {
+        if (change.field !== 'messages') continue
+        const value = change.value ?? {}
 
-          if (updateStatus === 2) {
-            statusText = 'entregue'
-          } else if (updateStatus === 3 || updateStatus === 4 || updateStatus === 5) {
-            statusText = 'lido'
+        // Atualiza status de mensagens enviadas
+        for (const statusUpdate of (value.statuses ?? [])) {
+          const messageId: string | undefined = statusUpdate.id
+          const rawStatus: string | undefined = statusUpdate.status
+
+          if (!messageId || !rawStatus) continue
+
+          let statusText: 'enviado' | 'entregue' | 'lido' | 'erro' | null = null
+          if (rawStatus === 'sent') statusText = 'enviado'
+          else if (rawStatus === 'delivered') statusText = 'entregue'
+          else if (rawStatus === 'read') statusText = 'lido'
+          else if (rawStatus === 'failed') statusText = 'erro'
+
+          if (!statusText) continue
+
+          updates.push({ id: messageId, status: statusText })
+
+          const updatePayload: Record<string, any> = {
+            status: statusText,
+            enviado_em: new Date().toISOString(),
           }
 
-          if (statusText) {
-            // Atualiza o registro correspondente no banco
-            const { error: updateErr } = await supabase
-              .from('notificacoes_log')
-              .update({ 
-                status: statusText, 
-                enviado_em: new Date().toISOString() 
-              })
-              .eq('whatsapp_message_id', messageId)
+          if (statusText === 'erro' && statusUpdate.errors?.[0]) {
+            updatePayload.erro = statusUpdate.errors[0].message ?? 'Falha de entrega Meta API'
+          }
 
-            if (updateErr) {
-              console.error(`[Webhook WhatsApp] Falha ao atualizar notificacao_log para id ${messageId}:`, updateErr.message)
-            } else {
-              console.log(`[Webhook WhatsApp] Mensagem ${messageId} atualizada com sucesso para status: ${statusText}`)
-            }
+          const { error } = await supabase
+            .from('notificacoes_log')
+            .update(updatePayload)
+            .eq('whatsapp_message_id', messageId)
+
+          if (error) {
+            console.error(`[Webhook WhatsApp] Falha ao atualizar ${messageId}:`, error.message)
           }
         }
       }
     }
 
+    if (updates.length > 0) {
+      console.log(`[Webhook WhatsApp] ${updates.length} status(es) atualizados:`, updates)
+    }
+
     return NextResponse.json({ ok: true })
   } catch (err: any) {
-    console.error('[Webhook WhatsApp Route] Erro:', err.message)
+    console.error('[Webhook WhatsApp] Erro:', err.message)
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
   }
-}
-
-export async function GET() {
-  return NextResponse.json({ ok: true, service: 'whatsapp-webhook' })
 }

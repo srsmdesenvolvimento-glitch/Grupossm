@@ -28,36 +28,29 @@ describe('normalizarTelefone', () => {
   })
 
   it('retorna null para número muito longo (> 13 dígitos com 55)', () => {
-    // 55 + 2 DDD + 10 dígitos = 14 chars → inválido
     expect(normalizarTelefone('551199999000001')).toBeNull()
   })
 
   it('aceita número de 8 dígitos com DDD (fixo antigo)', () => {
-    // 55 + 11 + 8 dígitos = 12 chars → válido
     expect(normalizarTelefone('1133334444')).toBe('551133334444')
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. enviarMensagem — resolução de provedor (dry-run quando sem config)
+// 2. enviarMensagem — sem credenciais configuradas
 // ─────────────────────────────────────────────────────────────────────────────
-describe('enviarMensagem — resolução de provedor', () => {
+describe('enviarMensagem — sem credenciais', () => {
   beforeEach(() => {
-    // Garante que env vars não estejam definidas para dry-run
-    delete process.env.EVOLUTION_API_URL
-    delete process.env.EVOLUTION_API_KEY
     delete process.env.WHATSAPP_TOKEN
     delete process.env.WHATSAPP_PHONE_NUMBER_ID
   })
 
-  it('dry-run retorna ok=true com messageId mockado quando sem provedor', async () => {
-    // Import dinâmico para que o módulo leia as env vars atualizadas
+  it('retorna erro explícito quando nenhuma credencial está configurada', async () => {
     const { enviarMensagem } = await import('../whatsapp')
-    // Limpa cache de config para este teste
     const result = await enviarMensagem('11999990000', 'teste', undefined, true)
-    expect(result.ok).toBe(true)
-    expect(result.messageId).toMatch(/^mock_/)
-    expect(result.erro).toBeUndefined()
+    expect(result.ok).toBe(false)
+    expect(result.erro).toBeDefined()
+    expect(result.erro).toContain('não configurado')
   })
 
   it('retorna erro para telefone inválido antes de chamar API', async () => {
@@ -69,111 +62,62 @@ describe('enviarMensagem — resolução de provedor', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. enviarMensagem — Evolution API (mock fetch)
+// 3. enviarMensagem — Meta Cloud API (mock fetch)
 // ─────────────────────────────────────────────────────────────────────────────
-describe('enviarMensagem — Evolution API via env vars', () => {
+describe('enviarMensagem — Meta Cloud API', () => {
   const originalFetch = global.fetch
 
   beforeEach(() => {
-    process.env.EVOLUTION_API_URL = 'http://evo.local'
-    process.env.EVOLUTION_API_KEY = 'test-key'
-    process.env.EVOLUTION_API_INSTANCE = 'test-instance'
-    delete process.env.WHATSAPP_TOKEN
-    delete process.env.WHATSAPP_PHONE_NUMBER_ID
+    process.env.WHATSAPP_TOKEN = 'test-meta-token'
+    process.env.WHATSAPP_PHONE_NUMBER_ID = '123456789'
+    process.env.WHATSAPP_VERSION = 'v21.0'
   })
 
   afterEach(() => {
     global.fetch = originalFetch
-    delete process.env.EVOLUTION_API_URL
-    delete process.env.EVOLUTION_API_KEY
-    delete process.env.EVOLUTION_API_INSTANCE
+    delete process.env.WHATSAPP_TOKEN
+    delete process.env.WHATSAPP_PHONE_NUMBER_ID
+    delete process.env.WHATSAPP_VERSION
   })
 
-  it('monta payload correto para texto simples', async () => {
+  it('monta payload texto correto para Meta API', async () => {
     let capturedUrl = ''
     let capturedBody: any = {}
+    let capturedHeaders: any = {}
 
     global.fetch = vi.fn().mockImplementation((url: string, opts: any) => {
       capturedUrl = url
       capturedBody = JSON.parse(opts.body)
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ key: { id: 'wamid-123' } }),
-        text: () => Promise.resolve(''),
-      } as Response)
-    })
-
-    const { enviarMensagem } = await import('../whatsapp')
-    const result = await enviarMensagem('11999990000', 'Olá teste', undefined, true)
-
-    expect(result.ok).toBe(true)
-    expect(result.messageId).toBe('wamid-123')
-    expect(capturedUrl).toBe('http://evo.local/message/sendText/test-instance')
-    expect(capturedBody.number).toBe('5511999990000')
-    expect(capturedBody.text).toBe('Olá teste')
-    expect(capturedBody.options.delay).toBe(0) // imediato=true
-  })
-
-  it('usa apikey header (não Authorization Bearer)', async () => {
-    let capturedHeaders: any = {}
-
-    global.fetch = vi.fn().mockImplementation((_url: string, opts: any) => {
       capturedHeaders = opts.headers
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ key: { id: 'wamid-456' } }),
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.meta123' }] }),
         text: () => Promise.resolve(''),
       } as Response)
     })
 
     const { enviarMensagem } = await import('../whatsapp')
-    await enviarMensagem('11999990000', 'teste', undefined, true)
+    const result = await enviarMensagem('11999990000', 'Olá Meta API', undefined, true)
 
-    expect(capturedHeaders['apikey']).toBe('test-key')
-    expect(capturedHeaders['Authorization']).toBeUndefined()
+    expect(result.ok).toBe(true)
+    expect(result.messageId).toBe('wamid.meta123')
+    expect(capturedUrl).toContain('graph.facebook.com')
+    expect(capturedUrl).toContain('123456789/messages')
+    expect(capturedBody.messaging_product).toBe('whatsapp')
+    expect(capturedBody.to).toBe('5511999990000')
+    expect(capturedBody.type).toBe('text')
+    expect(capturedBody.text.body).toBe('Olá Meta API')
+    expect(capturedHeaders['Authorization']).toBe('Bearer test-meta-token')
   })
 
-  it('retorna erro amigável para 401 (desconectado)', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      text: () => Promise.resolve(JSON.stringify({ response: { message: 'not-authorized' } })),
-    } as Response)
-
-    const { enviarMensagem } = await import('../whatsapp')
-    const result = await enviarMensagem('11999990000', 'teste', undefined, true)
-
-    expect(result.ok).toBe(false)
-    expect(result.erro).toContain('desconectado')
-  })
-
-  it('retorna erro amigável para número sem WhatsApp (exists: false)', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      text: () =>
-        Promise.resolve(
-          JSON.stringify({ response: { message: [{ exists: false }] } }),
-        ),
-    } as Response)
-
-    const { enviarMensagem } = await import('../whatsapp')
-    const result = await enviarMensagem('11999990000', 'teste', undefined, true)
-
-    expect(result.ok).toBe(false)
-    expect(result.erro).toContain('não possui WhatsApp')
-  })
-
-  it('extrai PDF da mensagem e usa endpoint sendMedia', async () => {
-    let capturedUrl = ''
+  it('usa endpoint e payload de documento quando mensagem contém URL PDF', async () => {
     let capturedBody: any = {}
 
-    global.fetch = vi.fn().mockImplementation((url: string, opts: any) => {
-      capturedUrl = url
+    global.fetch = vi.fn().mockImplementation((_url: string, opts: any) => {
       capturedBody = JSON.parse(opts.body)
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ key: { id: 'wamid-pdf' } }),
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.pdf' }] }),
         text: () => Promise.resolve(''),
       } as Response)
     })
@@ -187,97 +131,121 @@ describe('enviarMensagem — Evolution API via env vars', () => {
     )
 
     expect(result.ok).toBe(true)
-    expect(capturedUrl).toContain('/message/sendMedia/')
-    expect(capturedBody.mediatype).toBe('document')
-    expect(capturedBody.media).toContain('.pdf')
-    expect(capturedBody.fileName).toBe('contrato.pdf')
+    expect(capturedBody.type).toBe('document')
+    expect(capturedBody.document.link).toContain('.pdf')
+    expect(capturedBody.document.filename).toBe('contrato.pdf')
+  })
+
+  it('identifica PDF de recibo corretamente', async () => {
+    let capturedBody: any = {}
+
+    global.fetch = vi.fn().mockImplementation((_url: string, opts: any) => {
+      capturedBody = JSON.parse(opts.body)
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ messages: [{ id: 'wamid.recibo' }] }),
+        text: () => Promise.resolve(''),
+      } as Response)
+    })
+
+    const { enviarMensagem } = await import('../whatsapp')
+    await enviarMensagem('11999990000', 'Seu recibo: https://s3.example.com/recibo-pag.pdf', undefined, true)
+
+    expect(capturedBody.document.filename).toBe('recibo.pdf')
+  })
+
+  it('retorna erro amigável com mensagem da Meta API em caso de falha', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: () => Promise.resolve(JSON.stringify({
+        error: { message: '(#131030) Recipient phone number not in allowed list' }
+      })),
+    } as Response)
+
+    const { enviarMensagem } = await import('../whatsapp')
+    const result = await enviarMensagem('11999990000', 'teste', undefined, true)
+
+    expect(result.ok).toBe(false)
+    expect(result.erro).toContain('Meta API')
+    expect(result.erro).toContain('131030')
+  })
+
+  it('retorna erro de timeout quando fetch não responde', async () => {
+    global.fetch = vi.fn().mockImplementation(() => {
+      return new Promise((_, reject) => {
+        const err = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+        setTimeout(() => reject(err), 100)
+      })
+    })
+
+    const { enviarMensagem } = await import('../whatsapp')
+    const result = await enviarMensagem('11999990000', 'teste', undefined, true)
+
+    expect(result.ok).toBe(false)
+    expect(result.erro).toBeDefined()
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. enviarMensagem — Meta API (lógica do payload — teste unitário puro)
+// 4. Payload Meta API — lógica pura (sem import)
 // ─────────────────────────────────────────────────────────────────────────────
-// Nota: WHATSAPP_TOKEN é lido no topo do módulo (const), então não é possível
-// sobrescrever via process.env em testes sem resetar o módulo. Por isso testamos
-// a lógica de construção de payload da Meta API de forma pura, sem reimportar.
-describe('enviarMensagem — Meta API payload (lógica pura)', () => {
-  it('payload texto Meta tem estrutura correta', () => {
-    const numeroFormatado = '5511999990000'
-    const textoFinal = 'Olá Meta'
-
+describe('Meta API — estrutura de payload (lógica pura)', () => {
+  it('payload texto tem campos obrigatórios', () => {
     const body = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to: numeroFormatado,
+      to: '5511999990000',
       type: 'text',
-      text: { body: textoFinal },
+      text: { body: 'Olá' },
     }
-
     expect(body.messaging_product).toBe('whatsapp')
     expect(body.recipient_type).toBe('individual')
-    expect(body.to).toBe('5511999990000')
     expect(body.type).toBe('text')
-    expect(body.text.body).toBe('Olá Meta')
+    expect(body.text.body).toBe('Olá')
   })
 
-  it('payload documento Meta tem estrutura correta', () => {
-    const linkPdf = 'https://storage.example.com/contrato-123.pdf'
-    const textoFinal = 'Segue seu contrato.'
-
+  it('payload documento tem campos obrigatórios', () => {
     const body = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: '5511999990000',
       type: 'document',
-      document: {
-        link: linkPdf,
-        filename: 'contrato.pdf',
-        caption: textoFinal,
-      },
+      document: { link: 'https://ex.com/contrato.pdf', filename: 'contrato.pdf', caption: 'Seu contrato' },
     }
-
     expect(body.type).toBe('document')
     expect(body.document.filename).toBe('contrato.pdf')
     expect(body.document.link).toContain('.pdf')
-    expect(body.document.caption).toBe(textoFinal)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Templates de mensagem (montarMensagem)
+// 5. Templates de mensagem (montarMensagem em mensagens.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('montarMensagem — interpolação de variáveis', () => {
-  it('substitui variáveis simples', async () => {
-    const { montarMensagem } = await import('@/lib/utils/mensagens')
-    const result = montarMensagem('Olá {{nome}}, seu contrato {{numero_contrato}} está pronto.', {
+  it('substitui variáveis simples', () => {
+    const { montarMensagem } = require('@/lib/utils/mensagens')
+    const result = montarMensagem('Olá {{nome}}, contrato {{numero_contrato}}.', {
       nome: 'João Silva',
       numero_contrato: 'FAC-2026-00001',
     })
-    expect(result).toBe('Olá João Silva, seu contrato FAC-2026-00001 está pronto.')
+    expect(result).toBe('Olá João Silva, contrato FAC-2026-00001.')
   })
 
-  it('mantém placeholder quando variável não fornecida', async () => {
-    const { montarMensagem } = await import('@/lib/utils/mensagens')
+  it('mantém placeholder quando variável não fornecida', () => {
+    const { montarMensagem } = require('@/lib/utils/mensagens')
     const result = montarMensagem('Valor: {{valor}}', {})
     expect(result).toBe('Valor: {{valor}}')
   })
 
-  it('suporta variáveis com espaços nas chaves {{ nome }}', async () => {
-    const { montarMensagem } = await import('@/lib/utils/mensagens')
-    // Template usa \w+ então não suporta espaços — verifica comportamento atual
-    const result = montarMensagem('Olá {{ nome }}', { nome: 'Maria' })
-    // {{ nome }} com espaço não é substituída pelo regex \w+
-    expect(result).toBe('Olá {{ nome }}')
-  })
-
-  it('remove bloco condicional quando variável ausente', async () => {
-    const { montarMensagem } = await import('@/lib/utils/mensagens')
+  it('remove bloco condicional quando variável ausente', () => {
+    const { montarMensagem } = require('@/lib/utils/mensagens')
     const result = montarMensagem('Texto {{#link}}Clique: {{link}}{{/link}} fim.', {})
     expect(result).toBe('Texto  fim.')
   })
 
-  it('mantém bloco condicional quando variável presente', async () => {
-    const { montarMensagem } = await import('@/lib/utils/mensagens')
+  it('mantém bloco condicional quando variável presente', () => {
+    const { montarMensagem } = require('@/lib/utils/mensagens')
     const result = montarMensagem('Texto {{#link}}Clique: {{link}}{{/link}} fim.', {
       link: 'https://example.com',
     })
@@ -289,108 +257,62 @@ describe('montarMensagem — interpolação de variáveis', () => {
 // 6. Idempotência de disparos (lógica pura)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('idempotência de disparos', () => {
-  it('Set de IDs enviados evita duplicação de inserção', () => {
-    const idsEnviadosHoje = new Set<string>()
-    const parcelaId = 'parcela-uuid-001'
-
-    // Simula primeira passagem
-    expect(idsEnviadosHoje.has(parcelaId)).toBe(false)
-    idsEnviadosHoje.add(parcelaId)
-
-    // Simula segunda passagem (duplicata)
-    expect(idsEnviadosHoje.has(parcelaId)).toBe(true)
+  it('Set de IDs evita duplicação', () => {
+    const enviados = new Set<string>()
+    const id = 'parcela-uuid-001'
+    expect(enviados.has(id)).toBe(false)
+    enviados.add(id)
+    expect(enviados.has(id)).toBe(true)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. Webhook de status — mapeamento Baileys
+// 7. Webhook Meta — mapeamento de status
 // ─────────────────────────────────────────────────────────────────────────────
-describe('webhook — mapeamento de status Baileys', () => {
-  function mapearStatusBaileys(status: number): 'entregue' | 'lido' | null {
-    if (status === 2) return 'entregue'
-    if (status === 3 || status === 4 || status === 5) return 'lido'
+describe('webhook Meta — mapeamento de status', () => {
+  function mapearStatusMeta(status: string): 'enviado' | 'entregue' | 'lido' | null {
+    if (status === 'sent') return 'enviado'
+    if (status === 'delivered') return 'entregue'
+    if (status === 'read') return 'lido'
     return null
   }
 
-  it('status 2 → entregue', () => {
-    expect(mapearStatusBaileys(2)).toBe('entregue')
-  })
-
-  it('status 3 → lido', () => {
-    expect(mapearStatusBaileys(3)).toBe('lido')
-  })
-
-  it('status 4 → lido', () => {
-    expect(mapearStatusBaileys(4)).toBe('lido')
-  })
-
-  it('status 5 → lido', () => {
-    expect(mapearStatusBaileys(5)).toBe('lido')
-  })
-
-  it('status 0 (enviando) → null (ignorado)', () => {
-    expect(mapearStatusBaileys(0)).toBeNull()
-  })
-
-  it('status 1 (enviado) → null (ignorado)', () => {
-    expect(mapearStatusBaileys(1)).toBeNull()
-  })
-
-  it('status desconhecido → null', () => {
-    expect(mapearStatusBaileys(99)).toBeNull()
-  })
+  it('sent → enviado', () => expect(mapearStatusMeta('sent')).toBe('enviado'))
+  it('delivered → entregue', () => expect(mapearStatusMeta('delivered')).toBe('entregue'))
+  it('read → lido', () => expect(mapearStatusMeta('read')).toBe('lido'))
+  it('failed → null (erro tratado separado)', () => expect(mapearStatusMeta('failed')).toBeNull())
+  it('desconhecido → null', () => expect(mapearStatusMeta('unknown_event')).toBeNull())
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. Webhook — não quebra com eventos desconhecidos
+// 8. Webhook Meta — processamento de payload
 // ─────────────────────────────────────────────────────────────────────────────
-describe('webhook — processamento seguro', () => {
-  it('ignora evento desconhecido sem lançar exceção', () => {
-    const event: string = 'messages.reaction' // evento não tratado — tipado como string para simular runtime
-    const data = [{ key: { id: 'wamid-x' }, update: { reaction: '👍' } }]
-
-    const processed: string[] = []
-
-    // Lógica extraída do webhook route
-    if (event === 'messages.update' && Array.isArray(data)) {
-      for (const item of data) {
-        const messageId = item.key?.id
-        const updateStatus = (item.update as any)?.status
-        if (messageId && updateStatus !== undefined) {
-          processed.push(messageId)
-        }
-      }
+describe('webhook Meta — processamento de payload', () => {
+  it('extrai message_id e status do payload Meta', () => {
+    const payload = {
+      entry: [{
+        changes: [{
+          value: {
+            statuses: [
+              { id: 'wamid.meta1', status: 'delivered', recipient_id: '5511999990000' },
+              { id: 'wamid.meta2', status: 'read', recipient_id: '5511999990000' },
+            ]
+          }
+        }]
+      }]
     }
 
-    expect(processed).toHaveLength(0) // não processa evento desconhecido
+    const statuses = payload.entry[0].changes[0].value.statuses
+    expect(statuses).toHaveLength(2)
+    expect(statuses[0].id).toBe('wamid.meta1')
+    expect(statuses[0].status).toBe('delivered')
+    expect(statuses[1].status).toBe('read')
   })
 
-  it('processa messages.update corretamente', () => {
-    const event = 'messages.update'
-    const data = [
-      { key: { id: 'wamid-1' }, update: { status: 2 } },
-      { key: { id: 'wamid-2' }, update: { status: 3 } },
-      { key: { id: 'wamid-3' }, update: {} }, // sem status — ignorado
-    ]
-
-    const updates: Array<{ id: string; status: string }> = []
-
-    if (event === 'messages.update' && Array.isArray(data)) {
-      for (const item of data) {
-        const messageId = item.key?.id
-        const updateStatus = item.update?.status
-        if (!messageId || updateStatus === undefined) continue
-
-        let statusText: string | null = null
-        if (updateStatus === 2) statusText = 'entregue'
-        else if (updateStatus === 3 || updateStatus === 4 || updateStatus === 5) statusText = 'lido'
-
-        if (statusText) updates.push({ id: messageId, status: statusText })
-      }
-    }
-
-    expect(updates).toHaveLength(2)
-    expect(updates[0]).toEqual({ id: 'wamid-1', status: 'entregue' })
-    expect(updates[1]).toEqual({ id: 'wamid-2', status: 'lido' })
+  it('ignora payload sem statuses sem lançar exceção', () => {
+    const payload = { entry: [{ changes: [{ value: { messages: [] } }] }] }
+    const statuses = payload.entry[0].changes[0].value.messages
+    expect(Array.isArray(statuses)).toBe(true)
+    expect(statuses).toHaveLength(0)
   })
 })

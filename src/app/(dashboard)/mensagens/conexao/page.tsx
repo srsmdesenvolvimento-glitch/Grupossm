@@ -14,47 +14,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
-import { QRCodeSVG } from 'qrcode.react'
 import {
-  Link2,
-  Settings,
-  MessageSquare,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  RefreshCw,
-  Send,
-  FileText,
-  AlertTriangle,
-  Info,
-  Calendar,
-  Clock,
-  CheckSquare,
-  AlertOctagon,
-  Eye,
-  FileCode2,
-  History,
-  Stethoscope
+  Settings, MessageSquare, CheckCircle, XCircle, Loader2, RefreshCw, Send,
+  FileText, AlertTriangle, Info, Calendar, Clock, CheckSquare, AlertOctagon,
+  Eye, History, Stethoscope, Zap, Phone, Search, ChevronDown, ChevronUp,
+  LayoutDashboard, TrendingUp, AlertCircle,
 } from 'lucide-react'
 
-type WhatsAppConfig = {
-  id?: string
-  api_url: string
-  api_key: string
-  instance_name: string
-  ativo: boolean
-  status: string
-  delay_ms?: number
-}
-
-type TriggerConfig = {
-  ativo: boolean
-  template: string
-  dias_antes?: number
-}
-
+// ─── Types ────────────────────────────────────────────────────────────────────
+type TriggerConfig = { ativo: boolean; template: string; dias_antes?: number }
 type TriggerKey = 'contrato_criado' | 'contrato_assinado' | 'lembrete_pre_vencimento' | 'lembrete_vencimento' | 'cobranca_pos_vencimento'
-
 type WhatsappSettings = {
   contrato_criado: TriggerConfig
   contrato_assinado: TriggerConfig
@@ -62,9 +31,25 @@ type WhatsappSettings = {
   lembrete_vencimento: TriggerConfig
   cobranca_pos_vencimento: TriggerConfig
   hora_envio?: string | null
+  max_dias_atraso?: number
+  frequencia_cobranca?: number
+}
+type MetaStatus = {
+  configurado: boolean
+  status: 'ativo' | 'erro' | 'nao_configurado'
+  mensagem?: string
+  display_phone_number?: string
+  verified_name?: string
+  phone_number_id?: string
+}
+type Stats = {
+  total: number; enviado: number; entregue: number; lido: number
+  erro: number; pendente: number; hoje: number
+  taxa_entrega: number; taxa_leitura: number
+  fila: Array<{ id: string; destinatario: string; assunto: string; created_at: string }>
 }
 
-
+// ─── Defaults ─────────────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS: WhatsappSettings = {
   contrato_criado: {
     ativo: true,
@@ -167,103 +152,329 @@ Identificamos que há parcela(s) em aberto no seu contrato.
 
 _SRS M Factoring — Departamento de Cobranças_`
   },
-  hora_envio: "09:00"
+  hora_envio: '09:00',
+  max_dias_atraso: 60,
+  frequencia_cobranca: 1,
 }
 
 const FLOW_DETAILS = {
-  contrato_criado: {
-    titulo: "Contrato Criado",
-    icone: FileText,
-    cor: "text-blue-600 bg-blue-50 border-blue-200",
-    variaveis: ["nome", "numero_contrato", "valor_principal", "link_assinatura"],
-    descricao: "Enviado logo após criar o empréstimo para que o cliente realize a assinatura eletrônica."
-  },
-  contrato_assinado: {
-    titulo: "Contrato Assinado",
-    icone: CheckSquare,
-    cor: "text-green-600 bg-green-50 border-green-200",
-    variaveis: ["nome", "numero_contrato", "link_contrato"],
-    descricao: "Enviado em formato PDF como comprovante da assinatura para o WhatsApp do cliente."
-  },
-  lembrete_pre_vencimento: {
-    titulo: "Lembrete de Vencimento (Pré)",
-    icone: Calendar,
-    cor: "text-amber-600 bg-amber-50 border-amber-200",
-    variaveis: ["nome", "numero_parcela", "total_parcelas", "numero_contrato", "dias_antes", "data_vencimento", "valor", "whatsapp_padrao"],
-    descricao: "Alerta prévio enviado X dias antes do vencimento da parcela com código/dados Pix."
-  },
-  lembrete_vencimento: {
-    titulo: "Lembrete no Dia do Vencimento",
-    icone: Clock,
-    cor: "text-purple-600 bg-purple-50 border-purple-200",
-    variaveis: ["nome", "numero_parcela", "total_parcelas", "numero_contrato", "data_vencimento", "valor", "whatsapp_padrao"],
-    descricao: "Mensagem enviada no dia exato do vencimento relembrando o pagamento."
-  },
-  cobranca_pos_vencimento: {
-    titulo: "Cobrança de Parcela em Atraso (Overdue)",
-    icone: AlertOctagon,
-    cor: "text-red-600 bg-red-50 border-red-200",
-    variaveis: ["nome", "numero_parcela", "total_parcelas", "numero_contrato", "dias_atraso", "valor", "valor_total", "multa", "juros_mora", "whatsapp_padrao"],
-    descricao: "Cobrança diária para parcelas vencidas, detalhando multa, juros acumulados e novo total."
-  }
+  contrato_criado: { titulo: 'Contrato Criado', icone: FileText, cor: 'text-blue-600 bg-blue-50 border-blue-200', variaveis: ['nome', 'numero_contrato', 'valor_principal', 'link_assinatura'], descricao: 'Enviado ao criar o empréstimo para que o cliente realize a assinatura eletrônica.' },
+  contrato_assinado: { titulo: 'Contrato Assinado', icone: CheckSquare, cor: 'text-green-600 bg-green-50 border-green-200', variaveis: ['nome', 'numero_contrato', 'link_contrato'], descricao: 'Confirmação de assinatura com link para download do PDF.' },
+  lembrete_pre_vencimento: { titulo: 'Lembrete Pré-Vencimento', icone: Calendar, cor: 'text-amber-600 bg-amber-50 border-amber-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'dias_antes', 'data_vencimento', 'valor', 'whatsapp_padrao'], descricao: 'Alerta X dias antes do vencimento com chave PIX para pagamento.' },
+  lembrete_vencimento: { titulo: 'Vencimento Hoje', icone: Clock, cor: 'text-purple-600 bg-purple-50 border-purple-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'data_vencimento', 'valor', 'whatsapp_padrao'], descricao: 'Enviado no dia do vencimento com urgência e chave PIX.' },
+  cobranca_pos_vencimento: { titulo: 'Cobrança Pós-Vencimento', icone: AlertOctagon, cor: 'text-red-600 bg-red-50 border-red-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'dias_atraso', 'valor', 'valor_total', 'multa', 'juros_mora', 'whatsapp_padrao'], descricao: 'Enviada após o vencimento com valores atualizados (multa + juros). Repete conforme configuração.' },
 }
 
+const STATUS_FILTERS = [
+  { key: 'todos', label: 'Todos', color: 'bg-slate-100 text-slate-600 border-slate-200' },
+  { key: 'pendente', label: 'Na Fila', color: 'bg-amber-50 text-amber-600 border-amber-200' },
+  { key: 'enviado', label: 'Enviado', color: 'bg-slate-100 text-slate-600 border-slate-200' },
+  { key: 'entregue', label: 'Entregue', color: 'bg-blue-50 text-blue-600 border-blue-200' },
+  { key: 'lido', label: 'Lido', color: 'bg-sky-50 text-[#53BDEB] border-sky-200' },
+  { key: 'erro', label: 'Erro', color: 'bg-red-50 text-red-600 border-red-200' },
+]
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+function StatusBadge({ status, erro }: { status: string; erro?: string }) {
+  if (status === 'lido') return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#53BDEB]" title="Lido pelo destinatário">
+      <DoubleCheck blue /> Lido
+    </span>
+  )
+  if (status === 'entregue') return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500" title="Entregue ao dispositivo">
+      <DoubleCheck /> Entregue
+    </span>
+  )
+  if (status === 'enviado') return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400" title="Enviado pela Meta API">
+      <SingleCheck /> Enviado
+    </span>
+  )
+  if (status === 'erro') return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-500" title={erro || 'Falha no envio'}>
+      <XCircle size={13} /> Erro
+    </span>
+  )
+  if (status === 'pendente') return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-500">
+      <Clock size={12} /> Na fila
+    </span>
+  )
+  return <span className="text-xs text-slate-400">{status}</span>
+}
+
+function SingleCheck() {
+  return <svg width="10" height="9" viewBox="0 0 10 9" fill="none"><path d="M1 4.5L4 7.5L9 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+}
+
+function DoubleCheck({ blue }: { blue?: boolean }) {
+  return (
+    <svg width="16" height="11" viewBox="0 0 16 11" fill="none">
+      <path d="M1 5.5L5 9.5L15 1.5" stroke={blue ? '#53BDEB' : 'currentColor'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M5 5.5L9 9.5" stroke={blue ? '#53BDEB' : 'currentColor'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M9 1.5L13 5.5" stroke={blue ? '#53BDEB' : 'currentColor'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
+function FunnelChart({ stats }: { stats: Stats }) {
+  const processed = stats.enviado + stats.entregue + stats.lido + stats.erro
+  const delivered = stats.entregue + stats.lido
+  const read = stats.lido
+  const max = Math.max(processed, 1)
+
+  const stages = [
+    { label: 'Mensagens Enviadas', sublabel: 'saíram do servidor Meta', count: processed, pct: 100, color: 'bg-slate-400', textBlue: false },
+    { label: 'Entregues no Celular', sublabel: `${Math.round((delivered / max) * 100)}% das enviadas`, count: delivered, pct: Math.round((delivered / max) * 100), color: 'bg-blue-400', textBlue: false },
+    { label: 'Lidas pelo Cliente', sublabel: `${delivered > 0 ? Math.round((read / delivered) * 100) : 0}% das entregues`, count: read, pct: Math.round((read / max) * 100), color: 'bg-[#53BDEB]', textBlue: true },
+  ]
+
+  return (
+    <div className="space-y-4">
+      {stages.map((s, i) => (
+        <div key={i}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 text-right flex-shrink-0">
+              <p className={`text-base font-bold ${s.textBlue ? 'text-[#53BDEB]' : i === 1 ? 'text-blue-500' : 'text-slate-600'}`}>
+                {s.count.toLocaleString('pt-BR')}
+              </p>
+            </div>
+            <div className="flex-1 h-9 bg-slate-100 rounded-lg overflow-hidden relative">
+              <div
+                className={`h-full rounded-lg ${s.color} transition-all duration-700 flex items-center px-3`}
+                style={{ width: `${Math.max(s.pct, s.count > 0 ? 6 : 0)}%` }}
+              >
+                {s.pct > 12 && <span className="text-white text-xs font-bold">{s.pct}%</span>}
+              </div>
+              {s.pct <= 12 && s.count > 0 && (
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">{s.pct}%</span>
+              )}
+            </div>
+            <div className="w-36 flex-shrink-0">
+              <p className="text-xs font-semibold text-slate-700 leading-tight">{s.label}</p>
+              <p className="text-[10px] text-slate-400">{s.sublabel}</p>
+            </div>
+          </div>
+          {i < stages.length - 1 && (
+            <div className="flex items-center gap-3 my-1">
+              <div className="w-10" />
+              <div className="flex-1 pl-2">
+                <div className="h-4 border-l-2 border-dashed border-slate-200 ml-2" />
+              </div>
+              <div className="w-36" />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function WhatsAppConexaoPage() {
   const supabase = createClient()
   const { empresaAtual } = useEmpresa()
 
   const [loading, setLoading] = useState(true)
-  const [dbMigrationError, setDbMigrationError] = useState(false)
-  const [tab, setTab] = useState('conexao')
+  const [tab, setTab] = useState('dashboard')
 
-  // Config do WhatsApp (Evolution API)
-  const [config, setConfig] = useState<WhatsAppConfig>({
-    api_url: '',
-    api_key: '',
-    instance_name: '',
-    ativo: true,
-    status: 'desconectado',
-    delay_ms: 1200
-  })
+  // Meta API
+  const [metaStatus, setMetaStatus] = useState<MetaStatus | null>(null)
+  const [loadingMeta, setLoadingMeta] = useState(false)
 
-  // Settings de Automação (JSONB no config_factoring)
-  const [settings, setSettings] = useState<WhatsappSettings>(DEFAULT_SETTINGS)
+  // Stats
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [loadingStats, setLoadingStats] = useState(false)
 
-  // Chave PIX para cobranças
-  const [pixChave, setPixChave] = useState('')
-
-  // Logs Recentes de Envio
-  const [recentLogs, setRecentLogs] = useState<any[]>([])
-  const [loadingLogs, setLoadingLogs] = useState(false)
-
-  // Status de conexão em tempo real da API
-  const [connectionState, setConnectionState] = useState<'open' | 'close' | 'connecting' | 'nao_configurado' | 'erro'>('nao_configurado')
-  const [qrCodeData, setQrCodeData] = useState<{ base64?: string; code?: string; qrcode?: { base64?: string; code?: string; } } | null>(null)
-  const [loadingStatus, setLoadingStatus] = useState(false)
-  const [loadingQr, setLoadingQr] = useState(false)
+  // Company config
+  const [ativo, setAtivo] = useState(true)
+  const [delayMs, setDelayMs] = useState(1200)
   const [savingConfig, setSavingConfig] = useState(false)
+
+  // WhatsApp automation settings
+  const [settings, setSettings] = useState<WhatsappSettings>(DEFAULT_SETTINGS)
+  const [pixChave, setPixChave] = useState('')
   const [savingSettings, setSavingSettings] = useState(false)
 
-  // Refs para controle do polling sem stale closures
-  const prevConnectionState = useRef<'open' | 'close' | 'connecting' | 'nao_configurado' | 'erro'>('nao_configurado')
-  const qrFetchedRef = useRef(false)
-
-  // Mensagem de teste
+  // Test send
   const [testNumber, setTestNumber] = useState('')
-  const [testMessage, setTestMessage] = useState('Olá! Esta é uma mensagem de teste do módulo WhatsApp do SRSM Group.')
+  const [testMessage, setTestMessage] = useState('Olá! Esta é uma mensagem de teste do sistema SRS M Factoring.')
   const [sendingTest, setSendingTest] = useState(false)
 
-  // Trigger selecionado para edição
-  const [activeTrigger, setActiveTrigger] = useState<TriggerKey>('contrato_criado')
+  // History tab
+  const [histLogs, setHistLogs] = useState<any[]>([])
+  const [histTotal, setHistTotal] = useState(0)
+  const [histFilter, setHistFilter] = useState('todos')
+  const [histSearch, setHistSearch] = useState('')
+  const [histPage, setHistPage] = useState(0)
+  const [loadingHist, setLoadingHist] = useState(false)
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null)
+  const [histLoaded, setHistLoaded] = useState(false)
 
-  // Diagnóstico
+  // Automações
+  const [activeTrigger, setActiveTrigger] = useState<TriggerKey>('contrato_criado')
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // Diagnostics
   const [diagnosticoAberto, setDiagnosticoAberto] = useState(false)
   const [loadingDiagnostico, setLoadingDiagnostico] = useState(false)
   const [resultadoDiagnostico, setResultadoDiagnostico] = useState<{
-    ok: boolean
-    checks: { ok: boolean; msg: string; detail?: string }[]
-    recentLogs: any[]
+    ok: boolean; checks: { ok: boolean; msg: string; detail?: string }[]; recentLogs: any[]
   } | null>(null)
+
+  // ─── API calls ───────────────────────────────────────────────────────────────
+  const checkMetaStatus = useCallback(async () => {
+    if (!empresaAtual?.id) return
+    setLoadingMeta(true)
+    try {
+      const res = await fetch(`/api/whatsapp/conexao?empresa_id=${empresaAtual.id}`)
+      setMetaStatus(await res.json())
+    } catch {
+      setMetaStatus({ configurado: false, status: 'erro', mensagem: 'Falha ao verificar' })
+    } finally {
+      setLoadingMeta(false)
+    }
+  }, [empresaAtual?.id])
+
+  const loadStats = useCallback(async () => {
+    if (!empresaAtual?.id) return
+    setLoadingStats(true)
+    try {
+      const res = await fetch(`/api/whatsapp/stats?empresa_id=${empresaAtual.id}`)
+      if (res.ok) setStats(await res.json())
+    } catch {} finally {
+      setLoadingStats(false)
+    }
+  }, [empresaAtual?.id])
+
+  const loadHistory = useCallback(async () => {
+    if (!empresaAtual?.id) return
+    setLoadingHist(true)
+    try {
+      let query = supabase
+        .from('notificacoes_log')
+        .select('*', { count: 'exact' })
+        .eq('empresa_id', empresaAtual.id)
+        .eq('canal', 'whatsapp')
+        .order('created_at', { ascending: false })
+        .range(histPage * 20, (histPage + 1) * 20 - 1)
+
+      if (histFilter !== 'todos') query = query.eq('status', histFilter)
+      if (histSearch.trim()) query = query.ilike('destinatario', `%${histSearch.trim()}%`)
+
+      const { data, count, error } = await query
+      if (!error) {
+        setHistLogs(data ?? [])
+        setHistTotal(count ?? 0)
+      }
+    } finally {
+      setLoadingHist(false)
+    }
+  }, [empresaAtual?.id, histFilter, histSearch, histPage])
+
+  const load = useCallback(async () => {
+    if (!empresaAtual?.id) return
+    setLoading(true)
+    try {
+      const { data: cw } = await supabase
+        .from('config_whatsapp')
+        .select('ativo, delay_ms')
+        .eq('empresa_id', empresaAtual.id)
+        .maybeSingle()
+      if (cw) { setAtivo(cw.ativo ?? true); setDelayMs(cw.delay_ms ?? 1200) }
+
+      const { data: cf } = await supabase
+        .from('config_factoring')
+        .select('whatsapp_settings, whatsapp_padrao')
+        .eq('empresa_id', empresaAtual.id)
+        .maybeSingle()
+      if (cf) {
+        if (cf.whatsapp_padrao) setPixChave(cf.whatsapp_padrao)
+        if (cf.whatsapp_settings) setSettings({ ...DEFAULT_SETTINGS, ...cf.whatsapp_settings })
+      }
+
+      await Promise.all([checkMetaStatus(), loadStats()])
+    } catch {
+      toast.error('Erro ao carregar configurações.')
+    } finally {
+      setLoading(false)
+    }
+  }, [empresaAtual?.id, checkMetaStatus, loadStats])
+
+  useEffect(() => { load() }, [load])
+
+  // Auto-refresh stats no dashboard a cada 30s
+  useEffect(() => {
+    if (tab !== 'dashboard') return
+    const interval = setInterval(() => loadStats(), 30_000)
+    return () => clearInterval(interval)
+  }, [tab, loadStats])
+
+  // Carrega histórico na primeira vez que o tab é aberto
+  useEffect(() => {
+    if (tab === 'historico' && !histLoaded) setHistLoaded(true)
+  }, [tab])
+
+  useEffect(() => {
+    if (!histLoaded) return
+    loadHistory()
+  }, [histLoaded, histFilter, histSearch, histPage, loadHistory])
+
+  // ─── Handlers ─────────────────────────────────────────────────────────────
+  const salvarConfig = async () => {
+    if (!empresaAtual?.id) return
+    setSavingConfig(true)
+    try {
+      const { error } = await supabase.from('config_whatsapp')
+        .upsert({ empresa_id: empresaAtual.id, ativo, delay_ms: delayMs }, { onConflict: 'empresa_id' })
+      if (error) throw error
+      toast.success('Configurações salvas!')
+    } catch (e: any) {
+      toast.error('Erro: ' + e.message)
+    } finally {
+      setSavingConfig(false)
+    }
+  }
+
+  const salvarSettings = async () => {
+    if (!empresaAtual?.id) return
+    setSavingSettings(true)
+    try {
+      const { error } = await supabase.from('config_factoring')
+        .upsert({ empresa_id: empresaAtual.id, whatsapp_settings: settings, whatsapp_padrao: pixChave }, { onConflict: 'empresa_id' })
+      if (error) throw error
+      toast.success('Templates e configurações salvos!')
+    } catch (e: any) {
+      toast.error('Erro: ' + e.message)
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const handleUpdateTrigger = (key: TriggerKey, field: keyof TriggerConfig, value: any) => {
+    setSettings(prev => ({ ...prev, [key]: { ...(prev[key] as TriggerConfig), [field]: value } }))
+  }
+
+  const enviarTeste = async () => {
+    if (!empresaAtual?.id || !testNumber) { toast.error('Informe um número com DDD.'); return }
+    setSendingTest(true)
+    try {
+      const res = await fetch('/api/whatsapp/testar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresa_id: empresaAtual.id, destinatario: testNumber, mensagem: testMessage }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.erro || 'Erro ao enviar.'); return }
+      toast.success('Mensagem enviada! Aguarde confirmação de entrega nos logs.')
+      setTimeout(() => loadStats(), 2000)
+    } catch (e: any) {
+      toast.error('Erro: ' + e.message)
+    } finally {
+      setSendingTest(false)
+    }
+  }
 
   const executarDiagnostico = async () => {
     if (!empresaAtual?.id) return
@@ -272,1104 +483,696 @@ export default function WhatsAppConexaoPage() {
     setResultadoDiagnostico(null)
     try {
       const res = await fetch(`/api/whatsapp/diagnostico?empresa_id=${empresaAtual.id}`)
-      const data = await res.json()
-      setResultadoDiagnostico(data)
-    } catch (err: any) {
-      setResultadoDiagnostico({
-        ok: false,
-        checks: [{ ok: false, msg: 'Falha ao executar diagnóstico: ' + err.message }],
-        recentLogs: [],
-      })
+      setResultadoDiagnostico(await res.json())
+    } catch (e: any) {
+      setResultadoDiagnostico({ ok: false, checks: [{ ok: false, msg: 'Falha: ' + e.message }], recentLogs: [] })
     } finally {
       setLoadingDiagnostico(false)
     }
   }
 
-  // Carrega logs recentes
-  const loadRecentLogs = useCallback(async () => {
-    if (!empresaAtual?.id) return
-    setLoadingLogs(true)
-    try {
-      const { data, error } = await supabase
-        .from('notificacoes_log')
-        .select('*')
-        .eq('empresa_id', empresaAtual.id)
-        .eq('canal', 'whatsapp')
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      if (error) {
-        if (!error.message.includes('relation') && !error.message.includes('does not exist')) {
-          throw error
-        }
-      } else {
-        setRecentLogs(data || [])
-      }
-    } catch (err) {
-      console.error('Erro ao carregar logs recentes:', err)
-    } finally {
-      setLoadingLogs(false)
-    }
-  }, [empresaAtual?.id])
-
-  // Carrega configurações
-  const load = useCallback(async () => {
-    if (!empresaAtual?.id) return
-    setLoading(true)
-    setDbMigrationError(false)
-    try {
-      // 1. Carrega credenciais da config_whatsapp
-      const { data: cwData, error: cwErr } = await supabase
-        .from('config_whatsapp')
-        .select('*')
-        .eq('empresa_id', empresaAtual.id)
-        .maybeSingle()
-
-      if (cwErr) {
-        if (cwErr.message.includes('relation') || cwErr.message.includes('does not exist')) {
-          setDbMigrationError(true)
-        } else {
-          throw cwErr
-        }
-      } else if (cwData) {
-        setConfig({
-          id: cwData.id,
-          api_url: cwData.api_url || '',
-          api_key: cwData.api_key || '',
-          instance_name: cwData.instance_name || '',
-          ativo: cwData.ativo ?? true,
-          status: cwData.status || 'desconectado',
-          delay_ms: cwData.delay_ms ?? 1200
-        })
-      }
-
-      // 2. Carrega automações + chave PIX da config_factoring
-      const { data: cfData, error: cfErr } = await supabase
-        .from('config_factoring')
-        .select('whatsapp_settings, whatsapp_padrao')
-        .eq('empresa_id', empresaAtual.id)
-        .maybeSingle()
-
-      if (cfErr) {
-        if (cfErr.message.includes('column') || cfErr.message.includes('does not exist')) {
-          setDbMigrationError(true)
-        } else {
-          throw cfErr
-        }
-      } else if (cfData) {
-        if (cfData.whatsapp_padrao) setPixChave(cfData.whatsapp_padrao)
-        if (cfData.whatsapp_settings) {
-          setSettings({ ...DEFAULT_SETTINGS, ...cfData.whatsapp_settings })
-        }
-      }
-
-      // Carrega logs recentes de disparos
-      await loadRecentLogs()
-    } catch (err: any) {
-      console.error('Erro ao carregar configurações de WhatsApp:', err)
-      toast.error('Erro ao carregar configurações.')
-    } finally {
-      setLoading(false)
-    }
-  }, [empresaAtual?.id, loadRecentLogs])
-
-  useEffect(() => {
-    load()
-  }, [load])
-
-  // Checa status da conexão da instância na Evolution API
-  const checkConnectionStatus = useCallback(async (showToast = false) => {
-    if (!empresaAtual?.id || !config.api_url || !config.instance_name) return
-    setLoadingStatus(true)
-    try {
-      const res = await fetch('/api/whatsapp/conexao', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acao: 'status', empresa_id: empresaAtual.id })
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        setConnectionState('erro')
-        if (showToast) toast.error(data.erro || 'Falha ao buscar status da conexão.')
-        return
-      }
-
-      if (data.status === 'nao_configurado') {
-        setConnectionState('nao_configurado')
-        return
-      }
-
-      const nextState: 'open' | 'close' | 'connecting' =
-        data.state === 'open' ? 'open' :
-        data.state === 'connecting' ? 'connecting' :
-        'close'
-
-      // Side-effects fora do setState para evitar dupla execução no React 18 Strict Mode
-      if (nextState === 'open' && prevConnectionState.current !== 'open') {
-        toast.success('WhatsApp pareado com sucesso!')
-        loadRecentLogs()
-        setQrCodeData(null)
-        qrFetchedRef.current = false
-      }
-
-      prevConnectionState.current = nextState
-      setConnectionState(nextState)
-    } catch (err) {
-      console.error(err)
-      setConnectionState('erro')
-    } finally {
-      setLoadingStatus(false)
-    }
-  }, [empresaAtual?.id, config.api_url, config.instance_name, loadRecentLogs])
-
-  // Polling de status — reinicia quando config ou empresa mudam
-  useEffect(() => {
-    if (loading || dbMigrationError || !config.api_url || !config.instance_name) return
-    qrFetchedRef.current = false
-    setQrCodeData(null)
-    checkConnectionStatus()
-    const interval = setInterval(() => checkConnectionStatus(), 6000)
-    return () => clearInterval(interval)
-  }, [config.api_url, config.instance_name, loading, dbMigrationError, checkConnectionStatus])
-
-  // Auto-fetch do QR quando estado é 'close' ou 'connecting' (QR disponível nos dois) — apenas uma vez por ciclo
-  useEffect(() => {
-    const precisaQR = (connectionState === 'close' || connectionState === 'connecting') && !qrCodeData
-    if (precisaQR && !qrFetchedRef.current && config.api_url && config.instance_name) {
-      qrFetchedRef.current = true
-      getQrCode()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionState, config.api_url, config.instance_name])
-
-  // Obtém o QR Code para pareamento
-  const getQrCode = async () => {
-    if (!empresaAtual?.id) return
-    setLoadingQr(true)
-    try {
-      const res = await fetch('/api/whatsapp/conexao', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acao: 'conectar', empresa_id: empresaAtual.id })
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        toast.error(data.erro || 'Erro ao gerar QR Code.')
-        return
-      }
-
-      setQrCodeData(data)
-    } catch (err: any) {
-      toast.error('Erro ao gerar QR Code: ' + err.message)
-    } finally {
-      setLoadingQr(false)
-    }
-  }
-
-  // Desconecta / Despareia
-  const disconnectInstance = async () => {
-    if (!empresaAtual?.id) return
-    if (!confirm('Deseja realmente desconectar e limpar a conexão atual do WhatsApp?')) return
-    setLoadingStatus(true)
-    try {
-      const res = await fetch('/api/whatsapp/conexao', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acao: 'desconectar', empresa_id: empresaAtual.id })
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        toast.error(data.erro || 'Erro ao desconectar.')
-        return
-      }
-
-      toast.success('WhatsApp desconectado com sucesso.')
-      setConnectionState('close')
-      setQrCodeData(null)
-      qrFetchedRef.current = false
-      // auto-QR effect dispara ao detectar connectionState === 'close'
-    } catch (err: any) {
-      toast.error('Erro ao desconectar: ' + err.message)
-    } finally {
-      setLoadingStatus(false)
-    }
-  }
-
-  // Salva credenciais do WhatsApp
-  const salvarConfig = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!empresaAtual?.id) return
-    setSavingConfig(true)
-    try {
-      const payload = {
-        empresa_id: empresaAtual.id,
-        api_url: config.api_url.trim(),
-        api_key: config.api_key.trim(),
-        instance_name: config.instance_name.trim(),
-        ativo: config.ativo,
-        delay_ms: config.delay_ms ?? 1200
-      }
-
-      const { error } = await supabase
-        .from('config_whatsapp')
-        .upsert(payload, { onConflict: 'empresa_id' })
-
-      if (error) throw error
-
-      toast.success('Configurações do WhatsApp salvas com sucesso!')
-      await load()
-      // Aciona checagem de status após salvar
-      setTimeout(() => checkConnectionStatus(true), 500)
-    } catch (err: any) {
-      toast.error('Erro ao salvar credenciais: ' + err.message)
-    } finally {
-      setSavingConfig(false)
-    }
-  }
-
-  // Salva triggers / templates de automação + chave PIX
-  const salvarSettings = async () => {
-    if (!empresaAtual?.id) return
-    setSavingSettings(true)
-    try {
-      const { error } = await supabase
-        .from('config_factoring')
-        .upsert(
-          {
-            empresa_id: empresaAtual.id,
-            whatsapp_settings: settings,
-            whatsapp_padrao: pixChave,
-          },
-          { onConflict: 'empresa_id' }
-        )
-
-      if (error) throw error
-      toast.success('Templates e chave PIX salvos com sucesso!')
-    } catch (err: any) {
-      toast.error('Erro ao salvar automações: ' + err.message)
-    } finally {
-      setSavingSettings(false)
-    }
-  }
-
-  // Atualiza um trigger específico nas configurações locais
-  const handleUpdateTrigger = (key: TriggerKey, field: keyof TriggerConfig, value: any) => {
-    setSettings(prev => {
-      const trigger = prev[key] as TriggerConfig
-      return {
-        ...prev,
-        [key]: {
-          ...trigger,
-          [field]: value
-        }
-      }
-    })
-  }
-
-  // Dispara mensagem de teste
-  const enviarTeste = async () => {
-    if (!empresaAtual?.id) return
-    if (!testNumber) {
-      toast.error('Informe um número de telefone com DDD para testar.')
-      return
-    }
-    setSendingTest(true)
-    try {
-      const res = await fetch('/api/whatsapp/testar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          empresa_id: empresaAtual.id,
-          destinatario: testNumber,
-          mensagem: testMessage
-        })
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        toast.error(data.erro || 'Erro ao enviar mensagem de teste.')
-        return
-      }
-
-      toast.success('Mensagem de teste disparada com sucesso!')
-      loadRecentLogs()
-    } catch (err: any) {
-      toast.error('Erro ao enviar teste: ' + err.message)
-    } finally {
-      setSendingTest(false)
-    }
-  }
-
-  // Renderiza preview dinâmico de WhatsApp
   const renderPreview = () => {
     const activeData = settings[activeTrigger]
-    const details = FLOW_DETAILS[activeTrigger]
     if (!activeData) return ''
-
-    const mockValues: Record<string, string> = {
-      nome: "GUSTAVO GOMES FRANCO LEITE",
-      numero_contrato: "FAC-2026-8947",
-      valor_principal: "R$ 3.000,00",
-      link_assinatura: `http://localhost:3000/assinar/d3b07384-d113`,
-      link_contrato: "https://relldwstuqmrefeviaua.supabase.co/storage/v1/object/public/.../contrato_assinado_FAC-2026-8947.pdf",
-      numero_parcela: "1",
-      total_parcelas: "6",
-      dias_antes: String(activeData.dias_antes ?? 3),
-      data_vencimento: "16/07/2026",
-      valor: "R$ 562,50",
-      valor_total: "R$ 575,44",
-      multa: "R$ 11,25",
-      juros_mora: "R$ 1,69",
-      dias_atraso: "5",
-      whatsapp_padrao: "financeiro@grupo.com (Chave Pix CNPJ)"
+    const mock: Record<string, string> = {
+      nome: 'GUSTAVO GOMES FRANCO', numero_contrato: 'FAC-2026-8947', valor_principal: 'R$ 3.000,00',
+      link_assinatura: 'https://srsm.vercel.app/assinar/d3b07384', link_contrato: 'https://supabase.co/.../contrato.pdf',
+      numero_parcela: '1', total_parcelas: '6', dias_antes: String(activeData.dias_antes ?? 3),
+      data_vencimento: '16/07/2026', valor: 'R$ 562,50', valor_total: 'R$ 601,88',
+      multa: 'R$ 11,25', juros_mora: 'R$ 28,13', dias_atraso: '15',
+      whatsapp_padrao: pixChave || 'financeiro@srsm.com.br',
     }
-
     let text = activeData.template
-    Object.entries(mockValues).forEach(([k, v]) => {
-      text = text.replace(new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, 'g'), v)
-    })
+    Object.entries(mock).forEach(([k, v]) => { text = text.replace(new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, 'g'), v) })
     return text
   }
 
-  // Insere variável no cursor do textarea
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const insereVariavel = (varName: string) => {
     const el = textareaRef.current
     if (!el) return
     const start = el.selectionStart
     const end = el.selectionEnd
-    const currentText = settings[activeTrigger].template
     const toInsert = `{{${varName}}}`
-    const updated = currentText.substring(0, start) + toInsert + currentText.substring(end)
+    const updated = settings[activeTrigger].template.substring(0, start) + toInsert + settings[activeTrigger].template.substring(end)
     handleUpdateTrigger(activeTrigger, 'template', updated)
-    
-    // Devolve foco com cursor posicionado
-    setTimeout(() => {
-      el.focus()
-      el.setSelectionRange(start + toInsert.length, start + toInsert.length)
-    }, 50)
+    setTimeout(() => { el.focus(); el.setSelectionRange(start + toInsert.length, start + toInsert.length) }, 50)
   }
 
   if (loading) return <LoadingPage />
 
   const tipoEmpresa = empresaAtual?.tipo ?? 'factoring'
+  const metaOk = metaStatus?.status === 'ativo'
 
   return (
-    <AppShell empresa={tipoEmpresa} titulo="Conexão & Automação WhatsApp">
-      {dbMigrationError && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-5 mb-6 flex gap-3 items-start">
-          <AlertTriangle className="text-amber-500 flex-shrink-0 mt-0.5" size={20} />
-          <div>
-            <h3 className="font-semibold text-sm">Configuração do WhatsApp pendente</h3>
-            <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-              A tabela de configurações do WhatsApp ainda não foi criada no banco de dados.
-              Acesse o <strong>SQL Editor do Supabase Dashboard</strong> e execute o script
-              <code className="bg-amber-100 mx-1 px-1 py-0.5 rounded font-mono text-[11px]">src/lib/supabase/whatsapp_migration.sql</code>
-              para habilitar esta funcionalidade.
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-6">
+    <AppShell empresa={tipoEmpresa} titulo="WhatsApp">
+      <div className="space-y-5">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
-          <TabsList className="grid grid-cols-2 max-w-md bg-slate-100 p-1 rounded-xl">
-            <TabsTrigger value="conexao" className="rounded-lg flex gap-2 items-center text-sm font-medium py-2">
-              <Link2 size={16} />
-              Conectar WhatsApp
+          <TabsList className="bg-slate-100 p-1 rounded-xl h-auto flex gap-1 w-fit">
+            <TabsTrigger value="dashboard" className="rounded-lg flex gap-2 items-center text-sm font-medium py-2 px-4 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              <LayoutDashboard size={15} />Dashboard
             </TabsTrigger>
-            <TabsTrigger value="automacoes" className="rounded-lg flex gap-2 items-center text-sm font-medium py-2">
-              <Settings size={16} />
-              Triggers & Templates
+            <TabsTrigger value="historico" className="rounded-lg flex gap-2 items-center text-sm font-medium py-2 px-4 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              <History size={15} />Histórico
+            </TabsTrigger>
+            <TabsTrigger value="automacoes" className="rounded-lg flex gap-2 items-center text-sm font-medium py-2 px-4 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+              <Settings size={15} />Automações
             </TabsTrigger>
           </TabsList>
 
-          {/* TAB 1: CONEXÃO WHATSAPP */}
-          <TabsContent value="conexao" className="mt-6 space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              
-              {/* Form de Config de Credenciais */}
-              <div className="lg:col-span-2">
-                <form onSubmit={salvarConfig}>
-                  <Card className="border-slate-200 shadow-sm rounded-xl">
-                    <CardHeader>
-                      <CardTitle className="text-slate-800 text-lg flex items-center gap-2">
-                        <FileCode2 className="text-[#1E5AA8]" size={20} />
-                        Credenciais da Evolution API
-                      </CardTitle>
-                      <CardDescription>
-                        Insira as informações do seu servidor Evolution API open-source para parear seu dispositivo.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="api_url" className="text-xs font-semibold text-slate-600">URL da API</Label>
-                          <Input 
-                            id="api_url"
-                            type="url"
-                            placeholder="https://api.meuservidor.com"
-                            value={config.api_url}
-                            onChange={(e) => setConfig(prev => ({ ...prev, api_url: e.target.value }))}
-                            required
-                            className="text-sm rounded-lg"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="instance_name" className="text-xs font-semibold text-slate-600">Nome da Instância</Label>
-                          <Input 
-                            id="instance_name"
-                            placeholder="ex: factoring_01"
-                            value={config.instance_name}
-                            onChange={(e) => setConfig(prev => ({ ...prev, instance_name: e.target.value.replace(/\s+/g, '') }))}
-                            required
-                            className="text-sm rounded-lg"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="delay_ms" className="text-xs font-semibold text-slate-600">Delay de Envio (ms)</Label>
-                          <Input 
-                            id="delay_ms"
-                            type="number"
-                            min={0}
-                            max={10000}
-                            placeholder="1200"
-                            value={config.delay_ms ?? 1200}
-                            onChange={(e) => setConfig(prev => ({ ...prev, delay_ms: parseInt(e.target.value) || 0 }))}
-                            required
-                            className="text-sm rounded-lg"
-                          />
-                        </div>
-                      </div>
+          {/* ═══════════════════════════════════════════
+              TAB 1: DASHBOARD
+          ═══════════════════════════════════════════ */}
+          <TabsContent value="dashboard" className="mt-5 space-y-5">
 
-                      <div className="space-y-2">
-                        <Label htmlFor="api_key" className="text-xs font-semibold text-slate-600">Chave da API (Global Key / Token)</Label>
-                        <Input 
-                          id="api_key"
-                          type="password"
-                          placeholder="EvolutionAPI_Secret_Key_..."
-                          value={config.api_key}
-                          onChange={(e) => setConfig(prev => ({ ...prev, api_key: e.target.value }))}
-                          required
-                          className="text-sm rounded-lg"
-                        />
-                      </div>
-
-                      <div className="flex items-center space-x-2 pt-2">
-                        <Switch 
-                          id="ativo" 
-                          checked={config.ativo}
-                          onCheckedChange={(checked) => setConfig(prev => ({ ...prev, ativo: checked }))}
-                        />
-                        <Label htmlFor="ativo" className="text-xs font-semibold text-slate-700 cursor-pointer">
-                          Ativar envio de mensagens para esta empresa
-                        </Label>
-                      </div>
-                    </CardContent>
-                    <CardFooter className="flex justify-between border-t border-slate-100 pt-4 bg-slate-50/50 rounded-b-xl">
-                      <div className="text-xs text-slate-400 flex items-center gap-1.5">
-                        <Info size={14} className="text-slate-400" />
-                        O tráfego de dados é direto com seu servidor Evolution API.
-                      </div>
-                      <Button 
-                        type="submit" 
-                        disabled={savingConfig || dbMigrationError}
-                        className="bg-[#1E5AA8] hover:bg-[#154687] text-white text-sm rounded-lg font-medium px-5"
-                      >
-                        {savingConfig ? <Loader2 className="animate-spin mr-2" size={14} /> : null}
-                        Salvar Configuração
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                </form>
-
-                {/* Botão de Diagnóstico */}
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    onClick={executarDiagnostico}
-                    disabled={loadingDiagnostico || !empresaAtual?.id}
-                    className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-[#1E5AA8] transition-colors disabled:opacity-50 border border-slate-200 rounded-lg px-3 py-2 hover:border-[#1E5AA8]/30 hover:bg-[#EDF4FE]/50"
-                  >
-                    {loadingDiagnostico
-                      ? <Loader2 className="animate-spin" size={14} />
-                      : <Stethoscope size={14} />}
-                    Executar Diagnóstico Completo
-                  </button>
+            {/* Stats cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                {
+                  label: 'Hoje', value: loadingStats ? null : (stats?.hoje ?? 0),
+                  sub: 'mensagens enviadas', icon: <Zap size={16} className="text-[#1E5AA8]" />, accent: 'border-[#1E5AA8]/20 bg-[#EDF4FE]/40',
+                },
+                {
+                  label: '30 dias', value: loadingStats ? null : ((stats?.enviado ?? 0) + (stats?.entregue ?? 0) + (stats?.lido ?? 0) + (stats?.erro ?? 0)),
+                  sub: 'total processadas', icon: <Send size={16} className="text-slate-400" />, accent: 'border-slate-200 bg-slate-50',
+                },
+                {
+                  label: 'Entrega', value: loadingStats ? null : `${stats?.taxa_entrega ?? 0}%`,
+                  sub: `${(stats?.entregue ?? 0) + (stats?.lido ?? 0)} entregues`, icon: <TrendingUp size={16} className="text-blue-400" />, accent: 'border-blue-100 bg-blue-50/50',
+                },
+                {
+                  label: 'Leitura', value: loadingStats ? null : `${stats?.taxa_leitura ?? 0}%`,
+                  sub: `${stats?.lido ?? 0} lidas`, icon: (
+                    <svg width="16" height="11" viewBox="0 0 16 11" fill="none" className="text-[#53BDEB]">
+                      <path d="M1 5.5L5 9.5L15 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M5 5.5L9 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M9 1.5L13 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  ), accent: 'border-sky-100 bg-sky-50/40',
+                },
+              ].map((c, i) => (
+                <div key={i} className={`rounded-xl border p-4 ${c.accent}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{c.label}</p>
+                    {c.icon}
+                  </div>
+                  <p className="text-2xl font-bold text-slate-800 tabular-nums">
+                    {c.value === null ? <Loader2 className="animate-spin inline" size={18} /> : c.value}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{c.sub}</p>
                 </div>
+              ))}
+            </div>
 
-                {/* Modal/Panel de Diagnóstico */}
-                {diagnosticoAberto && (
-                  <div className="mt-4 border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                    <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+            {/* Funnel + Meta Status */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+              {/* Funil */}
+              <Card className="lg:col-span-3 border-slate-200 shadow-sm rounded-xl">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-slate-800 text-base">Funil de Entrega</CardTitle>
+                      <CardDescription>Rastreamento em tempo real via Meta Cloud API — últimos 30 dias.</CardDescription>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={loadStats} disabled={loadingStats} className="text-slate-400 hover:text-slate-600 rounded-lg text-xs">
+                      <RefreshCw size={12} className={`mr-1.5 ${loadingStats ? 'animate-spin' : ''}`} />Atualizar
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {loadingStats ? (
+                    <div className="flex justify-center py-8"><Loader2 className="animate-spin text-slate-300" size={24} /></div>
+                  ) : stats ? (
+                    <FunnelChart stats={stats} />
+                  ) : (
+                    <p className="text-sm text-slate-400 text-center py-6">Nenhum dado disponível ainda.</p>
+                  )}
+                  {/* Legenda ticks */}
+                  <div className="flex items-center gap-5 mt-5 pt-4 border-t border-slate-100 text-[10px] text-slate-400">
+                    <span className="flex items-center gap-1.5"><SingleCheck /> Enviado</span>
+                    <span className="flex items-center gap-1.5"><DoubleCheck /> Entregue</span>
+                    <span className="flex items-center gap-1.5 text-[#53BDEB]"><DoubleCheck blue /> Lido</span>
+                    {stats && stats.erro > 0 && (
+                      <span className="flex items-center gap-1.5 text-red-400 ml-auto">
+                        <AlertCircle size={11} /> {stats.erro} erros
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Meta Status + Config + Fila */}
+              <div className="lg:col-span-2 flex flex-col gap-4">
+                {/* Meta status */}
+                <Card className="border-slate-200 shadow-sm rounded-xl">
+                  <CardContent className="pt-4">
+                    <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        <Stethoscope size={16} className="text-[#1E5AA8]" />
-                        <span className="text-sm font-bold text-slate-700">Resultado do Diagnóstico</span>
-                        {resultadoDiagnostico && (
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${resultadoDiagnostico.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                            {resultadoDiagnostico.ok ? '✓ TUDO OK' : '✗ PROBLEMAS ENCONTRADOS'}
-                          </span>
+                        <MessageSquare className="text-[#25D366]" size={18} />
+                        <span className="text-sm font-bold text-slate-800">Meta Cloud API</span>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={checkMetaStatus} disabled={loadingMeta} className="text-slate-400 h-7 px-2 text-xs rounded-lg">
+                        <RefreshCw size={11} className={loadingMeta ? 'animate-spin' : ''} />
+                      </Button>
+                    </div>
+                    {loadingMeta ? (
+                      <div className="flex items-center gap-2 text-slate-400 text-xs py-1"><Loader2 className="animate-spin" size={14} />Verificando...</div>
+                    ) : metaStatus?.status === 'ativo' ? (
+                      <div className="space-y-2">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200">
+                          <CheckCircle size={12} />CONECTADO & ATIVO
+                        </span>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600 mt-1.5">
+                          <Phone size={12} className="text-[#25D366]" />
+                          <span className="font-semibold">{metaStatus.display_phone_number ?? metaStatus.phone_number_id}</span>
+                        </div>
+                        {metaStatus.verified_name && (
+                          <p className="text-[11px] text-slate-400">{metaStatus.verified_name}</p>
                         )}
                       </div>
-                      <button onClick={() => setDiagnosticoAberto(false)} className="text-slate-400 hover:text-slate-600 text-xs">Fechar</button>
-                    </div>
-                    <div className="p-4">
-                      {loadingDiagnostico ? (
-                        <div className="flex items-center gap-2 text-slate-500 text-sm py-4">
-                          <Loader2 className="animate-spin" size={18} />
-                          Verificando banco de dados e Evolution API...
-                        </div>
-                      ) : resultadoDiagnostico ? (
-                        <div className="space-y-2">
-                          {resultadoDiagnostico.checks.map((check, i) => (
-                            <div key={i} className={`flex items-start gap-2.5 p-2.5 rounded-lg text-xs ${check.ok ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
-                              {check.ok
-                                ? <CheckCircle size={14} className="text-green-600 mt-0.5 flex-shrink-0" />
-                                : <XCircle size={14} className="text-red-600 mt-0.5 flex-shrink-0" />}
-                              <div>
-                                <p className={`font-semibold ${check.ok ? 'text-green-800' : 'text-red-800'}`}>{check.msg}</p>
-                                {check.detail && <p className="text-slate-500 mt-0.5">{check.detail}</p>}
-                              </div>
-                            </div>
-                          ))}
-                          {!resultadoDiagnostico.ok && (
-                            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-                              <p className="font-bold mb-1">Como corrigir:</p>
-                              <ol className="list-decimal pl-4 space-y-1">
-                                <li>Acesse o <strong>Supabase Dashboard → SQL Editor</strong></li>
-                                <li>Cole e execute o arquivo <code className="font-mono bg-amber-100 px-1 rounded">src/lib/supabase/whatsapp_master_migration.sql</code></li>
-                                <li>Volte aqui e execute o diagnóstico novamente</li>
-                                <li>Se as tabelas existirem, certifique-se que as credenciais da Evolution API estão preenchidas e salvas</li>
-                              </ol>
-                            </div>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
+                    ) : metaStatus?.status === 'erro' ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200">
+                        <XCircle size={12} />ERRO DE TOKEN
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                        <Info size={12} />NÃO CONFIGURADO
+                      </span>
+                    )}
+                  </CardContent>
+                </Card>
 
-                {/* Card de Teste de Disparo */}
-                {config.api_url && config.instance_name && connectionState === 'open' && (
-                  <Card className="border-slate-200 shadow-sm rounded-xl mt-6">
-                    <CardHeader>
-                      <CardTitle className="text-slate-800 text-lg flex items-center gap-2">
-                        <Send className="text-[#1E5AA8]" size={18} />
-                        Disparar Mensagem de Teste
-                      </CardTitle>
-                      <CardDescription>
-                        Valide se sua instância está funcionando corretamente enviando uma mensagem manual.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="test_number" className="text-xs font-semibold text-slate-600">Número de Destino (Com DDD)</Label>
-                        <Input 
-                          id="test_number"
-                          type="tel"
-                          placeholder="62999999999"
-                          value={testNumber}
-                          onChange={(e) => setTestNumber(e.target.value.replace(/\D/g, ''))}
-                          className="text-sm rounded-lg max-w-xs"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="test_message" className="text-xs font-semibold text-slate-600">Conteúdo da Mensagem</Label>
-                        <Textarea 
-                          id="test_message"
-                          rows={3}
-                          value={testMessage}
-                          onChange={(e) => setTestMessage(e.target.value)}
-                          className="text-sm rounded-lg"
-                        />
-                      </div>
-                    </CardContent>
-                    <CardFooter className="flex justify-end border-t border-slate-100 pt-4 bg-slate-50/50 rounded-b-xl">
-                      <Button 
-                        onClick={enviarTeste} 
-                        disabled={sendingTest || !testNumber}
-                        className="bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg font-medium px-5"
-                      >
-                        {sendingTest ? <Loader2 className="animate-spin mr-2" size={14} /> : null}
-                        Enviar Teste
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                )}
-              </div>
-
-              {/* Status do Monitor & Pareamento via QR Code */}
-              <div>
-                <Card className="border-slate-200 shadow-sm rounded-xl h-full flex flex-col">
-                  <CardHeader>
-                    <CardTitle className="text-slate-800 text-lg">Pareamento de Celular</CardTitle>
-                    <CardDescription>
-                      Estado da conexão da sua instância com o WhatsApp.
-                    </CardDescription>
+                {/* Fila de pendentes */}
+                <Card className="border-slate-200 shadow-sm rounded-xl flex-1">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-slate-800 text-sm flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <Clock size={15} className="text-amber-500" />
+                        Fila de Disparos
+                      </span>
+                      {stats && stats.pendente > 0 && (
+                        <span className="text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full">
+                          {stats.pendente} pendentes
+                        </span>
+                      )}
+                    </CardTitle>
                   </CardHeader>
-                  <CardContent className="flex-1 flex flex-col items-center justify-center p-6 space-y-6">
-                    
-                    {/* Badge de status */}
-                    <div className="text-center">
-                      <p className="text-xs text-slate-400 mb-1.5 uppercase font-semibold tracking-wider">Status da Instância</p>
-                      {connectionState === 'open' && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200">
-                          <CheckCircle size={14} />
-                          CONECTADO
-                        </span>
-                      )}
-                      {connectionState === 'connecting' && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200">
-                          <Loader2 className="animate-spin" size={14} />
-                          CONECTANDO...
-                        </span>
-                      )}
-                      {connectionState === 'close' && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                          <XCircle size={14} />
-                          DESCONECTADO
-                        </span>
-                      )}
-                      {connectionState === 'nao_configurado' && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                          <Info size={14} />
-                          NÃO CONFIGURADO
-                        </span>
-                      )}
-                      {connectionState === 'erro' && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200">
-                          <AlertTriangle size={14} />
-                          ERRO DE CONEXÃO
-                        </span>
-                      )}
-                    </div>
-
-                    {/* QR Code Container */}
-                    <div className="flex-1 flex items-center justify-center min-h-[260px] w-full max-w-[260px] bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-4 relative overflow-hidden">
-                      {connectionState === 'open' ? (
-                        <div className="text-center p-4">
-                          <div className="w-16 h-16 bg-green-50 rounded-full border border-green-200 flex items-center justify-center mx-auto mb-3">
-                            <MessageSquare className="text-green-600" size={28} />
+                  <CardContent className="pt-0">
+                    {stats && stats.fila.length > 0 ? (
+                      <div className="space-y-2">
+                        {stats.fila.map((item) => (
+                          <div key={item.id} className="flex items-start gap-2 p-2 rounded-lg bg-amber-50/50 border border-amber-100">
+                            <Clock size={12} className="text-amber-400 mt-0.5 flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-slate-700 truncate">{item.destinatario}</p>
+                              <p className="text-[10px] text-slate-400 truncate">{item.assunto || 'Sem assunto'}</p>
+                            </div>
                           </div>
-                          <h4 className="font-semibold text-sm text-slate-800">WhatsApp Pareado</h4>
-                          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                            Seu celular está conectado e pronto para disparar notificações automáticas.
-                          </p>
-                        </div>
-                      ) : connectionState === 'nao_configurado' ? (
-                        <div className="text-center p-4">
-                          <Info className="text-slate-400 mx-auto mb-3" size={32} />
-                          <h4 className="font-semibold text-sm text-slate-600">Aguardando Credenciais</h4>
-                          <p className="text-xs text-slate-400 mt-1">
-                            Preencha as credenciais da Evolution API ao lado e salve para gerar o QR Code.
-                          </p>
-                        </div>
-                      ) : loadingQr ? (
-                        <div className="text-center">
-                          <Loader2 className="animate-spin text-[#1E5AA8] mx-auto mb-2" size={28} />
-                          <p className="text-xs text-slate-400">Gerando QR Code...</p>
-                        </div>
-                      ) : qrCodeData ? (
-                        <div className="flex flex-col items-center space-y-4">
-                          <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                            {(() => {
-                              const raw = qrCodeData.base64 || qrCodeData.qrcode?.base64
-                              const code = qrCodeData.code || qrCodeData.qrcode?.code
-                              if (raw) {
-                                const src = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`
-                                return <img src={src} alt="QR Code WhatsApp" className="w-[180px] h-[180px]" />
-                              }
-                              if (code) return <QRCodeSVG value={code} size={180} />
-                              return <div className="w-[180px] h-[180px] flex items-center justify-center text-xs text-slate-400">QR inválido — tente novamente</div>
-                            })()}
-                          </div>
-                          <p className="text-[10px] text-center text-slate-400 max-w-[200px] leading-relaxed">
-                            Abra o WhatsApp no celular, toque em "Aparelhos conectados" e escaneie o código acima.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => { qrFetchedRef.current = false; getQrCode() }}
-                            disabled={loadingQr}
-                            className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors disabled:opacity-50"
-                          >
-                            <RefreshCw size={10} className={loadingQr ? 'animate-spin' : ''} />
-                            QR expirou? Atualizar
+                        ))}
+                        {stats.pendente > 5 && (
+                          <button onClick={() => { setTab('historico'); setHistFilter('pendente') }}
+                            className="text-[11px] text-[#1E5AA8] font-semibold hover:underline">
+                            +{stats.pendente - 5} na fila →
                           </button>
-                        </div>
-                      ) : (
-                        <div className="text-center p-4">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => { qrFetchedRef.current = false; getQrCode() }}
-                            disabled={!config.api_url}
-                            className="text-xs font-semibold rounded-lg"
-                          >
-                            <RefreshCw size={12} className="mr-1.5" />
-                            Gerar QR Code
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Footer Actions do Card */}
-                    <div className="w-full flex gap-2 pt-2 border-t border-slate-100">
-                      <Button 
-                        variant="outline"
-                        onClick={() => checkConnectionStatus(true)}
-                        disabled={loadingStatus || !config.api_url}
-                        className="flex-1 text-xs font-semibold rounded-lg py-2 border-slate-200 text-slate-600 hover:bg-slate-50"
-                      >
-                        <RefreshCw size={12} className={`mr-1.5 ${loadingStatus ? 'animate-spin' : ''}`} />
-                        Atualizar Status
-                      </Button>
-                      
-                      {(connectionState === 'open' || connectionState === 'connecting') && (
-                        <Button 
-                          variant="destructive"
-                          onClick={disconnectInstance}
-                          disabled={loadingStatus}
-                          className="flex-1 text-xs font-medium rounded-lg py-2"
-                        >
-                          Desconectar
-                        </Button>
-                      )}
-                    </div>
-
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 py-2">Fila vazia — disparos enviados com sucesso.</p>
+                    )}
                   </CardContent>
                 </Card>
               </div>
-
             </div>
 
-            {/* Logs Recentes de Disparos */}
-            <Card className="border-slate-200 shadow-sm rounded-xl mt-6">
-              <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100">
-                <div>
-                  <CardTitle className="text-slate-800 text-lg flex items-center gap-2">
-                    <History className="text-[#1E5AA8]" size={20} />
-                    Histórico de Disparos Recentes (Últimos 10)
+            {/* Enviar Teste + Config */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Enviar teste */}
+              <Card className="border-slate-200 shadow-sm rounded-xl">
+                <CardHeader>
+                  <CardTitle className="text-slate-800 text-base flex items-center gap-2">
+                    <Send className="text-[#25D366]" size={17} />Enviar Mensagem de Teste
                   </CardTitle>
-                  <CardDescription>
-                    Monitore em tempo real as notificações enviadas, entregues, lidas ou com falha.
-                  </CardDescription>
-                </div>
-                <Button 
-                  variant="outline"
-                  size="sm"
-                  onClick={loadRecentLogs}
-                  disabled={loadingLogs}
-                  className="rounded-lg text-xs"
-                >
-                  <RefreshCw size={12} className={`mr-1.5 ${loadingLogs ? 'animate-spin' : ''}`} />
-                  Atualizar Logs
-                </Button>
-              </CardHeader>
-              <CardContent className="pt-4">
-                {loadingLogs ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="animate-spin text-[#1E5AA8]" size={24} />
+                  <CardDescription>{metaOk ? 'Meta API ativa — envie agora para validar.' : 'Configure WHATSAPP_TOKEN nas variáveis do Vercel.'}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-600">Número (com DDD)</Label>
+                    <Input type="tel" placeholder="62999999999" value={testNumber}
+                      onChange={(e) => setTestNumber(e.target.value.replace(/\D/g, ''))}
+                      disabled={!metaOk} className="text-sm rounded-lg" />
                   </div>
-                ) : recentLogs.length === 0 ? (
-                  <div className="text-center py-8 text-slate-400 text-sm">
-                    Nenhum disparo de WhatsApp registrado recentemente.
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-600">Mensagem</Label>
+                    <Textarea rows={4} value={testMessage} onChange={(e) => setTestMessage(e.target.value)}
+                      disabled={!metaOk} className="text-sm rounded-lg resize-none" />
+                  </div>
+                  {!metaOk && (
+                    <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-700">
+                      <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                      Token Meta não configurado. Adicione nas variáveis do Vercel.
+                    </div>
+                  )}
+                </CardContent>
+                <CardFooter className="border-t border-slate-100 pt-3 bg-slate-50/50 rounded-b-xl justify-end gap-2">
+                  <button onClick={executarDiagnostico} disabled={loadingDiagnostico}
+                    className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-[#1E5AA8] transition-colors mr-auto disabled:opacity-50">
+                    {loadingDiagnostico ? <Loader2 className="animate-spin" size={12} /> : <Stethoscope size={12} />}
+                    Diagnóstico
+                  </button>
+                  <Button onClick={enviarTeste} disabled={sendingTest || !testNumber || !metaOk}
+                    className="bg-[#25D366] hover:bg-[#1ebe59] text-white text-sm rounded-lg font-medium px-5">
+                    {sendingTest ? <><Loader2 className="animate-spin mr-2" size={14} />Enviando...</> : <><Send size={14} className="mr-2" />Enviar</>}
+                  </Button>
+                </CardFooter>
+              </Card>
+
+              {/* Config de envio */}
+              <Card className="border-slate-200 shadow-sm rounded-xl">
+                <CardHeader>
+                  <CardTitle className="text-slate-800 text-base flex items-center gap-2">
+                    <Settings className="text-[#1E5AA8]" size={17} />Configurações de Envio
+                  </CardTitle>
+                  <CardDescription>Controle de envio para esta empresa.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-center gap-3">
+                    <Switch id="ativo" checked={ativo} onCheckedChange={setAtivo} />
+                    <Label htmlFor="ativo" className="text-sm font-semibold text-slate-700 cursor-pointer">
+                      Ativar envio de mensagens
+                    </Label>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="delay_ms" className="text-xs font-semibold text-slate-600">Delay entre envios em lote (ms)</Label>
+                    <Input id="delay_ms" type="number" min={0} max={10000} value={delayMs}
+                      onChange={(e) => setDelayMs(parseInt(e.target.value) || 0)} className="text-sm rounded-lg max-w-[160px]" />
+                    <p className="text-[10px] text-slate-400">Recomendado: 1200ms para evitar rate limit.</p>
+                  </div>
+                </CardContent>
+                <CardFooter className="border-t border-slate-100 pt-3 bg-slate-50/50 rounded-b-xl justify-end">
+                  <Button onClick={salvarConfig} disabled={savingConfig}
+                    className="bg-[#1E5AA8] hover:bg-[#154687] text-white text-sm rounded-lg font-medium px-5">
+                    {savingConfig && <Loader2 className="animate-spin mr-2" size={14} />}Salvar
+                  </Button>
+                </CardFooter>
+              </Card>
+            </div>
+
+            {/* Diagnóstico expandível */}
+            {diagnosticoAberto && (
+              <Card className="border-slate-200 shadow-sm rounded-xl">
+                <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Stethoscope size={16} className="text-[#1E5AA8]" />
+                    <CardTitle className="text-slate-800 text-base">Diagnóstico do Sistema</CardTitle>
+                    {resultadoDiagnostico && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${resultadoDiagnostico.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                        {resultadoDiagnostico.ok ? '✓ OK' : '✗ PROBLEMAS'}
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={() => setDiagnosticoAberto(false)} className="text-slate-400 hover:text-slate-600 text-xs">Fechar</button>
+                </CardHeader>
+                <CardContent>
+                  {loadingDiagnostico ? (
+                    <div className="flex items-center gap-2 text-slate-400 text-sm py-4"><Loader2 className="animate-spin" size={18} />Verificando...</div>
+                  ) : resultadoDiagnostico ? (
+                    <div className="space-y-1.5">
+                      {resultadoDiagnostico.checks.map((check, i) => (
+                        <div key={i} className={`flex items-start gap-2 p-2.5 rounded-lg text-xs ${check.ok ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
+                          {check.ok ? <CheckCircle size={13} className="text-green-600 mt-0.5 flex-shrink-0" /> : <XCircle size={13} className="text-red-600 mt-0.5 flex-shrink-0" />}
+                          <div>
+                            <p className={`font-semibold ${check.ok ? 'text-green-800' : 'text-red-800'}`}>{check.msg}</p>
+                            {check.detail && <p className="text-slate-500 mt-0.5">{check.detail}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* ═══════════════════════════════════════════
+              TAB 2: HISTÓRICO
+          ═══════════════════════════════════════════ */}
+          <TabsContent value="historico" className="mt-5 space-y-4">
+            {/* Filtros */}
+            <Card className="border-slate-200 shadow-sm rounded-xl">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Filter chips */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {STATUS_FILTERS.map((f) => (
+                      <button
+                        key={f.key}
+                        onClick={() => { setHistFilter(f.key); setHistPage(0) }}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                          histFilter === f.key
+                            ? f.color + ' shadow-sm'
+                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        {f.label}
+                        {histFilter === f.key && histTotal > 0 && ` (${histTotal})`}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Busca */}
+                  <div className="flex items-center gap-2 ml-auto bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 w-52">
+                    <Search size={13} className="text-slate-400 flex-shrink-0" />
+                    <input
+                      placeholder="Buscar por número..."
+                      value={histSearch}
+                      onChange={(e) => { setHistSearch(e.target.value); setHistPage(0) }}
+                      className="bg-transparent text-xs text-slate-700 placeholder:text-slate-400 outline-none w-full"
+                    />
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadHistory} disabled={loadingHist} className="rounded-lg text-xs shrink-0">
+                    <RefreshCw size={12} className={`mr-1.5 ${loadingHist ? 'animate-spin' : ''}`} />Atualizar
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Tabela */}
+            <Card className="border-slate-200 shadow-sm rounded-xl">
+              <CardContent className="pt-4">
+                {loadingHist ? (
+                  <div className="flex justify-center py-12"><Loader2 className="animate-spin text-[#1E5AA8]" size={24} /></div>
+                ) : histLogs.length === 0 ? (
+                  <div className="text-center py-12">
+                    <History className="mx-auto text-slate-200 mb-3" size={36} />
+                    <p className="text-slate-400 text-sm">Nenhum registro encontrado.</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-100 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                          <th className="pb-3 pr-4">Destinatário</th>
-                          <th className="pb-3 pr-4">Assunto</th>
-                          <th className="pb-3 pr-4">Mensagem</th>
-                          <th className="pb-3 pr-4">Status</th>
-                          <th className="pb-3">Data/Hora</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {recentLogs.map((log) => {
-                          const date = new Date(log.enviado_em || log.created_at)
-                          const timeStr = date.toLocaleDateString('pt-BR') + ' ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-left">
+                            <th className="pb-3 pr-4">Destinatário</th>
+                            <th className="pb-3 pr-4">Tipo / Assunto</th>
+                            <th className="pb-3 pr-4">Status</th>
+                            <th className="pb-3 pr-4">Data/Hora</th>
+                            <th className="pb-3 w-8" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {histLogs.map((log) => {
+                            const isExpanded = expandedLogId === log.id
+                            const date = new Date(log.enviado_em || log.created_at)
+                            const timeStr = date.toLocaleDateString('pt-BR') + ' ' + date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                            const isLido = log.status === 'lido'
+                            const isErro = log.status === 'erro'
+                            return (
+                              <>
+                                <tr
+                                  key={log.id}
+                                  onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                                  className={`border-b border-slate-50 cursor-pointer transition-colors text-sm ${
+                                    isLido ? 'hover:bg-sky-50/40' : isErro ? 'hover:bg-red-50/30' : 'hover:bg-slate-50/60'
+                                  } ${isExpanded ? 'bg-slate-50/60' : ''}`}
+                                >
+                                  <td className="py-3 pr-4">
+                                    <p className="font-semibold text-slate-800 text-xs">{log.destinatario}</p>
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <p className="text-xs font-semibold text-slate-600">{log.assunto || '—'}</p>
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <StatusBadge status={log.status} erro={log.erro} />
+                                    {isErro && log.erro && (
+                                      <p className="text-[10px] text-red-400 mt-0.5 max-w-[160px] truncate" title={log.erro}>{log.erro}</p>
+                                    )}
+                                  </td>
+                                  <td className="py-3 pr-4">
+                                    <p className="text-xs text-slate-400 font-medium whitespace-nowrap">{timeStr}</p>
+                                  </td>
+                                  <td className="py-3 text-slate-300">
+                                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                  </td>
+                                </tr>
+                                {isExpanded && (
+                                  <tr key={log.id + '_detail'} className="bg-slate-50/80">
+                                    <td colSpan={5} className="pb-4 pt-2 px-4">
+                                      <div className="bg-[#E5DDD5] rounded-xl p-4 relative overflow-hidden">
+                                        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#000_1px,transparent_1px)] [background-size:12px_12px]" />
+                                        <div className="max-w-lg relative z-10">
+                                          <div className="bg-white rounded-xl rounded-tl-none shadow-sm p-3 border border-[#c1d9b7]/30">
+                                            <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{log.mensagem}</p>
+                                            <div className="flex items-center justify-end gap-1 text-[9px] text-slate-400 mt-2 font-medium">
+                                              <span>{timeStr}</span>
+                                              {log.status === 'lido' && <span className="text-[#53BDEB] font-bold">✓✓</span>}
+                                              {log.status === 'entregue' && <span className="text-slate-400 font-bold">✓✓</span>}
+                                              {log.status === 'enviado' && <span className="text-slate-400 font-bold">✓</span>}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
 
-                          return (
-                            <tr key={log.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                              <td className="py-3 pr-4 font-medium text-slate-700">{log.destinatario}</td>
-                              <td className="py-3 pr-4 text-slate-500 font-semibold text-xs">{log.assunto || 'Sem Assunto'}</td>
-                              <td className="py-3 pr-4 text-slate-600 max-w-[340px] truncate" title={log.mensagem}>
-                                {log.mensagem}
-                              </td>
-                              <td className="py-3 pr-4">
-                                {log.status === 'lido' && (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200">
-                                    Lido ✓✓
-                                  </span>
-                                )}
-                                {log.status === 'entregue' && (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                    Entregue ✓✓
-                                  </span>
-                                )}
-                                {log.status === 'enviado' && (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-50 text-slate-600 border border-slate-200">
-                                    Enviado ✓
-                                  </span>
-                                )}
-                                {log.status === 'erro' && (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200" title={log.erro || ''}>
-                                    Erro ⚠️
-                                  </span>
-                                )}
-                                {log.status === 'pendente' && (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-yellow-50 text-yellow-700 border border-yellow-200">
-                                    Fila ⏳
-                                  </span>
-                                )}
-                              </td>
-                              <td className="py-3 text-slate-400 text-xs font-medium whitespace-nowrap">{timeStr}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                    {/* Paginação */}
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                      <p className="text-xs text-slate-400">
+                        {histPage * 20 + 1}–{Math.min((histPage + 1) * 20, histTotal)} de {histTotal} registros
+                      </p>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" disabled={histPage === 0} onClick={() => setHistPage(p => p - 1)} className="rounded-lg text-xs">
+                          ← Anterior
+                        </Button>
+                        <Button variant="outline" size="sm" disabled={(histPage + 1) * 20 >= histTotal} onClick={() => setHistPage(p => p + 1)} className="rounded-lg text-xs">
+                          Próximo →
+                        </Button>
+                      </div>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* TAB 2: TRIGGER & TEMPLATES */}
-          <TabsContent value="automacoes" className="mt-6 space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-220px)] items-stretch">
-              
-              {/* Menu lateral de Triggers */}
-              <div className="lg:col-span-3 bg-white border border-slate-200 rounded-xl p-2.5 flex flex-col gap-1.5 overflow-y-auto">
-                <div className="px-3 py-2 border-b border-slate-100 mb-2">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Gatilhos de Envio</p>
+          {/* ═══════════════════════════════════════════
+              TAB 3: AUTOMAÇÕES
+          ═══════════════════════════════════════════ */}
+          <TabsContent value="automacoes" className="mt-5 space-y-5">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-[600px] items-start">
+
+              {/* Sidebar de triggers */}
+              <div className="lg:col-span-3 bg-white border border-slate-200 rounded-xl p-2.5 flex flex-col gap-1.5 sticky top-4">
+                <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Gatilhos Automáticos</p>
                 </div>
                 {Object.entries(FLOW_DETAILS).map(([key, details]) => {
                   const Icon = details.icone
                   const isSelected = activeTrigger === key
                   const isActive = (settings[key as TriggerKey] as TriggerConfig)?.ativo ?? false
-
                   return (
-                    <button
-                      key={key}
-                      onClick={() => setActiveTrigger(key as TriggerKey)}
-                      className={`w-full text-left p-3 rounded-lg flex items-start gap-3 transition-all ${
-                        isSelected 
-                          ? 'bg-[#EDF4FE] text-[#1E5AA8] border border-[#1E5AA8]/20 shadow-sm'
-                          : 'text-slate-600 hover:bg-slate-50 border border-transparent'
-                      }`}
-                    >
-                      <div className={`p-1.5 rounded-lg border ${details.cor} flex-shrink-0 mt-0.5`}>
-                        <Icon size={16} />
-                      </div>
+                    <button key={key} onClick={() => setActiveTrigger(key as TriggerKey)}
+                      className={`w-full text-left p-3 rounded-lg flex items-start gap-2.5 transition-all ${isSelected ? 'bg-[#EDF4FE] border border-[#1E5AA8]/20 shadow-sm' : 'hover:bg-slate-50 border border-transparent'}`}>
+                      <div className={`p-1.5 rounded-lg border ${details.cor} flex-shrink-0 mt-0.5`}><Icon size={15} /></div>
                       <div className="flex-1 min-w-0 text-xs">
-                        <div className="flex items-center justify-between gap-1.5">
-                          <p className="font-semibold truncate leading-tight">{details.titulo}</p>
-                          <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-500' : 'bg-slate-300'} flex-shrink-0`} />
+                        <div className="flex items-center justify-between gap-1">
+                          <p className={`font-semibold truncate leading-tight ${isSelected ? 'text-[#1E5AA8]' : 'text-slate-700'}`}>{details.titulo}</p>
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-green-500' : 'bg-slate-300'}`} />
                         </div>
-                        <p className="text-slate-400 truncate mt-1">{isActive ? 'Ativo' : 'Desativado'}</p>
+                        <p className="text-slate-400 mt-0.5">{isActive ? 'Ativo' : 'Desativado'}</p>
                       </div>
                     </button>
                   )
                 })}
 
-                <div className="mt-auto border-t border-slate-100 pt-4 p-2">
-                  <Button 
-                    onClick={salvarSettings}
-                    disabled={savingSettings || dbMigrationError}
-                    className="w-full bg-[#1E5AA8] hover:bg-[#154687] text-white text-xs font-semibold py-2.5 rounded-lg flex gap-1.5 items-center justify-center shadow-sm"
-                  >
-                    {savingSettings ? <Loader2 className="animate-spin" size={12} /> : null}
-                    Salvar Alterações
+                <div className="mt-3 pt-3 border-t border-slate-100 px-1">
+                  <Button onClick={salvarSettings} disabled={savingSettings} className="w-full bg-[#1E5AA8] hover:bg-[#154687] text-white text-xs font-semibold py-2.5 rounded-lg">
+                    {savingSettings && <Loader2 className="animate-spin mr-1.5" size={12} />}Salvar Tudo
                   </Button>
                 </div>
               </div>
 
-              {/* Editor de Mensagem e Preview */}
-              <div className="lg:col-span-9 flex flex-col gap-4 overflow-y-auto pr-1">
-                
-                {/* Chave PIX para cobranças */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center gap-4 shadow-sm">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="p-2 bg-green-50 border border-green-100 rounded-lg text-green-600 shrink-0">
-                      <Send size={18} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-bold text-slate-800">Chave PIX para Cobranças</h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Aparece como <code className="font-mono bg-slate-100 px-1 rounded">{'{{whatsapp_padrao}}'}</code> em todas as mensagens.</p>
-                    </div>
-                  </div>
-                  <input
-                    value={pixChave}
-                    onChange={e => setPixChave(e.target.value)}
-                    placeholder="CPF, CNPJ, e-mail, celular ou chave aleatória"
-                    className="flex-1 min-w-[220px] h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E5AA8]/30"
-                  />
-                </div>
+              {/* Área de edição */}
+              <div className="lg:col-span-9 flex flex-col gap-4">
 
-                {/* Horário Global de Envio de Cobrança */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between gap-4 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-50 border border-blue-100 rounded-lg text-blue-600">
-                      <Clock size={20} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-800">Horário de Envio das Cobranças</h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Define o horário de disparo diário para os lembretes automáticos e cobranças (Fuso Horário de Brasília).</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Select 
-                      value={settings.hora_envio || '09:00'} 
-                      onValueChange={(val) => setSettings(prev => ({ ...prev, hora_envio: val }))}
-                    >
-                      <SelectTrigger className="w-[120px] rounded-lg">
-                        <SelectValue placeholder="09:00" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 17 }).map((_, i) => {
-                          const hour = String(i + 6).padStart(2, '0') + ':00'
-                          return (
-                            <SelectItem key={hour} value={hour}>
-                              {hour}
-                            </SelectItem>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                {/* Config global de cobranças */}
+                <Card className="border-slate-200 shadow-sm rounded-xl">
+                  <CardContent className="pt-4 pb-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Chave PIX */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-bold text-slate-600">Chave PIX para Cobranças</Label>
+                        <input value={pixChave} onChange={e => setPixChave(e.target.value)}
+                          placeholder="CPF, CNPJ, e-mail ou chave aleatória"
+                          className="w-full h-9 rounded-lg border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E5AA8]/30" />
+                        <p className="text-[10px] text-slate-400">Aparece como <code className="font-mono bg-slate-100 px-1 rounded">{'{{whatsapp_padrao}}'}</code></p>
+                      </div>
 
-                {/* Header do gatilho */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="font-bold text-slate-800 text-base">{FLOW_DETAILS[activeTrigger].titulo}</h3>
-                    <p className="text-xs text-slate-400 mt-1">{FLOW_DETAILS[activeTrigger].descricao}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Label htmlFor="trigger_active" className="text-xs font-semibold text-slate-600">Status do Envio:</Label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400">{settings[activeTrigger]?.ativo ? 'Enviando' : 'Inativo'}</span>
-                      <Switch 
-                        id="trigger_active"
-                        checked={settings[activeTrigger]?.ativo ?? false}
-                        onCheckedChange={(checked) => handleUpdateTrigger(activeTrigger, 'ativo', checked)}
-                      />
-                    </div>
-                  </div>
-                </div>
+                      {/* Horário */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                          <Clock size={12} />Horário de Disparo Diário
+                        </Label>
+                        <Select value={settings.hora_envio || '09:00'} onValueChange={(val) => setSettings(prev => ({ ...prev, hora_envio: val }))}>
+                          <SelectTrigger className="rounded-lg h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 17 }).map((_, i) => {
+                              const h = String(i + 6).padStart(2, '0') + ':00'
+                              return <SelectItem key={h} value={h}>{h}</SelectItem>
+                            })}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] text-slate-400">Fuso horário de Brasília.</p>
+                      </div>
 
-                {/* Bloco de parametrização dinâmica (dias_antes) */}
-                {activeTrigger === 'lembrete_pre_vencimento' && (
-                  <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4 flex items-center gap-3">
-                    <Clock className="text-amber-500" size={18} />
-                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                      <span>Enviar lembrete de vencimento</span>
-                      <Input 
-                        type="number"
-                        min={1}
-                        max={30}
-                        value={settings.lembrete_pre_vencimento.dias_antes ?? 3}
-                        onChange={(e) => handleUpdateTrigger('lembrete_pre_vencimento', 'dias_antes', parseInt(e.target.value) || 3)}
-                        className="w-16 h-8 text-center px-1 rounded-lg"
-                      />
-                      <span>dias antes do vencimento da parcela.</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Editor do Template */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-4">
-                  <div>
-                    <Label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 block">
-                      Variáveis Dinâmicas (Clique para inserir)
-                    </Label>
-                    <div className="flex flex-wrap gap-2">
-                      {FLOW_DETAILS[activeTrigger].variaveis.map((v) => (
-                        <button
-                          key={v}
-                          onClick={() => insereVariavel(v)}
-                          className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-slate-50 border border-slate-200 text-slate-600 hover:bg-[#EDF4FE] hover:text-[#1E5AA8] hover:border-[#1E5AA8]/20 transition-all cursor-pointer"
-                        >
-                          {`{{${v}}}`}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="template_text" className="text-xs font-bold text-slate-700">Mensagem Template</Label>
-                    <Textarea 
-                      id="template_text"
-                      ref={textareaRef}
-                      rows={6}
-                      value={settings[activeTrigger]?.template ?? ''}
-                      onChange={(e) => handleUpdateTrigger(activeTrigger, 'template', e.target.value)}
-                      placeholder="Construa sua mensagem..."
-                      className="font-mono text-sm leading-relaxed rounded-xl focus:ring-[#1E5AA8]"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-400 font-medium">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateTrigger(activeTrigger, 'template', DEFAULT_SETTINGS[activeTrigger].template)}
-                        className="flex items-center gap-1 hover:text-[#1E5AA8] transition-colors"
-                      >
-                        <RefreshCw size={10} />
-                        Restaurar template padrão
-                      </button>
-                      <span>{(settings[activeTrigger]?.template ?? '').length} caracteres</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Live Preview de WhatsApp */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Eye size={15} className="text-[#1E5AA8]" />
-                    <Label className="text-xs font-bold text-slate-700">Live Preview no WhatsApp</Label>
-                    <span className="text-[10px] text-slate-400">(Dados de simulação real)</span>
-                  </div>
-
-                  <div className="bg-[#E5DDD5] rounded-xl p-4 md:p-6 border border-slate-300 relative overflow-hidden flex flex-col justify-end min-h-[160px]">
-                    <div className="absolute inset-0 opacity-15 bg-[radial-gradient(#000_1px,transparent_1px)] [background-size:16px_16px]" />
-                    
-                    <div className="max-w-md relative z-10">
-                      <div className="bg-white rounded-xl rounded-tl-none shadow-md p-3.5 border border-[#c1d9b7]/30">
-                        
-                        {/* Se for trigger assinado, simula um box de anexo de documento PDF */}
-                        {activeTrigger === 'contrato_assinado' && (
-                          <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 mb-2.5 flex items-center gap-3">
-                            <div className="w-10 h-10 bg-red-100 text-red-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                              <FileText size={20} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold text-slate-700 truncate">contrato_assinado_FAC-2026-8947.pdf</p>
-                              <p className="text-[10px] text-slate-400 mt-0.5">Documento PDF • 256 KB</p>
-                            </div>
+                      {/* Config de cobrança pós-vencimento */}
+                      <div className="space-y-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                            <AlertOctagon size={12} className="text-red-500" />Cobrança Pós-Vencimento
+                          </Label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500 whitespace-nowrap">Máximo</span>
+                            <Input type="number" min={1} max={365} value={settings.max_dias_atraso ?? 60}
+                              onChange={(e) => setSettings(prev => ({ ...prev, max_dias_atraso: parseInt(e.target.value) || 60 }))}
+                              className="w-20 h-8 text-sm rounded-lg text-center" />
+                            <span className="text-xs text-slate-500 whitespace-nowrap">dias de atraso</span>
                           </div>
-                        )}
-
-                        <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
-                          {renderPreview() || "Digite um template acima para visualizar..."}
-                        </p>
-                        <div className="flex items-center justify-end gap-1 text-[9px] text-slate-400 mt-2 font-medium">
-                          <span>{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                          <span className="text-green-500 font-bold">✓✓</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500 whitespace-nowrap">A cada</span>
+                            <Select value={String(settings.frequencia_cobranca ?? 1)}
+                              onValueChange={(v) => setSettings(prev => ({ ...prev, frequencia_cobranca: parseInt(v ?? '1') }))}>
+                              <SelectTrigger className="w-20 h-8 rounded-lg text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {[1, 2, 3, 5, 7].map(d => <SelectItem key={d} value={String(d)}>{d} dia{d > 1 ? 's' : ''}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                            <span className="text-xs text-slate-500">após vencimento</span>
+                          </div>
                         </div>
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* Header do trigger selecionado */}
+                <Card className="border-slate-200 shadow-sm rounded-xl">
+                  <CardContent className="pt-4 pb-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-sm">{FLOW_DETAILS[activeTrigger].titulo}</h3>
+                        <p className="text-xs text-slate-400 mt-0.5 max-w-md">{FLOW_DETAILS[activeTrigger].descricao}</p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-xs text-slate-400">{settings[activeTrigger]?.ativo ? 'Ativo' : 'Desativado'}</span>
+                        <Switch checked={settings[activeTrigger]?.ativo ?? false}
+                          onCheckedChange={(v) => handleUpdateTrigger(activeTrigger, 'ativo', v)} />
+                      </div>
+                    </div>
+                    {activeTrigger === 'lembrete_pre_vencimento' && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs font-semibold text-slate-600">
+                        <Clock className="text-amber-500" size={14} />
+                        Enviar lembrete
+                        <Input type="number" min={1} max={30}
+                          value={settings.lembrete_pre_vencimento.dias_antes ?? 3}
+                          onChange={(e) => handleUpdateTrigger('lembrete_pre_vencimento', 'dias_antes', parseInt(e.target.value) || 3)}
+                          className="w-16 h-7 text-center px-1 rounded-lg text-sm" />
+                        dias antes do vencimento
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Editor + Preview side by side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Editor */}
+                  <div className="space-y-3">
+                    <Card className="border-slate-200 shadow-sm rounded-xl">
+                      <CardContent className="pt-4 space-y-3">
+                        <div>
+                          <Label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">
+                            Variáveis disponíveis
+                          </Label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {FLOW_DETAILS[activeTrigger].variaveis.map((v) => (
+                              <button key={v} onClick={() => insereVariavel(v)}
+                                className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-slate-50 border border-slate-200 text-slate-600 hover:bg-[#EDF4FE] hover:text-[#1E5AA8] hover:border-[#1E5AA8]/20 transition-all">
+                                {`{{${v}}}`}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs font-bold text-slate-700">Mensagem Template</Label>
+                          <Textarea ref={textareaRef} rows={12}
+                            value={settings[activeTrigger]?.template ?? ''}
+                            onChange={(e) => handleUpdateTrigger(activeTrigger, 'template', e.target.value)}
+                            className="font-mono text-xs leading-relaxed rounded-xl focus:ring-[#1E5AA8] resize-none" />
+                          <div className="flex justify-between text-[10px] text-slate-400 pt-0.5">
+                            <button onClick={() => handleUpdateTrigger(activeTrigger, 'template', DEFAULT_SETTINGS[activeTrigger].template)}
+                              className="flex items-center gap-1 hover:text-[#1E5AA8] transition-colors">
+                              <RefreshCw size={10} />Restaurar padrão
+                            </button>
+                            <span>{(settings[activeTrigger]?.template ?? '').length} chars</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Preview */}
+                  <div className="space-y-3">
+                    <Card className="border-slate-200 shadow-sm rounded-xl h-full">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-slate-700 text-sm flex items-center gap-2">
+                          <Eye size={14} className="text-[#1E5AA8]" />Preview do WhatsApp
+                          <span className="text-[10px] text-slate-400 font-normal">(dados simulados)</span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {/* WhatsApp header */}
+                        <div className="bg-[#075E54] rounded-t-xl px-4 py-2.5 flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                            {empresaAtual?.nome?.[0] ?? 'S'}
+                          </div>
+                          <div>
+                            <p className="text-white text-xs font-semibold">{empresaAtual?.nome ?? 'SRS M Factoring'}</p>
+                            <p className="text-white/70 text-[10px]">online</p>
+                          </div>
+                        </div>
+                        <div className="bg-[#E5DDD5] rounded-b-xl p-4 relative overflow-hidden min-h-[280px] flex flex-col justify-end">
+                          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#000_1px,transparent_1px)] [background-size:14px_14px]" />
+                          <div className="relative z-10">
+                            {activeTrigger === 'contrato_assinado' && (
+                              <div className="bg-white rounded-xl rounded-tl-none shadow-sm p-2.5 mb-2 flex items-center gap-3 border border-slate-100">
+                                <div className="w-9 h-9 bg-red-100 text-red-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                                  <FileText size={18} />
+                                </div>
+                                <div>
+                                  <p className="text-[11px] font-bold text-slate-700">contrato_assinado_FAC-2026.pdf</p>
+                                  <p className="text-[9px] text-slate-400">Documento PDF • 256 KB</p>
+                                </div>
+                              </div>
+                            )}
+                            <div className="bg-white rounded-xl rounded-tl-none shadow-sm p-3 border border-[#c1d9b7]/30">
+                              <p className="text-xs text-slate-800 whitespace-pre-wrap leading-relaxed">
+                                {renderPreview() || 'Digite o template ao lado para visualizar...'}
+                              </p>
+                              <div className="flex items-center justify-end gap-1 text-[9px] text-slate-400 mt-2 font-medium">
+                                <span>{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                <span className="text-[#53BDEB] font-bold">✓✓</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
                 </div>
-
               </div>
             </div>
           </TabsContent>
