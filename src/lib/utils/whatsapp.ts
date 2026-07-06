@@ -30,6 +30,22 @@ export const TEMPLATE_MAP = {
 
 export type TriggerKey = keyof typeof TEMPLATE_MAP
 
+// Fallback text usado quando o template ainda está "Em análise" na Meta.
+// Só funciona se houver janela de 24h aberta com o destinatário.
+// Remove-se automaticamente assim que os templates forem aprovados (template terá prioridade).
+const TEMPLATE_FALLBACK: Record<TriggerKey, (v: Record<string, string>) => string> = {
+  contrato_criado: (v) =>
+    `Olá ${v.nome}! Seu contrato *${v.numero_contrato}* no valor de *${v.valor_principal}* foi gerado e aguarda assinatura digital.\n\nAcesse o link seguro para assinar:\n${v.link_assinatura}\n\nVocê precisará de foto do documento e selfie para biometria.`,
+  contrato_assinado: (v) =>
+    `Olá ${v.nome}! ✅ Seu contrato *${v.numero_contrato}* foi assinado com sucesso!\n\nAcesse seu contrato assinado:\n${v.link_contrato}`,
+  lembrete_pre_vencimento: (v) =>
+    `Olá ${v.nome}! Lembrete: a parcela *${v.numero_parcela}/${v.total_parcelas}* do contrato *${v.numero_contrato}* vence em *${v.dias_antes} dia(s)* (${v.data_vencimento}).\n\nValor: *${v.valor}*\nPIX: ${v.whatsapp_padrao}`,
+  lembrete_vencimento: (v) =>
+    `Olá ${v.nome}! ⚠️ A parcela *${v.numero_parcela}/${v.total_parcelas}* do contrato *${v.numero_contrato}* vence *HOJE*.\n\nValor: *${v.valor}*\nPague via PIX: ${v.whatsapp_padrao}`,
+  cobranca_pos_vencimento: (v) =>
+    `Olá ${v.nome}! A parcela *${v.numero_parcela}/${v.total_parcelas}* do contrato *${v.numero_contrato}* venceu em ${v.data_vencimento} (${v.dias_atraso} dia(s) de atraso).\n\nValor total: *${v.valor_total}*\nRegularize via PIX: ${v.whatsapp_padrao}`,
+}
+
 function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -159,13 +175,31 @@ export async function enviarTemplate(
 
     if (!res.ok) {
       const err = await res.text()
+      let errCode: number | undefined
+      let errMsg = err
       try {
         const errJson = JSON.parse(err)
-        const msg = errJson?.error?.message ?? err
-        return { ok: false, erro: `Meta API (template): ${msg}` }
-      } catch {
-        return { ok: false, erro: `Meta API HTTP ${res.status}` }
+        errCode = errJson?.error?.code
+        errMsg = errJson?.error?.message ?? err
+      } catch { /* não é JSON */ }
+
+      // Códigos Meta para template não aprovado / em análise → tenta mensagem livre
+      const templatePendente = errCode === 132000 || errCode === 132001 || errCode === 132015 ||
+        errMsg.toLowerCase().includes('template') && (
+          errMsg.toLowerCase().includes('not approved') ||
+          errMsg.toLowerCase().includes('does not exist') ||
+          errMsg.toLowerCase().includes('pending') ||
+          errMsg.toLowerCase().includes('in review')
+        )
+
+      if (templatePendente) {
+        const fallbackFn = TEMPLATE_FALLBACK[triggerKey]
+        if (fallbackFn) {
+          return enviarMensagem(telefone, fallbackFn(variaveis))
+        }
       }
+
+      return { ok: false, erro: `Meta API (template): ${errMsg}` }
     }
 
     const data = await res.json()
