@@ -417,15 +417,8 @@ export default function NovoEmprestimoPage() {
                 template: "Olá, {{nome}}! O seu contrato de empréstimo {{numero_contrato}} no valor de {{valor_principal}} foi criado e está pronto para assinatura. Por favor, acesse o link a seguir para assinar digitalmente: {{link_assinatura}}"
               }
 
-              if (trigger.ativo) {
+              if (trigger.ativo && fullCliente.telefone) {
                 const linkAssinatura = `${window.location.origin}/assinar/${empId}`
-                const msgTexto = trigger.template
-                  .replace(/\{\{\s*nome\s*\}\}/g, fullCliente.nome)
-                  .replace(/\{\{\s*numero_contrato\s*\}\}/g, numero_contrato)
-                  .replace(/\{\{\s*valor_principal\s*\}\}/g, formatarMoeda(valorNum))
-                  .replace(/\{\{\s*link_assinatura\s*\}\}/g, linkAssinatura)
-
-                // Envia a mensagem imediatamente por chamada de API
                 try {
                   const sendRes = await fetch('/api/whatsapp/enviar', {
                     method: 'POST',
@@ -433,7 +426,13 @@ export default function NovoEmprestimoPage() {
                     body: JSON.stringify({
                       empresa_id: empresaAtual.id,
                       destinatario: fullCliente.telefone,
-                      mensagem: msgTexto,
+                      triggerKey: 'contrato_criado',
+                      variaveis: {
+                        nome: fullCliente.nome,
+                        numero_contrato,
+                        valor_principal: formatarMoeda(valorNum),
+                        link_assinatura: linkAssinatura,
+                      },
                       assunto: `Link de Assinatura — ${numero_contrato}`,
                       referencia_tipo: 'emprestimo',
                       referencia_id: empId,
@@ -441,10 +440,10 @@ export default function NovoEmprestimoPage() {
                   })
                   if (!sendRes.ok) {
                     const sendErr = await sendRes.json()
-                    console.error('Falha no envio imediato do link de assinatura:', sendErr.erro)
+                    console.error('Falha no envio do template contrato_criado:', sendErr.erro)
                   }
                 } catch (sendErr) {
-                  console.error('Erro de rede ao enviar link de assinatura imediato:', sendErr)
+                  console.error('Erro de rede ao enviar template de assinatura:', sendErr)
                 }
               }
             }

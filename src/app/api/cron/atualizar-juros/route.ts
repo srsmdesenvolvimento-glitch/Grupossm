@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { enviarTemplate } from '@/lib/utils/whatsapp'
 
 function formatarMoeda(val: number): string {
   return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -147,35 +148,38 @@ export async function GET(request: NextRequest) {
           !idsEnviadosHoje.has(p.id)
 
         if (deveEnviarMensagem && cliente && cliente.telefone) {
-          const defaultCobranca = `Prezado(a) {{nome}}, consta em nosso sistema que a sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} está em atraso há {{dias_atraso}} dias. O valor de {{valor}} foi atualizado para {{valor_total}} (multa de {{multa}} e juros de {{juros_mora}}). Favor regularizar via PIX: {{whatsapp_padrao}}.`
-          const template = cobranca.template || defaultCobranca
-          
-          const msgTexto = template
-            .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
-            .replace(/\{\{\s*numero_parcela\s*\}\}/g, String(p.numero_parcela))
-            .replace(/\{\{\s*total_parcelas\s*\}\}/g, String(p.total_parcelas))
-            .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo?.numero_contrato ?? '')
-            .replace(/\{\{\s*dias_atraso\s*\}\}/g, String(dias))
-            .replace(/\{\{\s*valor\s*\}\}/g, formatarMoeda(Number(p.valor)))
-            .replace(/\{\{\s*multa\s*\}\}/g, formatarMoeda(novaMulta))
-            .replace(/\{\{\s*juros_mora\s*\}\}/g, formatarMoeda(novosJuros))
-            .replace(/\{\{\s*valor_total\s*\}\}/g, formatarMoeda(valorTotalComEncargos))
-            .replace(/\{\{\s*whatsapp_padrao\s*\}\}/g, cfg.whatsapp_padrao)
-
+          const result = await enviarTemplate(
+            cliente.telefone,
+            'cobranca_pos_vencimento',
+            {
+              nome: cliente.nome,
+              numero_contrato: emprestimo?.numero_contrato ?? '',
+              numero_parcela: String(p.numero_parcela),
+              total_parcelas: String(p.total_parcelas),
+              data_vencimento: formatarDataBR(p.data_vencimento),
+              dias_atraso: String(dias),
+              valor_total: formatarMoeda(valorTotalComEncargos),
+              whatsapp_padrao: cfg.whatsapp_padrao,
+            },
+            p.empresa_id,
+          )
           const { error: notifCobrancaError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
             assunto: `Cobrança de Atraso - Contrato ${emprestimo?.numero_contrato ?? ''}`,
-            mensagem: msgTexto,
+            mensagem: `Template srsm2_cobranca_atraso — parcela ${p.numero_parcela}/${p.total_parcelas} em atraso ${dias}d`,
             referencia_tipo: 'parcela',
             referencia_id: p.id,
-            status: 'pendente',
+            status: result.ok ? 'enviado' : 'erro',
+            erro: result.ok ? null : (result.erro ?? 'Falha no template'),
+            whatsapp_message_id: result.ok ? (result.messageId ?? null) : null,
+            enviado_em: result.ok ? new Date().toISOString() : null,
           })
           if (notifCobrancaError) {
-            console.error('Falha ao enfileirar notificação de cobrança:', notifCobrancaError.message)
+            console.error('Falha ao registrar notificação de cobrança:', notifCobrancaError.message)
           } else {
-            idsEnviadosHoje.add(p.id) // Registra no cache local
+            idsEnviadosHoje.add(p.id)
           }
         }
       })
@@ -214,30 +218,34 @@ export async function GET(request: NextRequest) {
           !idsEnviadosHoje.has(p.id)
 
         if (deveEnviarMensagem && cliente && cliente.telefone) {
-          const defaultVencHoje = `Atenção, {{nome}}! Sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} vence HOJE ({{data_vencimento}}) no valor de {{valor}}. Chave PIX de pagamento: {{whatsapp_padrao}}. Favor desconsiderar caso já pago.`
-          const template = venc.template || defaultVencHoje
-
-          const msgTexto = template
-            .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
-            .replace(/\{\{\s*numero_parcela\s*\}\}/g, String(p.numero_parcela))
-            .replace(/\{\{\s*total_parcelas\s*\}\}/g, String(p.total_parcelas))
-            .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo?.numero_contrato ?? '')
-            .replace(/\{\{\s*data_vencimento\s*\}\}/g, formatarDataBR(p.data_vencimento))
-            .replace(/\{\{\s*valor\s*\}\}/g, formatarMoeda(Number(p.valor)))
-            .replace(/\{\{\s*whatsapp_padrao\s*\}\}/g, cfg.whatsapp_padrao)
-
+          const result = await enviarTemplate(
+            cliente.telefone,
+            'lembrete_vencimento',
+            {
+              nome: cliente.nome,
+              numero_parcela: String(p.numero_parcela),
+              total_parcelas: String(p.total_parcelas),
+              numero_contrato: emprestimo?.numero_contrato ?? '',
+              valor: formatarMoeda(Number(p.valor)),
+              whatsapp_padrao: cfg.whatsapp_padrao,
+            },
+            p.empresa_id,
+          )
           const { error: notifHojeError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
             assunto: `Aviso de Vencimento Hoje - Parcela ${p.numero_parcela}`,
-            mensagem: msgTexto,
+            mensagem: `Template srsm2_vencimento_hoje — parcela ${p.numero_parcela}/${p.total_parcelas} vence hoje`,
             referencia_tipo: 'parcela',
             referencia_id: p.id,
-            status: 'pendente',
+            status: result.ok ? 'enviado' : 'erro',
+            erro: result.ok ? null : (result.erro ?? 'Falha no template'),
+            whatsapp_message_id: result.ok ? (result.messageId ?? null) : null,
+            enviado_em: result.ok ? new Date().toISOString() : null,
           })
           if (notifHojeError) {
-            console.error('Falha ao enfileirar notificação de vencimento hoje:', notifHojeError.message)
+            console.error('Falha ao registrar notificação de vencimento hoje:', notifHojeError.message)
           } else {
             idsEnviadosHoje.add(p.id)
           }
@@ -288,31 +296,36 @@ export async function GET(request: NextRequest) {
           const deveEnviarMensagem = !idsEnviadosHoje.has(p.id)
 
           if (deveEnviarMensagem && cliente && cliente.telefone) {
-            const defaultPreVenc = `Olá, {{nome}}! Passando para lembrar que sua parcela {{numero_parcela}}/{{total_parcelas}} do contrato {{numero_contrato}} vence em {{dias_antes}} dias ({{data_vencimento}}) no valor de {{valor}}. Chave PIX: {{whatsapp_padrao}}.`
-            const template = preVenc.template || defaultPreVenc
-
-            const msgTexto = template
-              .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
-              .replace(/\{\{\s*numero_parcela\s*\}\}/g, String(p.numero_parcela))
-              .replace(/\{\{\s*total_parcelas\s*\}\}/g, String(p.total_parcelas))
-              .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo?.numero_contrato ?? '')
-              .replace(/\{\{\s*dias_antes\s*\}\}/g, String(days))
-              .replace(/\{\{\s*data_vencimento\s*\}\}/g, formatarDataBR(p.data_vencimento))
-              .replace(/\{\{\s*valor\s*\}\}/g, formatarMoeda(Number(p.valor)))
-              .replace(/\{\{\s*whatsapp_padrao\s*\}\}/g, cfg.whatsapp_padrao)
-
+            const result = await enviarTemplate(
+              cliente.telefone,
+              'lembrete_pre_vencimento',
+              {
+                nome: cliente.nome,
+                numero_parcela: String(p.numero_parcela),
+                total_parcelas: String(p.total_parcelas),
+                numero_contrato: emprestimo?.numero_contrato ?? '',
+                dias_antes: String(days),
+                data_vencimento: formatarDataBR(p.data_vencimento),
+                valor: formatarMoeda(Number(p.valor)),
+                whatsapp_padrao: cfg.whatsapp_padrao,
+              },
+              p.empresa_id,
+            )
             const { error: notifTresDiasError } = await supabase.from('notificacoes_log').insert({
               empresa_id: p.empresa_id,
               canal: 'whatsapp',
               destinatario: cliente.telefone,
               assunto: `Aviso de Vencimento em ${days} Dias - Parcela ${p.numero_parcela}`,
-              mensagem: msgTexto,
+              mensagem: `Template srsm2_lembrete_vencimento — parcela ${p.numero_parcela}/${p.total_parcelas} vence em ${days}d`,
               referencia_tipo: 'parcela',
               referencia_id: p.id,
-              status: 'pendente',
+              status: result.ok ? 'enviado' : 'erro',
+              erro: result.ok ? null : (result.erro ?? 'Falha no template'),
+              whatsapp_message_id: result.ok ? (result.messageId ?? null) : null,
+              enviado_em: result.ok ? new Date().toISOString() : null,
             })
             if (notifTresDiasError) {
-              console.error('Falha ao enfileirar notificação de pré-vencimento:', notifTresDiasError.message)
+              console.error('Falha ao registrar notificação de pré-vencimento:', notifTresDiasError.message)
             } else {
               idsEnviadosHoje.add(p.id)
             }

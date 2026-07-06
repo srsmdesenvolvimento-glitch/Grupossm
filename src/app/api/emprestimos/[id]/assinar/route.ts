@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { gerarContratoComAssinaturaPDF } from '@/lib/utils/documentos'
-import { enviarMensagem } from '@/lib/utils/whatsapp'
+import { enviarTemplate } from '@/lib/utils/whatsapp'
 
 export async function POST(
   request: NextRequest,
@@ -189,26 +189,29 @@ export async function POST(
 
       try {
         const wSettings = configFact.data?.whatsapp_settings as any
-        const trigger = wSettings?.contrato_assinado ?? {
-          ativo: true,
-          template: "Olá, {{nome}}! Seu contrato {{numero_contrato}} foi assinado digitalmente com sucesso. Segue em anexo a sua via do documento oficial com validade jurídica: {{link_contrato}}"
-        }
-        if (trigger.ativo) {
-          const msgTexto = trigger.template
-            .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
-            .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo.numero_contrato)
-            .replace(/\{\{\s*link_contrato\s*\}\}/g, finalPdfUrl)
-          const result = await enviarMensagem(cliente.telefone, msgTexto, emprestimo.empresa_id, true)
+        const ativo = wSettings?.contrato_assinado?.ativo ?? true
+        if (ativo && cliente.telefone) {
+          const result = await enviarTemplate(
+            cliente.telefone,
+            'contrato_assinado',
+            {
+              nome: cliente.nome,
+              numero_contrato: emprestimo.numero_contrato,
+              link_contrato: finalPdfUrl,
+            },
+            emprestimo.empresa_id,
+          )
+          const msgLog = `Contrato ${emprestimo.numero_contrato} assinado — template srsm2_contrato_assinado`
           await supabase.from('notificacoes_log').insert({
             empresa_id: emprestimo.empresa_id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
             assunto: `Contrato ${emprestimo.numero_contrato} Assinado Digitalmente`,
-            mensagem: msgTexto,
+            mensagem: msgLog,
             referencia_tipo: 'emprestimo',
             referencia_id: id,
             status: result.ok ? 'enviado' : 'erro',
-            erro: result.ok ? null : (result.erro || 'Falha ao enviar mensagem após assinatura.'),
+            erro: result.ok ? null : (result.erro || 'Falha ao enviar template pós-assinatura.'),
             whatsapp_message_id: result.ok ? (result.messageId || null) : null,
             enviado_em: result.ok ? new Date().toISOString() : null,
           })
