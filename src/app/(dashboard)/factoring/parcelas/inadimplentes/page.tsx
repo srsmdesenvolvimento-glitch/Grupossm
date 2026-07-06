@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle, MessageCircle, Eye, CreditCard, Gavel,
-  Users, DollarSign, Clock, Flame, Filter, RefreshCw, CheckCircle2
+  Users, DollarSign, Clock, Flame, Filter, RefreshCw, CheckCircle2, Loader2, Send
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
@@ -27,7 +27,7 @@ type ClienteInadimplente = {
   telefone: string
   score_interno: number
   status: 'ativo' | 'inativo' | 'bloqueado'
-  parcelas: ParcelaEmprestimo[]
+  parcelas: (ParcelaEmprestimo & { emprestimos?: { numero_contrato: string } | null })[]
   totalDevido: number
   maxDiasAtraso: number
   qtdParcelas: number
@@ -76,6 +76,8 @@ export default function InadimplentesPage() {
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<Filtro>('todos')
   const [bloqueando, setBloqueando] = useState<string | null>(null)
+  const [enviandoCobranca, setEnviandoCobranca] = useState<string | null>(null)
+  const [pixPadrao, setPixPadrao] = useState('financeiro@srsm.com.br')
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual) return
@@ -84,10 +86,10 @@ export default function InadimplentesPage() {
       const hoje = new Date()
       hoje.setHours(0, 0, 0, 0)
 
-      const [{ data: parcelasData }, { data: clientesData }] = await Promise.all([
+      const [{ data: parcelasData }, { data: clientesData }, { data: config }] = await Promise.all([
         supabase
           .from('parcelas_emprestimo')
-          .select('*')
+          .select('*, emprestimos(numero_contrato)')
           .eq('empresa_id', empresaAtual.id)
           .eq('status', 'atrasado')
           .order('data_vencimento', { ascending: true }),
@@ -95,7 +97,13 @@ export default function InadimplentesPage() {
           .from('clientes_factoring')
           .select('id, nome, cpf, telefone, score_interno, status')
           .eq('empresa_id', empresaAtual.id),
+        supabase
+          .from('config_factoring')
+          .select('whatsapp_padrao')
+          .eq('empresa_id', empresaAtual.id)
+          .maybeSingle(),
       ])
+      if (config?.whatsapp_padrao) setPixPadrao(config.whatsapp_padrao)
 
       const clienteMap: Record<string, { id: string; nome: string; cpf: string | null; telefone: string; score_interno: number; status: 'ativo' | 'inativo' | 'bloqueado' }> = {}
       for (const c of clientesData ?? []) clienteMap[c.id] = c
@@ -138,6 +146,51 @@ export default function InadimplentesPage() {
   }, [empresaAtual])
 
   useEffect(() => { carregarDados() }, [carregarDados])
+
+  function formatarDataBR(data: string) {
+    const p = data.split('-')
+    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : data
+  }
+
+  async function enviarCobrancaWhatsApp(c: ClienteInadimplente) {
+    if (!c.telefone || !empresaAtual) return
+    setEnviandoCobranca(c.id)
+    try {
+      const parcela = c.parcelas[0]
+      const res = await fetch('/api/whatsapp/enviar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empresa_id: empresaAtual.id,
+          destinatario: c.telefone,
+          triggerKey: 'cobranca_pos_vencimento',
+          variaveis: {
+            nome: c.nome.split(' ')[0],
+            numero_contrato: (parcela as any)?.emprestimos?.numero_contrato ?? `EMP-${parcela?.emprestimo_id?.slice(0,8)}`,
+            numero_parcela: String(parcela?.numero_parcela ?? 1),
+            total_parcelas: String(parcela?.total_parcelas ?? 1),
+            data_vencimento: formatarDataBR(parcela?.data_vencimento ?? ''),
+            dias_atraso: String(c.maxDiasAtraso),
+            valor_total: c.totalDevido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+            whatsapp_padrao: pixPadrao,
+          },
+          assunto: `Cobrança — ${c.qtdParcelas} parcela(s) em atraso`,
+          referencia_tipo: 'cliente',
+          referencia_id: c.id,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        toast.success(`Cobrança enviada para ${c.nome.split(' ')[0]}!`)
+      } else {
+        toast.error(data.erro || 'Falha ao enviar cobrança')
+      }
+    } catch {
+      toast.error('Erro de conexão ao enviar cobrança')
+    } finally {
+      setEnviandoCobranca(null)
+    }
+  }
 
   async function marcarBloqueado(clienteId: string) {
     setBloqueando(clienteId)
@@ -291,11 +344,8 @@ export default function InadimplentesPage() {
             {filtrados.map(c => {
                 const nivel = getNivel(c.maxDiasAtraso)
                 const nivelKey = getNivelKey(c.maxDiasAtraso)
-                const telefoneNum = c.telefone.replace(/\D/g, '')
-                const msgCobranca = encodeURIComponent(
-                  `Olá ${c.nome.split(' ')[0]}! Identificamos ${c.qtdParcelas} parcela(s) em atraso totalizando ${formatarMoeda(c.totalDevido)}. Entre em contato para regularizar. Estamos à disposição.`
-                )
                 const bloqueadoAgora = c.status === 'bloqueado'
+                const enviandoEste = enviandoCobranca === c.id
 
                 return (
                   <div
@@ -372,11 +422,11 @@ export default function InadimplentesPage() {
                           size="sm"
                           variant="outline"
                           className="flex-1 h-9.5 gap-1.5 text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/8 text-xs font-bold rounded-full transition-all duration-200"
-                          onClick={() => window.open(`https://wa.me/55${telefoneNum}?text=${msgCobranca}`, '_blank')}
-                          disabled={!telefoneNum}
+                          onClick={() => enviarCobrancaWhatsApp(c)}
+                          disabled={!c.telefone || enviandoEste || !!enviandoCobranca}
                         >
-                          <MessageCircle size={13} />
-                          Cobrar
+                          {enviandoEste ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                          {enviandoEste ? 'Enviando...' : 'Cobrar'}
                         </Button>
                         <Button
                           size="sm"

@@ -66,6 +66,7 @@ export default function EmprestimoDetalhePage() {
   const [processando, setProcessando] = useState(false)
   const [gerandoPDF, setGerandoPDF] = useState(false)
   const [enviandoWhatsApp, setEnviandoWhatsApp] = useState(false)
+  const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
 
   // Payment dialog
   const [pagarParcela, setPagarParcela] = useState<ParcelaEmprestimo | null>(null)
@@ -135,14 +136,33 @@ export default function EmprestimoDetalhePage() {
     })
   }
 
-  function handleWhatsAppRecibo(p: ParcelaEmprestimo) {
-    if (!cliente || !emprestimo) return
-    const tel = (cliente.telefone ?? '').replace(/\D/g, '')
-    const numero = tel.startsWith('55') ? tel : `55${tel}`
-    const formas: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque' }
-    const forma = formas[p.tipo_pagamento ?? ''] ?? 'PIX'
-    const msg = `Olá ${cliente.nome.split(' ')[0]}! Confirmamos o recebimento da parcela ${p.numero_parcela}/${p.total_parcelas} do contrato ${emprestimo.numero_contrato} no valor de ${(p.valor_pago ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} via ${forma} em ${new Date(p.data_pagamento + 'T12:00:00').toLocaleDateString('pt-BR')}. Obrigado!`
-    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(msg)}`, '_blank')
+  async function handleWhatsAppRecibo(p: ParcelaEmprestimo) {
+    if (!cliente || !emprestimo || !empresaAtual?.id || enviandoRecibo) return
+    setEnviandoRecibo(p.id)
+    try {
+      const formas: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque' }
+      const forma = formas[p.tipo_pagamento ?? ''] ?? 'PIX'
+      const msg = `Olá ${cliente.nome.split(' ')[0]}! Confirmamos o recebimento da parcela ${p.numero_parcela}/${p.total_parcelas} do contrato ${emprestimo.numero_contrato} no valor de ${(p.valor_pago ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} via ${forma} em ${new Date(p.data_pagamento + 'T12:00:00').toLocaleDateString('pt-BR')}. Obrigado!`
+      const res = await fetch('/api/whatsapp/enviar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empresa_id: empresaAtual.id,
+          destinatario: cliente.telefone,
+          mensagem: msg,
+          assunto: `Recibo parcela ${p.numero_parcela} — ${emprestimo.numero_contrato}`,
+          referencia_tipo: 'emprestimo',
+          referencia_id: id,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) toast.error(data.erro || 'Falha ao enviar comprovante.')
+      else toast.success('Comprovante enviado via WhatsApp!')
+    } catch {
+      toast.error('Erro de rede ao enviar comprovante.')
+    } finally {
+      setEnviandoRecibo(null)
+    }
   }
 
 
@@ -997,25 +1017,19 @@ export default function EmprestimoDetalhePage() {
             if (!cliente || !empresaAtual?.id || enviandoWhatsApp) return
             setEnviandoWhatsApp(true)
             try {
-              const wSettings = configFactoring?.whatsapp_settings as any
-              const trigger = wSettings?.contrato_criado
-              let msg: string
-              if (trigger?.ativo && trigger?.template) {
-                msg = trigger.template
-                  .replace(/\{\{\s*nome\s*\}\}/g, cliente.nome)
-                  .replace(/\{\{\s*numero_contrato\s*\}\}/g, emprestimo.numero_contrato)
-                  .replace(/\{\{\s*valor_principal\s*\}\}/g, formatarMoeda(emprestimo.valor_principal))
-                  .replace(/\{\{\s*link_assinatura\s*\}\}/g, linkAssinatura)
-              } else {
-                msg = `Olá, ${cliente.nome.split(' ')[0]}! Seu contrato ${emprestimo.numero_contrato} aguarda assinatura digital. Acesse o link seguro:\n\n🔗 ${linkAssinatura}\n\nVocê precisará foto do documento e selfie para biometria.`
-              }
               const res = await fetch('/api/whatsapp/enviar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   empresa_id: empresaAtual.id,
                   destinatario: cliente.telefone,
-                  mensagem: msg,
+                  triggerKey: 'contrato_criado',
+                  variaveis: {
+                    nome: cliente.nome.split(' ')[0],
+                    numero_contrato: emprestimo.numero_contrato,
+                    valor_principal: formatarMoeda(emprestimo.valor_principal),
+                    link_assinatura: linkAssinatura,
+                  },
                   assunto: `Link de Assinatura — ${emprestimo.numero_contrato}`,
                   referencia_tipo: 'emprestimo',
                   referencia_id: id,
@@ -1222,9 +1236,12 @@ export default function EmprestimoDetalhePage() {
                               type="button"
                               title="Enviar comprovante via WhatsApp"
                               onClick={() => handleWhatsAppRecibo(p)}
-                              className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground/60 hover:text-[#34A853] hover:bg-[#E6F4EA] border border-transparent hover:border-[#34A853]/15 transition-all"
+                              disabled={enviandoRecibo === p.id}
+                              className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground/60 hover:text-[#34A853] hover:bg-[#E6F4EA] border border-transparent hover:border-[#34A853]/15 transition-all disabled:opacity-50"
                             >
-                              <MessageCircle size={14} />
+                              {enviandoRecibo === p.id
+                                ? <Loader2 size={14} className="animate-spin" />
+                                : <MessageCircle size={14} />}
                             </button>
                           )}
                         </div>

@@ -52,6 +52,8 @@ interface ParcelaEmprestimo {
   valor_pago: number
   status: string
   dias_atraso: number
+  numero_parcela: number
+  total_parcelas: number
 }
 
 interface MovimentacaoCaixa {
@@ -74,10 +76,15 @@ interface ParcelaVencendoHoje {
 
 interface ParcelaInadimplente {
   id: string
+  clienteId: string
   clienteNome: string
   clienteTelefone: string
   diasAtraso: number
   valor: number
+  numeroContrato: string
+  numeroParcela: number
+  totalParcelas: number
+  dataVencimento: string
 }
 
 interface Pagamento {
@@ -164,6 +171,7 @@ export default function FactoringDashboard() {
   const [mesFiltroAno, setMesFiltroAno] = useState(() => new Date().getFullYear())
   const [mesFiltroMes, setMesFiltroMes] = useState(() => new Date().getMonth() + 1)
   const [diaFiltro, setDiaFiltro] = useState(() => new Date().toISOString().split('T')[0])
+  const [enviandoCobrancaDash, setEnviandoCobrancaDash] = useState<string | null>(null)
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual?.id) return
@@ -192,7 +200,7 @@ export default function FactoringDashboard() {
           .limit(1000),
         supabase
           .from('parcelas_emprestimo')
-          .select('id, emprestimo_id, cliente_id, data_vencimento, data_pagamento, valor, multa, juros_mora, valor_pago, status, dias_atraso')
+          .select('id, emprestimo_id, cliente_id, data_vencimento, data_pagamento, valor, multa, juros_mora, valor_pago, status, dias_atraso, numero_parcela, total_parcelas')
           .eq('empresa_id', empresaAtual.id)
           .limit(2000),
         supabase
@@ -226,9 +234,11 @@ export default function FactoringDashboard() {
       const movsAll = movsTodasRes.data ?? []
       const saldoInicialCaixa = Number(configRes.data?.saldo_inicial_caixa ?? 0)
 
-      // Map clientes by id
+      // Map clientes e emprestimos by id
       const clienteMap = new Map<string, ClienteFactoring>()
       for (const c of clientes) clienteMap.set(c.id, c)
+      const emprestimosMap = new Map<string, Emprestimo>()
+      for (const e of emprestimos) emprestimosMap.set(e.id, e)
 
       // Map emprestimos by id
       const emprestimoMap = new Map<string, Emprestimo>()
@@ -306,12 +316,18 @@ export default function FactoringDashboard() {
         .slice(0, 10)
         .map(p => {
           const cliente = clienteMap.get(p.cliente_id)
+          const emp = emprestimosMap.get(p.emprestimo_id)
           return {
             id: p.id,
+            clienteId: p.cliente_id,
             clienteNome: cliente?.nome ?? '—',
             clienteTelefone: cliente?.telefone ?? '',
             diasAtraso: p._dias,
             valor: (p.valor ?? 0) + (p.multa ?? 0) + (p.juros_mora ?? 0) - (p.valor_pago ?? 0),
+            numeroContrato: emp?.numero_contrato ?? '',
+            numeroParcela: p.numero_parcela ?? 1,
+            totalParcelas: p.total_parcelas ?? 1,
+            dataVencimento: p.data_vencimento ?? '',
           }
         })
 
@@ -366,6 +382,40 @@ export default function FactoringDashboard() {
   useEffect(() => {
     carregarDados()
   }, [carregarDados])
+
+  async function enviarCobrancaDash(row: ParcelaInadimplente) {
+    if (!row.clienteTelefone || !empresaAtual?.id) return
+    setEnviandoCobrancaDash(row.id)
+    try {
+      const formatBR = (d: string) => { const p = d.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d }
+      const res = await fetch('/api/whatsapp/enviar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empresa_id: empresaAtual.id,
+          destinatario: row.clienteTelefone,
+          triggerKey: 'cobranca_pos_vencimento',
+          variaveis: {
+            nome: row.clienteNome.split(' ')[0],
+            numero_contrato: row.numeroContrato || 'N/A',
+            numero_parcela: String(row.numeroParcela),
+            total_parcelas: String(row.totalParcelas),
+            data_vencimento: formatBR(row.dataVencimento),
+            dias_atraso: String(row.diasAtraso),
+            valor_total: row.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+            whatsapp_padrao: 'financeiro@srsm.com.br',
+          },
+          assunto: `Cobrança — contrato ${row.numeroContrato}`,
+          referencia_tipo: 'cliente',
+          referencia_id: row.clienteId,
+        }),
+      })
+      const d = await res.json()
+      if (res.ok) toast.success(`Cobrança enviada para ${row.clienteNome.split(' ')[0]}!`)
+      else toast.error(d.erro || 'Falha ao enviar cobrança')
+    } catch { toast.error('Erro de conexão') }
+    finally { setEnviandoCobrancaDash(null) }
+  }
 
   if (loading) return <LoadingPage />
   if (!data) return (
@@ -507,19 +557,15 @@ export default function FactoringDashboard() {
       className: 'w-[110px] text-right',
       render: (row) => (
         <button
-          onClick={() => {
-            const tel = row.clienteTelefone.replace(/\D/g, '')
-            const msg = encodeURIComponent(
-              `Olá ${row.clienteNome}, identificamos uma parcela em aberto no valor de ${formatarMoeda(row.valor)} com ${row.diasAtraso} dias de atraso. Por favor, entre em contato para regularizar sua situação.`
-            )
-            window.open(`https://wa.me/55${tel}?text=${msg}`, '_blank')
-          }}
-          disabled={!row.clienteTelefone}
+          onClick={() => enviarCobrancaDash(row)}
+          disabled={!row.clienteTelefone || enviandoCobrancaDash === row.id || !!enviandoCobrancaDash}
           className="flex items-center justify-center gap-1.5 text-[11px] px-3.5 py-1.5 rounded-full font-bold text-white transition-all shadow-sm hover:shadow hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0 w-full"
           style={{ backgroundColor: '#34A853' }}
         >
-          <MessageCircle className="w-3.5 h-3.5" />
-          <span>Cobrar</span>
+          {enviandoCobrancaDash === row.id
+            ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /><span>Enviando</span></>
+            : <><MessageCircle className="w-3.5 h-3.5" /><span>Cobrar</span></>
+          }
         </button>
       ),
     },
