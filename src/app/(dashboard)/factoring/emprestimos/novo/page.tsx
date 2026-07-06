@@ -433,7 +433,7 @@ export default function NovoEmprestimoPage() {
         console.error('Erro ao gerar PDF do contrato:', e)
       }
 
-      toast.success(`Contrato ${numero_contrato} criado com sucesso!`)
+      toast.success(`Contrato ${numero_contrato} criado! Link de assinatura enviado via WhatsApp.`, { duration: 5000 })
       router.push(`/factoring/emprestimos/${empId}`)
     } catch (err) {
       logError('liberarEmprestimo', err)

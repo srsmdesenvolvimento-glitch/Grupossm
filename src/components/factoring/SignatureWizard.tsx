@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   FileText, ShieldCheck, Camera, Upload, Trash2, CheckCircle2,
-  Loader2, MapPin, Award, ArrowRight, UserCheck, AlertTriangle, RefreshCw
+  Loader2, MapPin, Award, ArrowRight, UserCheck, AlertTriangle, RefreshCw,
+  ScrollText, Building2, User
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -17,8 +18,10 @@ interface SignatureWizardProps {
 }
 
 export default function SignatureWizard({ id, contrato, cliente, parcelas }: SignatureWizardProps) {
-  const [passo, setPasso] = useState(1)
+  const [passo, setPasso] = useState(0)
+  const [contratoLido, setContratoLido] = useState(false)
   const [termosAceitos, setTermosAceitos] = useState(false)
+  const contratoScrollRef = useRef<HTMLDivElement | null>(null)
   const [selfie, setSelfie] = useState<string | null>(null)
   const [documento, setDocumento] = useState<string | null>(null)
   const [geolocation, setGeolocation] = useState<string | null>(null)
@@ -48,7 +51,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
 
   // Refs for drawing canvas
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const signButtonRef = useRef<HTMLButtonElement | null>(null)
+  const signButtonRef = useRef<HTMLDivElement | null>(null)
   const isDrawing = useRef(false)
   const lastX = useRef(0)
   const lastY = useRef(0)
@@ -83,13 +86,17 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
           if (res.ok) {
             const data = await res.json()
             const addr = data.address || {}
-            const city = addr.city || addr.town || addr.suburb || addr.village || addr.municipality || 'Localidade'
-            const state = addr.state || addr.region || ''
-            const fullLocation = `${city} - ${state} (${coordStr})`
+            const road = addr.road || addr.pedestrian || ''
+            const suburb = addr.suburb || addr.neighbourhood || ''
+            const city = addr.city || addr.town || addr.village || addr.municipality || suburb || 'Localidade'
+            const state = addr.state_code || addr.state || ''
+            const stateAbbr = state.length > 2 ? state : state
+            const parts = [road, city, stateAbbr].filter(Boolean)
+            const fullLocation = parts.join(', ')
             setGeolocation(fullLocation)
             setGeolocationStatus('success')
             if (!silencioso) {
-              toast.success(`Localização registrada: ${city} - ${state}`)
+              toast.success(`Localização registrada: ${city}`)
             }
           } else {
             setGeolocation(coordStr)
@@ -512,7 +519,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       `}</style>
 
       {/* Wizard Header Status Bar */}
-      {passo < 5 && (
+      {passo >= 1 && passo < 5 && (
         <div className="mb-6 space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
             <span>Passo {passo} de 4</span>
@@ -531,6 +538,254 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
           </div>
         </div>
       )}
+
+      {/* STEP 0: CONTRACT READING */}
+      {passo === 0 && (() => {
+        const primeiroVenc = parcelas[0]?.data_vencimento
+          ? new Date(parcelas[0].data_vencimento + 'T12:00:00')
+          : null
+        const diaVenc = primeiroVenc ? primeiroVenc.getDate() : null
+        const mesVenc = primeiroVenc
+          ? primeiroVenc.toLocaleDateString('pt-BR', { month: 'long' })
+          : null
+        const anoVenc = primeiroVenc ? primeiroVenc.getFullYear() : null
+        const taxaAnual = contrato.taxa_juros ? (contrato.taxa_juros * 12).toFixed(0) : '12'
+        const multaAtraso = contrato.multa_atraso ?? 2
+        const jurosMora = contrato.juros_mora_diario ?? 0.033
+        const qualificacao = [
+          cliente.nacionalidade,
+          cliente.estado_civil,
+          cliente.profissao,
+          cliente.rg ? `RG nº ${cliente.rg}` : null,
+          `CPF nº ${formatarCPF(cliente.cpf)}`,
+          cliente.endereco,
+        ].filter(Boolean).join(', ')
+
+        return (
+          <div className="bg-slate-950/75 backdrop-blur-xl border border-white/10 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-fade-in-up">
+            {/* Header fixo */}
+            <div className="px-6 pt-6 pb-4 border-b border-white/5">
+              <div className="flex items-center gap-3 mb-1">
+                <div className="w-10 h-10 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-400 border border-indigo-500/20 shrink-0">
+                  <ScrollText size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-black tracking-tight text-slate-100 leading-tight">Contrato de Empréstimo</h2>
+                  <p className="text-[10px] text-slate-400 font-mono">{contrato.numero_contrato}</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-amber-400/80 font-semibold mt-2 bg-amber-500/5 border border-amber-500/10 rounded-xl px-3 py-2">
+                ⚠ Leia o contrato abaixo com atenção antes de prosseguir com a assinatura eletrônica.
+              </p>
+            </div>
+
+            {/* Texto do contrato — scrollável */}
+            <div
+              ref={contratoScrollRef}
+              onScroll={(e) => {
+                const el = e.currentTarget
+                const chegouFim = el.scrollTop + el.clientHeight >= el.scrollHeight - 32
+                if (chegouFim) setContratoLido(true)
+              }}
+              className="h-[52vh] overflow-y-auto px-5 py-4 space-y-4 text-[12px] text-slate-300 leading-[1.8]"
+            >
+
+              <div className="text-center space-y-1 pb-3 border-b border-white/5">
+                <p className="font-extrabold text-[13px] text-slate-100 uppercase tracking-wide leading-tight">
+                  CONTRATO PARTICULAR DE EMPRÉSTIMO DE DINHEIRO
+                </p>
+                <div className="flex items-center justify-center gap-2 text-[10px] text-indigo-400 font-bold">
+                  <Building2 size={11} />
+                  SRS M FACTORING LTDA — CNPJ 64.479.167/0001-60
+                </div>
+              </div>
+
+              <p>
+                Pelo presente contrato particular de empréstimo de dinheiro, de um lado,{' '}
+                <span className="font-bold text-slate-100">SRS M FACTORING LTDA.</span>, CNPJ: 64.479.167/0001-60,
+                situado na Rua 03, nº 679, quadra C, lote 10, Setor Morais, Goiânia/GO, de ora em diante denominado
+                simplesmente por <span className="font-bold text-slate-100">CREDOR</span>, e, de outro lado,{' '}
+                <span className="font-bold text-indigo-300">{cliente.nome}</span>
+                {qualificacao ? `, ${qualificacao}` : ''},
+                de ora em diante denominado simplesmente <span className="font-bold text-slate-100">DEVEDOR</span>,
+                têm justo e contratado o seguinte:
+              </p>
+
+              <p className="text-slate-400 text-[11px]">
+                A mutuária necessita de um aporte de recursos financeiros. A mutuante acredita no potencial econômico
+                da mutuária e deseja fazer um aporte de recursos a fim de contribuir para o seu desenvolvimento.
+                As partes desejam formalizar tal aporte por meio de um contrato, com as seguintes cláusulas:
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 1ª</p>
+                  <p>
+                    O presente instrumento tem como objetivo a sujeição das partes aos termos e condições na melhor
+                    forma de direito, oportunidade em que o credor se compromete a conceder ao devedor um empréstimo
+                    no valor de{' '}
+                    <span className="font-extrabold text-emerald-400">{formatarMoeda(contrato.valor_principal)}</span>;
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 2ª</p>
+                  <p>O empréstimo não poderá ser liquidado antecipadamente sem o consentimento do credor;</p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 3ª</p>
+                  <p>
+                    Cada parte arcará com todos os tributos de qualquer natureza porventura incidentes sobre o
+                    empréstimo, na medida em que sejam consideradas como contribuintes ou responsável pelo
+                    respectivo recolhimento;
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 4ª</p>
+                  <p>
+                    O CREDOR dá como empréstimo ao DEVEDOR, mediante Nota Promissória, a quantia de{' '}
+                    <span className="font-extrabold text-emerald-400">{formatarMoeda(contrato.valor_principal)}</span>,
+                    mediante as condições seguintes.
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 5ª</p>
+                  <p>
+                    A quantia acima emprestada vencerá juros de{' '}
+                    <span className="font-bold text-indigo-300">{taxaAnual}% ao ano</span> ({contrato.taxa_juros}% a.m.
+                    — Tabela Price), devendo ser restituída ao CREDOR no dia{' '}
+                    <span className="font-bold text-indigo-300">{diaVenc ?? '__'}</span>, do mês de{' '}
+                    <span className="font-bold text-indigo-300">{mesVenc ?? '__'}</span>, de{' '}
+                    <span className="font-bold text-indigo-300">{anoVenc ?? '__'}</span>, acrescida dos juros e
+                    correção monetária, combinado antecipadamente de{' '}
+                    <span className="font-bold text-indigo-300">{contrato.taxa_juros}%</span>, mais o custo de
+                    contrato no valor de{' '}
+                    <span className="font-bold text-indigo-300">R$ 5.000,00 (Cinco mil reais)</span>, no domicílio
+                    do CREDOR ou em local por ele indicado.
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 6ª</p>
+                  <p>
+                    Na falta do pagamento do empréstimo na data aprazada, o DEVEDOR pagará uma multa no percentual
+                    de <span className="font-bold text-red-400">{multaAtraso}%</span> mais juro moratório sobre o
+                    débito no percentual de{' '}
+                    <span className="font-bold text-red-400">{jurosMora}% por dia</span>, acrescido de correção
+                    monetária sobre o montante apurado, ficando o CREDOR com direito de ajuizar a nota promissória,
+                    conforme determinação das normas legais.
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 7ª</p>
+                  <p>
+                    Todos os encargos que venham a recair durante o período do contrato, continuarão de
+                    responsabilidade do DEVEDOR, devendo ser acrescidos na dívida.
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 8ª</p>
+                  <p>
+                    Este instrumento constitui acordo integral entre as partes, não podendo ser alterado ou de
+                    outra forma modificado, salvo mediante escrito devidamente assinado pelas partes, sendo que
+                    esse instrumento obriga as partes, seus herdeiros, representantes legais e sucessores a
+                    qualquer título;
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 9ª</p>
+                  <p>
+                    Todas as notificações e comunicações decorrentes deste instrumento serão realizadas entre as
+                    partes por escrito, através de aviso de recebimento, para os endereços dos preâmbulos deste
+                    instrumento e endereços eletrônicos;
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 10ª</p>
+                  <p>
+                    A devedora reconhece e aceita que este instrumento constitui título executivo extrajudicial,
+                    nos termos do artigo 784, III, do Código de Processo Civil Brasileiro, ficando assim facultado
+                    ao Credor, a seu exclusivo critério, executar judicialmente o devedor por quaisquer importâncias
+                    devidas nos termos deste instrumento, tendo em vista que esse será regido e interpretado de
+                    acordo com as leis da República Federativa do Brasil;
+                  </p>
+                </div>
+
+                <div>
+                  <p className="font-bold text-slate-100 text-[11px] uppercase tracking-wide mb-1">CLÁUSULA 11ª</p>
+                  <p>
+                    Fica eleito o foro desta cidade de <span className="font-bold text-slate-100">Goiânia/GO</span>,
+                    para dirimir qualquer dúvida referente a este contrato.
+                  </p>
+                </div>
+              </div>
+
+              <div className="border-t border-white/5 pt-4 text-[10px] text-slate-500 text-center space-y-1 pb-2">
+                <p>
+                  E assim, por estarem plenamente contratados na forma acima, assinam o presente contrato na
+                  presença de testemunhas que a tudo assistiram e em duas vias de igual teor.
+                </p>
+                <p className="font-semibold text-slate-400 mt-2">
+                  Goiânia/GO, {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                </p>
+                <div className="flex items-center justify-center gap-2 mt-3 pt-3 border-t border-white/5">
+                  <User size={12} className="text-indigo-400" />
+                  <span className="font-bold text-indigo-300">{cliente.nome}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Rodapé fixo com resumo financeiro + CTA */}
+            <div className="px-5 pb-6 pt-4 border-t border-white/5 space-y-3">
+              {/* Resumo dos dados críticos */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-slate-900/80 rounded-xl px-3 py-2.5 border border-white/5">
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">Valor do Empréstimo</p>
+                  <p className="text-sm font-extrabold text-emerald-400 mt-0.5">{formatarMoeda(contrato.valor_principal)}</p>
+                </div>
+                <div className="bg-slate-900/80 rounded-xl px-3 py-2.5 border border-white/5">
+                  <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wide">Parcelas</p>
+                  <p className="text-sm font-extrabold text-slate-100 mt-0.5">{contrato.prazo_meses}x {formatarMoeda(contrato.valor_parcela)}</p>
+                </div>
+              </div>
+
+              {/* Indicador de progresso de leitura */}
+              {!contratoLido && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = contratoScrollRef.current
+                    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 text-[11px] font-bold text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded-xl cursor-pointer hover:bg-amber-500/10 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 5v14M5 12l7 7 7-7"/>
+                  </svg>
+                  Role até o fim para liberar a assinatura
+                </button>
+              )}
+
+              <Button
+                className="w-full rounded-2xl font-bold bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-slate-800 disabled:text-slate-500 text-white shadow-lg shadow-indigo-950/50 gap-2 text-sm transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:shadow-none"
+                style={{ height: '52px' }}
+                disabled={!contratoLido}
+                onClick={() => setPasso(1)}
+              >
+                <CheckCircle2 size={17} />
+                <span>{contratoLido ? 'Li o Contrato — Prosseguir para Assinatura' : 'Leia o contrato completo para continuar'}</span>
+              </Button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* STEP 1: CONTRACT DETAILS */}
       {passo === 1 && (
