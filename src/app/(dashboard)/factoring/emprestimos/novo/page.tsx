@@ -330,7 +330,34 @@ export default function NovoEmprestimoPage() {
       }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
       if (limitError) throw limitError
 
-      // ── Enviar Contrato Automático via WhatsApp ──
+      // ── Enviar Link de Assinatura via WhatsApp (independente do PDF) ──
+      if (cliente.telefone) {
+        const linkAssinatura = `${window.location.origin}/assinar/${empId}`
+        try {
+          await fetch('/api/whatsapp/enviar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              empresa_id: empresaAtual.id,
+              destinatario: cliente.telefone,
+              triggerKey: 'contrato_criado',
+              variaveis: {
+                nome: cliente.nome,
+                numero_contrato,
+                valor_principal: formatarMoeda(valorNum),
+                link_assinatura: linkAssinatura,
+              },
+              assunto: `Link de Assinatura — ${numero_contrato}`,
+              referencia_tipo: 'emprestimo',
+              referencia_id: empId,
+            }),
+          })
+        } catch {
+          // falha silenciosa — usuário pode reenviar manualmente na tela do contrato
+        }
+      }
+
+      // ── Gerar PDF do Contrato e salvar no Storage ──
       try {
         const { data: fullCliente } = await supabase
           .from('clientes_factoring')
@@ -343,7 +370,7 @@ export default function NovoEmprestimoPage() {
           .select('cnpj')
           .eq('id', empresaAtual.id)
           .single()
-        
+
         const empresaCnpj = empData?.cnpj ?? null
 
         if (fullCliente) {
@@ -397,60 +424,13 @@ export default function NovoEmprestimoPage() {
                 upsert: false,
               })
 
-            if (!uploadError) {
-              const { data: urlData } = supabase.storage
-                .from('documentos-clientes')
-                .getPublicUrl(filePath)
-              
-              const publicUrl = urlData.publicUrl
-
-              // ── Enviar Contrato Automático via WhatsApp (Template Personalizado) ──
-              const { data: configFact } = await supabase
-                .from('config_factoring')
-                .select('whatsapp_settings')
-                .eq('empresa_id', empresaAtual.id)
-                .maybeSingle()
-
-              const wSettings = configFact?.whatsapp_settings as any
-              const trigger = wSettings?.contrato_criado ?? {
-                ativo: true,
-                template: "Olá, {{nome}}! O seu contrato de empréstimo {{numero_contrato}} no valor de {{valor_principal}} foi criado e está pronto para assinatura. Por favor, acesse o link a seguir para assinar digitalmente: {{link_assinatura}}"
-              }
-
-              if (trigger.ativo && fullCliente.telefone) {
-                const linkAssinatura = `${window.location.origin}/assinar/${empId}`
-                try {
-                  const sendRes = await fetch('/api/whatsapp/enviar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      empresa_id: empresaAtual.id,
-                      destinatario: fullCliente.telefone,
-                      triggerKey: 'contrato_criado',
-                      variaveis: {
-                        nome: fullCliente.nome,
-                        numero_contrato,
-                        valor_principal: formatarMoeda(valorNum),
-                        link_assinatura: linkAssinatura,
-                      },
-                      assunto: `Link de Assinatura — ${numero_contrato}`,
-                      referencia_tipo: 'emprestimo',
-                      referencia_id: empId,
-                    })
-                  })
-                  if (!sendRes.ok) {
-                    const sendErr = await sendRes.json()
-                    console.error('Falha no envio do template contrato_criado:', sendErr.erro)
-                  }
-                } catch (sendErr) {
-                  console.error('Erro de rede ao enviar template de assinatura:', sendErr)
-                }
-              }
+            if (uploadError) {
+              console.error('Erro ao fazer upload do contrato PDF:', uploadError)
             }
           }
         }
       } catch (e) {
-        console.error('Erro ao gerar/enviar PDF do contrato:', e)
+        console.error('Erro ao gerar PDF do contrato:', e)
       }
 
       toast.success(`Contrato ${numero_contrato} criado com sucesso!`)

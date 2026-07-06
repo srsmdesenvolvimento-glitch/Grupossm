@@ -67,6 +67,7 @@ export default function EmprestimoDetalhePage() {
   const [gerandoPDF, setGerandoPDF] = useState(false)
   const [enviandoWhatsApp, setEnviandoWhatsApp] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
+  const [whatsappAssinaturaStatus, setWhatsappAssinaturaStatus] = useState<'enviado' | 'erro' | null>(null)
 
   // Payment dialog
   const [pagarParcela, setPagarParcela] = useState<ParcelaEmprestimo | null>(null)
@@ -274,6 +275,18 @@ export default function EmprestimoDetalhePage() {
         .eq('id', emp.cliente_id)
         .single()
       setCliente(cli ?? null)
+
+      const { data: logAssinatura } = await supabase
+        .from('notificacoes_log')
+        .select('status')
+        .eq('referencia_tipo', 'emprestimo')
+        .eq('referencia_id', id)
+        .eq('canal', 'whatsapp')
+        .ilike('assunto', '%Assinatura%')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      setWhatsappAssinaturaStatus(logAssinatura ? (logAssinatura.status === 'enviado' ? 'enviado' : 'erro') : null)
     } catch (error) {
       logError('carregarDados', error)
     } finally {
@@ -1038,11 +1051,14 @@ export default function EmprestimoDetalhePage() {
               const data = await res.json()
               if (!res.ok) {
                 toast.error(data.erro || 'Falha ao enviar via WhatsApp.')
+                setWhatsappAssinaturaStatus('erro')
               } else {
                 toast.success('Link de assinatura enviado via WhatsApp!')
+                setWhatsappAssinaturaStatus('enviado')
               }
             } catch {
               toast.error('Erro de rede ao enviar WhatsApp.')
+              setWhatsappAssinaturaStatus('erro')
             } finally {
               setEnviandoWhatsApp(false)
             }
@@ -1054,9 +1070,24 @@ export default function EmprestimoDetalhePage() {
               <div className="flex gap-3 max-w-xl min-w-0">
                 <span className="text-xl mt-0.5 shrink-0">⏰</span>
                 <div className="min-w-0">
-                  <h4 className="font-extrabold text-foreground text-sm leading-normal">Contrato Aguardando Assinatura Digital</h4>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-extrabold text-foreground text-sm leading-normal">Contrato Aguardando Assinatura Digital</h4>
+                    {whatsappAssinaturaStatus === 'enviado' && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#1ebe59] bg-[#E6F9EE] border border-[#1ebe59]/20 rounded-full px-2 py-0.5">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        Link enviado via WhatsApp
+                      </span>
+                    )}
+                    {whatsappAssinaturaStatus === 'erro' && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#EA4335] bg-[#FCE8E6] border border-[#EA4335]/20 rounded-full px-2 py-0.5">
+                        Falha no envio
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground leading-relaxed mt-1">
-                    Este contrato ainda não foi assinado eletronicamente pelo tomador **{cliente?.nome ?? ''}**. Envie o link seguro para que o cliente realize a biometria facial e assinatura.
+                    {whatsappAssinaturaStatus === 'enviado'
+                      ? `Link de assinatura enviado para ${cliente?.nome?.split(' ')[0] ?? 'o cliente'} via WhatsApp. Aguardando assinatura.`
+                      : `Este contrato ainda não foi assinado eletronicamente pelo tomador ${cliente?.nome ?? ''}. Envie o link seguro para que o cliente realize a biometria facial e assinatura.`}
                   </p>
                 </div>
               </div>
@@ -1064,12 +1095,17 @@ export default function EmprestimoDetalhePage() {
                 <Button size="sm" variant="outline" className="h-9.5 rounded-full border-border/80 hover:bg-muted font-bold text-xs" onClick={handleCopiarLink}>
                   Copiar Link
                 </Button>
-                <Button size="sm" className="h-9.5 rounded-full text-white bg-[#25D366] hover:bg-[#1ebe59] font-bold text-xs gap-1.5 shadow-sm" onClick={handleEnviarWhatsApp} disabled={enviandoWhatsApp}>
+                <Button
+                  size="sm"
+                  className="h-9.5 rounded-full text-white bg-[#25D366] hover:bg-[#1ebe59] font-bold text-xs gap-1.5 shadow-sm"
+                  onClick={handleEnviarWhatsApp}
+                  disabled={enviandoWhatsApp}
+                >
                   {enviandoWhatsApp
                     ? <Loader2 size={14} className="animate-spin" />
                     : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                   }
-                  {enviandoWhatsApp ? 'Enviando...' : 'Enviar via WhatsApp'}
+                  {enviandoWhatsApp ? 'Enviando...' : whatsappAssinaturaStatus === 'enviado' ? 'Reenviar' : 'Enviar via WhatsApp'}
                 </Button>
               </div>
             </div>
