@@ -1,6 +1,3 @@
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN
-const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID
-const WHATSAPP_VERSION = process.env.WHATSAPP_VERSION ?? 'v21.0'
 const FETCH_TIMEOUT_MS = 30_000
 
 // Mapeamento: trigger key → template Meta + ordem das variáveis
@@ -71,7 +68,11 @@ export async function enviarMensagem(
     return { ok: false, erro: `Telefone inválido: "${telefone}". Use formato com DDD (ex: 11999990000).` }
   }
 
-  if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
+  const token = process.env.WHATSAPP_TOKEN
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const version = process.env.WHATSAPP_VERSION ?? 'v21.0'
+
+  if (!token || !phoneNumberId) {
     return { ok: false, erro: 'WhatsApp não configurado. Defina WHATSAPP_TOKEN e WHATSAPP_PHONE_NUMBER_ID.' }
   }
 
@@ -80,7 +81,7 @@ export async function enviarMensagem(
   const linkPdf = match?.[0] ?? null
   const textoFinal = linkPdf ? mensagem.replace(pdfRegex, '').trim() : mensagem
 
-  const url = `https://graph.facebook.com/${WHATSAPP_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`
+  const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`
 
   let body: Record<string, any>
   if (linkPdf) {
@@ -107,7 +108,7 @@ export async function enviarMensagem(
   try {
     const res = await fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
     })
 
@@ -141,7 +142,11 @@ export async function enviarTemplate(
     return { ok: false, erro: `Telefone inválido: "${telefone}"` }
   }
 
-  if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
+  const token = process.env.WHATSAPP_TOKEN
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+  const version = process.env.WHATSAPP_VERSION ?? 'v21.0'
+
+  if (!token || !phoneNumberId) {
     return { ok: false, erro: 'WhatsApp não configurado.' }
   }
 
@@ -164,12 +169,12 @@ export async function enviarTemplate(
     },
   }
 
-  const url = `https://graph.facebook.com/${WHATSAPP_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`
+  const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`
 
   try {
     const res = await fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
     })
 

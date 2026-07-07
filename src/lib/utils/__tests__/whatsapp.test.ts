@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { normalizarTelefone } from '../whatsapp'
+import { montarMensagem } from '@/lib/utils/mensagens'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. normalizarTelefone
@@ -224,7 +225,6 @@ describe('Meta API — estrutura de payload (lógica pura)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('montarMensagem — interpolação de variáveis', () => {
   it('substitui variáveis simples', () => {
-    const { montarMensagem } = require('@/lib/utils/mensagens')
     const result = montarMensagem('Olá {{nome}}, contrato {{numero_contrato}}.', {
       nome: 'João Silva',
       numero_contrato: 'FAC-2026-00001',
@@ -233,19 +233,16 @@ describe('montarMensagem — interpolação de variáveis', () => {
   })
 
   it('mantém placeholder quando variável não fornecida', () => {
-    const { montarMensagem } = require('@/lib/utils/mensagens')
     const result = montarMensagem('Valor: {{valor}}', {})
     expect(result).toBe('Valor: {{valor}}')
   })
 
   it('remove bloco condicional quando variável ausente', () => {
-    const { montarMensagem } = require('@/lib/utils/mensagens')
     const result = montarMensagem('Texto {{#link}}Clique: {{link}}{{/link}} fim.', {})
     expect(result).toBe('Texto  fim.')
   })
 
   it('mantém bloco condicional quando variável presente', () => {
-    const { montarMensagem } = require('@/lib/utils/mensagens')
     const result = montarMensagem('Texto {{#link}}Clique: {{link}}{{/link}} fim.', {
       link: 'https://example.com',
     })

@@ -155,6 +155,27 @@ function LoginForm() {
       {/* Grain */}
       <div className="lp-grain fixed inset-0 z-[2] pointer-events-none" />
 
+      {/* Ambient HUD readouts — environmental dressing, viewport corners */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 1.5, delay: 1.4 }}
+        className="hidden sm:flex fixed top-6 left-6 z-10 font-mono text-[10px] pointer-events-none"
+        style={{ color: 'rgba(212,165,40,0.28)', letterSpacing: '0.18em' }}
+      >
+        GRUPO SRSM
+      </motion.div>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 1.5, delay: 1.4 }}
+        className="hidden sm:flex fixed top-6 right-6 z-10 items-center gap-1.5 font-mono text-[10px] pointer-events-none"
+        style={{ color: 'rgba(255,255,255,0.22)', letterSpacing: '0.14em' }}
+      >
+        <span className="lp-dot w-1 h-1 rounded-full flex-shrink-0" style={{ background: '#4ADE80' }} />
+        SISTEMA ONLINE
+      </motion.div>
+
       {/* ── Centered content ─────────────────────────────────────────────── */}
       <main className="relative z-10 min-h-screen flex flex-col items-center justify-center px-5 py-10">
         <div className="w-full max-w-[400px] flex flex-col items-center">
@@ -286,11 +307,16 @@ function LoginForm() {
               onSubmit={handleSubmit(onSubmit)}
               className="lp-card relative w-full rounded-2xl p-6 space-y-5"
             >
-              {/* HUD corner brackets */}
-              <span className="lp-corner lp-corner-tl" />
-              <span className="lp-corner lp-corner-tr" />
-              <span className="lp-corner lp-corner-bl" />
-              <span className="lp-corner lp-corner-br" />
+              {/* HUD corner brackets — power-on entrance */}
+              {(['tl', 'tr', 'bl', 'br'] as const).map((pos, i) => (
+                <motion.span
+                  key={pos}
+                  className={`lp-corner lp-corner-${pos}`}
+                  initial={{ opacity: 0, scale: 0.6 }}
+                  animate={{ opacity: 0.5, scale: 1 }}
+                  transition={{ duration: 0.5, delay: 1.9 + i * 0.08, ease: EASE }}
+                />
+              ))}
 
               {/* Email */}
               <div className="space-y-2">
@@ -335,20 +361,14 @@ function LoginForm() {
 
               {/* Senha */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label htmlFor="senha"
-                    className="block font-mono text-[10.5px] font-medium uppercase transition-colors duration-300"
-                    style={{
-                      letterSpacing: '0.16em',
-                      color: focused === 'senha' ? 'rgba(212,165,40,0.85)' : 'rgba(255,255,255,0.4)',
-                    }}>
-                    Senha
-                  </label>
-                  <a href="/esqueci-senha" className="lp-forgot text-[11px] transition-colors duration-200"
-                    style={{ color: 'rgba(255,255,255,0.2)' }}>
-                    Esqueci a senha
-                  </a>
-                </div>
+                <label htmlFor="senha"
+                  className="block font-mono text-[10.5px] font-medium uppercase transition-colors duration-300"
+                  style={{
+                    letterSpacing: '0.16em',
+                    color: focused === 'senha' ? 'rgba(212,165,40,0.85)' : 'rgba(255,255,255,0.4)',
+                  }}>
+                  Senha
+                </label>
                 <div className="relative">
                   <Lock size={14}
                     className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors duration-300"
@@ -443,7 +463,7 @@ function LoginForm() {
                 <span className="lp-dot w-1 h-1 rounded-full flex-shrink-0" style={{ background: '#4ADE80' }} />
                 <ShieldCheck size={11} style={{ color: 'rgba(255,255,255,0.22)' }} />
                 <span className="font-mono text-[9.5px]" style={{ color: 'rgba(255,255,255,0.22)', letterSpacing: '0.12em' }}>
-                  CONEXÃO CRIPTOGRAFADA · ACESSO RESTRITO
+                  CONEXÃO CRIPTOGRAFADA
                 </span>
               </div>
 
@@ -569,7 +589,6 @@ function LoginForm() {
         }
 
         .lp-input:focus-visible { outline: none; }
-        .lp-forgot:hover { color: #D4A528 !important; }
 
         .threads-container canvas { width: 100% !important; height: 100% !important; }
       `}</style>
