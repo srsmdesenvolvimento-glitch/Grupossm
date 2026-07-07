@@ -58,7 +58,7 @@ function calcularJurosSimples(valor: number, taxa: number, n: number, dataInicio
     const saldo_antes = valor - (k - 1) * amortizacao
     const saldo_apos = Math.max(0, valor - k * amortizacao)
     const venc = new Date(base)
-    venc.setMonth(venc.getMonth() + (k - 1))
+    venc.setMonth(venc.getMonth() + k)
     tabela.push({ numero: k, vencimento: venc.toISOString().split('T')[0], principal: amortizacao, juros, parcela, saldo_antes, saldo_apos })
   }
   return { parcela, total: parcela * n, totalJuros: juros * n, tabela }

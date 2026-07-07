@@ -57,13 +57,23 @@ async function getToken(): Promise<string | null> {
 }
 
 async function callApi(url: string, auth: string) {
-  const res  = await fetch(url, {
-    method:  'GET',
-    headers: { 'Authorization': `Bearer ${auth}`, 'Accept': 'application/json' },
-    cache:   'no-store',
-  })
-  const data = await res.json().catch(() => null)
-  return { ok: res.status === 200, status: res.status, data }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 9_000)
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${auth}`, 'Accept': 'application/json' },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    const data = await res.json().catch(() => null)
+    return { ok: res.status === 200, status: res.status, data }
+  } catch (err: any) {
+    if (err?.name === 'AbortError') return { ok: false, status: 408, data: null }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function only(s: string) { return s.replace(/\D/g, '') }

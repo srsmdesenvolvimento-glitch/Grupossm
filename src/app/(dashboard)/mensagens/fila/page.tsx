@@ -118,18 +118,30 @@ export default function FilaMensagensPage() {
   })
 
   async function reenviar(item: FilaMensagem) {
+    if (item.canal !== 'whatsapp') {
+      toast.error('Reenvio disponível apenas para WhatsApp')
+      return
+    }
     setActionLoading(item.id)
     try {
-      const { error } = await supabase
-        .from('notificacoes_log')
-        .update({ status: 'pendente', erro: null })
-        .eq('id', item.id)
-        .eq('empresa_id', empresaAtual!.id)
-      if (error) throw error
-      toast.success('Mensagem reenviada para a fila')
+      const res = await fetch('/api/whatsapp/enviar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empresa_id: item.empresa_id,
+          destinatario: item.destinatario,
+          mensagem: item.mensagem,
+          assunto: item.assunto ?? 'Reenvio',
+          referencia_tipo: item.referencia_tipo ?? undefined,
+          referencia_id: item.referencia_id ?? undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.erro || 'Falha no envio')
+      toast.success('Mensagem reenviada via WhatsApp!')
       await load()
-    } catch {
-      toast.error('Erro ao reenviar mensagem')
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao reenviar mensagem')
     } finally {
       setActionLoading(null)
     }

@@ -112,6 +112,8 @@ export default function NovoClienteFactoringPage() {
   const [expandirRelatorio, setExpandirRelatorio] = useState(true)
   const [verificandoDuplicata, setVerificandoDuplicata] = useState(false)
   const [cpfDuplicado, setCpfDuplicado] = useState(false)
+  const [clienteDuplicadoId, setClienteDuplicadoId] = useState<string | null>(null)
+  const [clienteDuplicadoNome, setClienteDuplicadoNome] = useState<string | null>(null)
 
   // Tipo de pessoa
   const [tipoPessoa, setTipoPessoa] = useState<'fisica' | 'juridica'>('fisica')
@@ -360,7 +362,7 @@ export default function NovoClienteFactoringPage() {
     setStep(s => Math.min(s + 1, 7))
   }
 
-  const voltar = () => setStep(s => Math.max(s - 1, 1))
+  const voltar = () => { setStep(s => Math.max(s - 1, 0)); if (step === 1) { setCpfDuplicado(false); setClienteDuplicadoId(null); setClienteDuplicadoNome(null) } }
 
   const cadastrar = async () => {
     if (!empresaAtual) return
@@ -747,11 +749,30 @@ export default function NovoClienteFactoringPage() {
               )
             })()}
 
-            {/* Aviso de CPF duplicado */}
-            {cpfDuplicado && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-[#FEF3C7] border border-[#F59E0B]/40 text-[#B45309] text-xs font-semibold">
-                <AlertCircle size={14} className="shrink-0" />
-                Este CPF já está cadastrado no sistema. Verifique a lista de clientes.
+            {/* Aviso de CPF duplicado com ações */}
+            {cpfDuplicado && clienteDuplicadoId && (
+              <div className="rounded-2xl border border-[#F59E0B]/40 bg-[#FFFBEB] p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={16} className="shrink-0 text-[#D97706] mt-0.5" />
+                  <div>
+                    <p className="text-sm font-bold text-[#92400E]">Este CPF já está cadastrado</p>
+                    <p className="text-xs text-[#B45309] mt-0.5">{clienteDuplicadoNome ?? 'Cliente'} já existe no sistema.</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <a
+                    href={`/factoring/clientes/${clienteDuplicadoId}`}
+                    className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-full border border-[#D97706]/40 bg-white text-[#92400E] text-xs font-bold hover:bg-[#FEF3C7] transition-colors"
+                  >
+                    Ver perfil do cliente
+                  </a>
+                  <a
+                    href={`/factoring/emprestimos/novo?cliente=${clienteDuplicadoId}`}
+                    className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-full bg-[#1A73E8] text-white text-xs font-bold hover:bg-[#1557B0] transition-colors"
+                  >
+                    Novo empréstimo para este cliente
+                  </a>
+                </div>
               </div>
             )}
 
@@ -798,9 +819,9 @@ export default function NovoClienteFactoringPage() {
                       setVerificandoDuplicata(true)
                       try {
                         const { data: existe } = await supabase
-                          .from('clientes_factoring').select('id')
+                          .from('clientes_factoring').select('id, nome')
                           .eq('empresa_id', empresaAtual.id).eq('cpf', docLimpo).maybeSingle()
-                        if (existe) { setCpfDuplicado(true); setVerificandoDuplicata(false); return }
+                        if (existe) { setCpfDuplicado(true); setClienteDuplicadoId(existe.id); setClienteDuplicadoNome(existe.nome); setVerificandoDuplicata(false); return }
                       } catch { /* segue */ }
                       setVerificandoDuplicata(false)
                     }
@@ -830,9 +851,9 @@ export default function NovoClienteFactoringPage() {
                       setVerificandoDuplicata(true)
                       try {
                         const { data: existe } = await supabase
-                          .from('clientes_factoring').select('id')
+                          .from('clientes_factoring').select('id, nome')
                           .eq('empresa_id', empresaAtual.id).eq('cpf', docLimpo).maybeSingle()
-                        if (existe) { setCpfDuplicado(true); setVerificandoDuplicata(false); return }
+                        if (existe) { setCpfDuplicado(true); setClienteDuplicadoId(existe.id); setClienteDuplicadoNome(existe.nome); setVerificandoDuplicata(false); return }
                       } catch { /* segue */ }
                       setVerificandoDuplicata(false)
                     }
