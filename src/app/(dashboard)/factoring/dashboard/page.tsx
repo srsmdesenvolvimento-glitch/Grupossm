@@ -172,6 +172,7 @@ export default function FactoringDashboard() {
   const [mesFiltroMes, setMesFiltroMes] = useState(() => new Date().getMonth() + 1)
   const [diaFiltro, setDiaFiltro] = useState(() => new Date().toISOString().split('T')[0])
   const [enviandoCobrancaDash, setEnviandoCobrancaDash] = useState<string | null>(null)
+  const [pixPadraoDash, setPixPadraoDash] = useState('')
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual?.id) return
@@ -218,7 +219,7 @@ export default function FactoringDashboard() {
           .limit(10),
         supabase
           .from('config_factoring')
-          .select('saldo_inicial_caixa, updated_at')
+          .select('saldo_inicial_caixa, updated_at, whatsapp_padrao')
           .eq('empresa_id', empresaAtual.id)
           .maybeSingle(),
         supabase
@@ -233,6 +234,7 @@ export default function FactoringDashboard() {
       const movimentacoes: MovimentacaoCaixa[] = movimentacoesRes.data ?? []
       const movsAll = movsTodasRes.data ?? []
       const saldoInicialCaixa = Number(configRes.data?.saldo_inicial_caixa ?? 0)
+      if (configRes.data?.whatsapp_padrao) setPixPadraoDash(configRes.data.whatsapp_padrao)
 
       // Map clientes e emprestimos by id
       const clienteMap = new Map<string, ClienteFactoring>()
@@ -403,7 +405,7 @@ export default function FactoringDashboard() {
             data_vencimento: formatBR(row.dataVencimento),
             dias_atraso: String(row.diasAtraso),
             valor_total: row.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
-            whatsapp_padrao: 'financeiro@srsm.com.br',
+            whatsapp_padrao: pixPadraoDash,
           },
           assunto: `Cobrança — contrato ${row.numeroContrato}`,
           referencia_tipo: 'cliente',
@@ -517,14 +519,12 @@ export default function FactoringDashboard() {
         let color = '#FBBC04'
         let bg = '#FEF7E0'
         let label = 'Leve'
-        if (row.diasAtraso > 90) {
-          color = '#EA4335'
-          bg = '#FCE8E6'
-          label = 'Crítico'
+        if (row.diasAtraso > 60) {
+          color = '#EA4335'; bg = '#FCE8E6'; label = 'Grave'
         } else if (row.diasAtraso > 30) {
-          color = '#FA903E'
-          bg = '#FEF0E1'
-          label = 'Médio'
+          color = '#FA903E'; bg = '#FEF0E1'; label = 'Crítico'
+        } else if (row.diasAtraso > 7) {
+          color = '#F59E0B'; bg = '#FEF3C7'; label = 'Moderado'
         }
 
         return (

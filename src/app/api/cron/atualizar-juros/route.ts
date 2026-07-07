@@ -120,7 +120,9 @@ export async function GET(request: NextRequest) {
         const matchMora = obsText.match(/\[Mora:\s*([\d.]+)%\s*ao\s*dia\]/)
         const jurosMoraDiario = matchMora ? parseFloat(matchMora[1]) : cfg.juros_mora_diario
 
-        const novosJuros = Number(p.valor) * (Math.pow(1 + jurosMoraDiario / 100, dias) - 1)
+        // Base de juros = valor original menos o que já foi pago (pagamento parcial)
+        const baseJuros = Math.max(0, Number(p.valor) - Number(p.valor_pago ?? 0))
+        const novosJuros = baseJuros * (Math.pow(1 + jurosMoraDiario / 100, dias) - 1)
         const valorTotalComEncargos = Number(p.valor) + novaMulta + novosJuros
 
         // Atualiza a parcela no banco
@@ -184,8 +186,8 @@ export async function GET(request: NextRequest) {
         }
       })
 
-      await Promise.all(updates)
-      jurosProcessados = parcelasAtrasadas.length
+      const results = await Promise.allSettled(updates)
+      jurosProcessados = results.filter(r => r.status === 'fulfilled').length
     }
 
     // ── PARTE B: Lembrete de Parcelas com Vencimento Hoje ──

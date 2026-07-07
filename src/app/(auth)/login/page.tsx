@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
   Eye, EyeOff, Lock, Mail, ArrowRight, Loader2,
-  Sun, CloudSun, Moon,
+  Sun, CloudSun, Moon, ShieldCheck,
 } from 'lucide-react'
 import Image from 'next/image'
 import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'framer-motion'
@@ -70,10 +70,10 @@ function useTilt() {
   const ref = useRef<HTMLDivElement>(null)
   const mx  = useMotionValue(0)
   const my  = useMotionValue(0)
-  const sx  = useSpring(mx, { stiffness: 110, damping: 18 })
-  const sy  = useSpring(my, { stiffness: 110, damping: 18 })
-  const rotateX = useTransform(sy, [-0.5, 0.5], ['3.5deg', '-3.5deg'])
-  const rotateY = useTransform(sx, [-0.5, 0.5], ['-3.5deg', '3.5deg'])
+  const sx  = useSpring(mx, { stiffness: 170, damping: 22 })
+  const sy  = useSpring(my, { stiffness: 170, damping: 22 })
+  const rotateX = useTransform(sy, [-0.5, 0.5], ['1.6deg', '-1.6deg'])
+  const rotateY = useTransform(sx, [-0.5, 0.5], ['-1.6deg', '1.6deg'])
 
   function onMove(e: React.MouseEvent<HTMLDivElement>) {
     const el = ref.current; if (!el) return
@@ -148,6 +148,9 @@ function LoginForm() {
           'radial-gradient(ellipse 75% 65% at 50% 50%, rgba(5,8,15,0.10) 0%, rgba(5,8,15,0.70) 60%, rgba(5,8,15,0.97) 100%)',
         ].join(','),
       }} />
+
+      {/* Technical grid — grounds the ambient threads in an engineered feel */}
+      <div className="lp-grid fixed inset-0 z-[1] pointer-events-none" />
 
       {/* Grain */}
       <div className="lp-grain fixed inset-0 z-[2] pointer-events-none" />
@@ -281,16 +284,21 @@ function LoginForm() {
           >
             <form
               onSubmit={handleSubmit(onSubmit)}
-              className="lp-card w-full rounded-2xl p-6 space-y-5"
+              className="lp-card relative w-full rounded-2xl p-6 space-y-5"
             >
+              {/* HUD corner brackets */}
+              <span className="lp-corner lp-corner-tl" />
+              <span className="lp-corner lp-corner-tr" />
+              <span className="lp-corner lp-corner-bl" />
+              <span className="lp-corner lp-corner-br" />
 
               {/* Email */}
               <div className="space-y-2">
                 <label htmlFor="email"
-                  className="block text-[11px] font-semibold uppercase transition-colors duration-300"
+                  className="block font-mono text-[10.5px] font-medium uppercase transition-colors duration-300"
                   style={{
-                    letterSpacing: '0.1em',
-                    color: focused === 'email' ? 'rgba(212,165,40,0.85)' : 'rgba(255,255,255,0.55)',
+                    letterSpacing: '0.16em',
+                    color: focused === 'email' ? 'rgba(212,165,40,0.85)' : 'rgba(255,255,255,0.4)',
                   }}>
                   E-mail
                 </label>
@@ -308,6 +316,7 @@ function LoginForm() {
                       focus-visible:bg-white/[0.06] transition-all duration-300"
                     {...register('email', { onBlur: () => setFocused(null) })}
                   />
+                  <span className="lp-scan pointer-events-none" style={{ transform: focused === 'email' ? 'scaleX(1)' : 'scaleX(0)' }} />
                 </div>
                 <AnimatePresence>
                   {errors.email && (
@@ -328,10 +337,10 @@ function LoginForm() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label htmlFor="senha"
-                    className="block text-[11px] font-semibold uppercase transition-colors duration-300"
+                    className="block font-mono text-[10.5px] font-medium uppercase transition-colors duration-300"
                     style={{
-                      letterSpacing: '0.1em',
-                      color: focused === 'senha' ? 'rgba(212,165,40,0.85)' : 'rgba(255,255,255,0.55)',
+                      letterSpacing: '0.16em',
+                      color: focused === 'senha' ? 'rgba(212,165,40,0.85)' : 'rgba(255,255,255,0.4)',
                     }}>
                     Senha
                   </label>
@@ -355,6 +364,7 @@ function LoginForm() {
                       focus-visible:bg-white/[0.06] transition-all duration-300"
                     {...register('senha', { onBlur: () => setFocused(null) })}
                   />
+                  <span className="lp-scan pointer-events-none" style={{ transform: focused === 'senha' ? 'scaleX(1)' : 'scaleX(0)' }} />
                   <button type="button" onClick={() => setVerSenha(v => !v)}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 cursor-pointer"
                     style={{ color: 'rgba(255,255,255,0.22)' }}>
@@ -428,6 +438,15 @@ function LoginForm() {
                 </button>
               </div>
 
+              {/* Secure connection indicator — quiet enterprise trust signal */}
+              <div className="flex items-center justify-center gap-1.5 pt-1">
+                <span className="lp-dot w-1 h-1 rounded-full flex-shrink-0" style={{ background: '#4ADE80' }} />
+                <ShieldCheck size={11} style={{ color: 'rgba(255,255,255,0.22)' }} />
+                <span className="font-mono text-[9.5px]" style={{ color: 'rgba(255,255,255,0.22)', letterSpacing: '0.12em' }}>
+                  CONEXÃO CRIPTOGRAFADA · ACESSO RESTRITO
+                </span>
+              </div>
+
             </form>
           </motion.div>
 
@@ -441,6 +460,17 @@ function LoginForm() {
           background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
           background-size: 200px 200px;
           opacity: 0.022;
+        }
+
+        /* Fine engineered grid — reads as instrumentation, not decoration */
+        .lp-grid {
+          background-image:
+            linear-gradient(rgba(212,165,40,0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(212,165,40,0.05) 1px, transparent 1px);
+          background-size: 56px 56px;
+          -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, transparent 30%, black 100%);
+          mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, transparent 30%, black 100%);
+          opacity: 0.5;
         }
 
         @keyframes lpDot {
@@ -459,9 +489,9 @@ function LoginForm() {
           50% {
             box-shadow: 0 0 0 1px rgba(255,255,255,0.05),
                         0 24px 70px rgba(0,0,0,0.55),
-                        0 0 80px rgba(212,165,40,0.08),
-                        inset 0 1px 0 rgba(212,165,40,0.14);
-            border-color: rgba(212,165,40,0.2);
+                        0 0 56px rgba(212,165,40,0.06),
+                        inset 0 1px 0 rgba(212,165,40,0.11);
+            border-color: rgba(212,165,40,0.16);
           }
         }
         .lp-card {
@@ -470,7 +500,32 @@ function LoginForm() {
           border-top-color: rgba(212,165,40,0.17);
           backdrop-filter: blur(32px);
           -webkit-backdrop-filter: blur(32px);
-          animation: lpCard 6s ease-in-out infinite;
+          animation: lpCard 9s ease-in-out infinite;
+        }
+
+        /* HUD corner brackets — quiet instrumentation framing, not neon */
+        .lp-corner {
+          position: absolute;
+          width: 14px;
+          height: 14px;
+          pointer-events: none;
+          opacity: 0.5;
+        }
+        .lp-corner-tl { top: -1px;    left: -1px;    border-top: 1px solid rgba(212,165,40,0.4);    border-left: 1px solid rgba(212,165,40,0.4);    border-radius: 6px 0 0 0; }
+        .lp-corner-tr { top: -1px;    right: -1px;   border-top: 1px solid rgba(212,165,40,0.4);    border-right: 1px solid rgba(212,165,40,0.4);   border-radius: 0 6px 0 0; }
+        .lp-corner-bl { bottom: -1px; left: -1px;    border-bottom: 1px solid rgba(212,165,40,0.4); border-left: 1px solid rgba(212,165,40,0.4);    border-radius: 0 0 0 6px; }
+        .lp-corner-br { bottom: -1px; right: -1px;   border-bottom: 1px solid rgba(212,165,40,0.4); border-right: 1px solid rgba(212,165,40,0.4);   border-radius: 0 0 6px 0; }
+
+        /* Focus scan-line — sweeps in under the active field */
+        .lp-scan {
+          position: absolute;
+          left: 10px;
+          right: 10px;
+          bottom: 0;
+          height: 1px;
+          background: linear-gradient(90deg, transparent, #D4A528, transparent);
+          transform-origin: center;
+          transition: transform 0.35s cubic-bezier(0.16,1,0.3,1);
         }
 
         @keyframes lpShimmer {
@@ -489,16 +544,16 @@ function LoginForm() {
           transform: translateY(-1.5px);
         }
 
-        /* SRSM glow sweep — wave of brightness L→R */
+        /* SRSM glow sweep — restrained breathing highlight, not a flash */
         @keyframes lpGlow {
           0%, 100% { filter: brightness(1) drop-shadow(0 0 0px rgba(245,204,85,0)); }
-          50%      { filter: brightness(1.45) drop-shadow(0 0 10px rgba(245,204,85,0.55)); }
+          50%      { filter: brightness(1.18) drop-shadow(0 0 6px rgba(245,204,85,0.3)); }
         }
-        .lp-srsm-letter { animation: lpGlow 4.5s ease-in-out infinite; }
+        .lp-srsm-letter { animation: lpGlow 7s ease-in-out infinite; }
         .lp-srsm-0 { animation-delay: 0.0s; }
-        .lp-srsm-1 { animation-delay: 0.55s; }
-        .lp-srsm-2 { animation-delay: 1.1s; }
-        .lp-srsm-3 { animation-delay: 1.65s; }
+        .lp-srsm-1 { animation-delay: 0.9s; }
+        .lp-srsm-2 { animation-delay: 1.8s; }
+        .lp-srsm-3 { animation-delay: 2.7s; }
 
         /* Greeting card ambient pulse */
         @keyframes lpGreeting {

@@ -80,7 +80,7 @@ export default function InadimplentesPage() {
   const [pixPadrao, setPixPadrao] = useState('financeiro@srsm.com.br')
 
   const carregarDados = useCallback(async () => {
-    if (!empresaAtual) return
+    if (!empresaAtual) { setLoading(false); return }
     setLoading(true)
     try {
       const hoje = new Date()
@@ -121,7 +121,7 @@ export default function InadimplentesPage() {
 
       const result: ClienteInadimplente[] = Object.entries(grouped).map(([clienteId, pList]) => {
         const c = clienteMap[clienteId]
-        const totalDevido = pList.reduce((s, p) => s + p.valor + p.multa + p.juros_mora - (p.valor_pago ?? 0), 0)
+        const totalDevido = pList.reduce((s, p) => s + Number(p.valor ?? 0) + Number(p.multa ?? 0) + Number(p.juros_mora ?? 0) - Number(p.valor_pago ?? 0), 0)
         const maxDiasAtraso = Math.max(...pList.map(p => calcDias(p.data_vencimento)))
         return {
           id: clienteId,
@@ -156,7 +156,8 @@ export default function InadimplentesPage() {
     if (!c.telefone || !empresaAtual) return
     setEnviandoCobranca(c.id)
     try {
-      const parcela = c.parcelas[0]
+      // Parcela mais antiga (maior atraso) para a mensagem de cobrança
+      const parcela = c.parcelas.reduce((a, b) => (a.data_vencimento <= b.data_vencimento ? a : b))
       const res = await fetch('/api/whatsapp/enviar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

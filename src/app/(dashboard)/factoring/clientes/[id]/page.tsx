@@ -876,7 +876,7 @@ export default function ClientePerfilPage() {
                 <div className="flex flex-wrap gap-2 mt-5">
                   {cliente.telefone && (
                     <a
-                      href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`}
+                      href={`https://wa.me/${(() => { const n = cliente.telefone.replace(/\D/g, ''); return n.startsWith('55') ? n : `55${n}` })()}`}
                       target="_blank"
                       rel="noopener noreferrer"
                     >

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { ArrowUpCircle, ArrowDownCircle, Wallet, TrendingUp, TrendingDown, Filter } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -89,6 +90,8 @@ export default function CaixaPage() {
       const totalEntradasAll = movsAll.filter(m => m.tipo === 'entrada').reduce((s, m) => s + m.valor, 0)
       const totalSaidasAll   = movsAll.filter(m => m.tipo === 'saida').reduce((s, m) => s + m.valor, 0)
       setSaldoAtual(sInicial + totalEntradasAll - totalSaidasAll)
+    } catch {
+      toast.error('Erro ao carregar movimentações. Tente novamente.')
     } finally {
       setLoading(false)
     }
