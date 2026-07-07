@@ -53,6 +53,8 @@ export function parseLocalizePf(raw: any) {
     municipio: e.cidade,
     uf: e.uf,
     cep: e.cep,
+    tipo: e.tipo ?? e.tipoEndereco ?? e.classificacao,
+    data_inclusao: formatarDataParaIso(e.dataInclusao ?? e.dataAtualizacao),
   }))
 
   const emails: RelatorioEmail[] = (resp.emails ?? []).map((e: any) => ({
@@ -99,7 +101,8 @@ export function parseLocalizePf(raw: any) {
 
   return {
     nome: cad.nome,
-    nome_mae: cad.maeNome ?? cad.mae,
+    nome_mae: cad.maeNome ?? cad.mae ?? cad.nomeMae,
+    nome_pai: cad.paiNome ?? cad.pai ?? cad.nomePai,
     data_nascimento: formatarDataParaIso(cad.dataNascimento),
     sexo: cad.sexo,
     situacao_cpf: cad.situacaoCadastral,
@@ -155,10 +158,14 @@ export function parseLocalizePj(raw: any) {
     municipio: e.cidade,
     uf: e.uf,
     cep: e.cep,
+    tipo: e.tipo ?? e.tipoEndereco ?? e.classificacao,
+    data_inclusao: formatarDataParaIso(e.dataInclusao ?? e.dataAtualizacao),
   }))
 
   const emails: RelatorioEmail[] = (resp.emails ?? []).map((e: any) => ({
     email: e.email,
+    tipo: e.tipo,
+    score: e.score,
   }))
 
   const socios: RelatorioSocio[] = (resp.socios ?? resp.participacoesEmpresas ?? []).map((s: any) => ({
@@ -167,6 +174,7 @@ export function parseLocalizePj(raw: any) {
     participacao: s.participacao,
     cargo: s.cargo ?? s.qualificacao,
     data_entrada: s.dataEntrada,
+    qualificacao: s.qualificacao ?? s.qualificacaoSocio,
   }))
 
   const veiculos: RelatorioVeiculo[] = (resp.veiculos ?? resp.possiveisVeiculos ?? []).map((v: any) => ({
@@ -293,9 +301,21 @@ export function parseMixPf(raw: any) {
   const comprRenda = scoreRaw.cadastroPositivo?.comprometimentoRenda?.valor
   const rendaPresumida = resumos.rendaPresumida
 
+  const operacoes = (ocorrs.operacoesCredito ?? ocorrs.operacoes ?? []).map((op: any) => ({
+    modalidade: op.modalidade ?? op.tipo ?? op.submodalidade,
+    contratante: op.contratante ?? op.instituicao,
+    valor: op.valor ?? op.valorContratado,
+    data: formatarDataParaIso(op.data ?? op.dataContratacao),
+    situacao: op.situacao,
+    parcelas: op.parcelas ?? op.quantidadeParcelas,
+  }))
+
+  const capacidadePagamento = resumos.capacidadePagamento ?? resumos.capacidade ?? resumos.limiteSugerido
+
   return {
     nome: cad.nome,
-    nome_mae: cad.maeNome,
+    nome_mae: cad.maeNome ?? cad.nomeMae,
+    nome_pai: cad.paiNome ?? cad.nomePai,
     data_nascimento: formatarDataParaIso(cad.dataNascimento),
     sexo: cad.sexo,
     situacao_cpf: cad.situacaoCadastral,
@@ -312,6 +332,7 @@ export function parseMixPf(raw: any) {
     renda_estimada: typeof rendaPresumida === 'number' ? rendaPresumida : undefined,
     renda_presumida: typeof rendaPresumida === 'number' ? rendaPresumida : undefined,
     comprometimento_renda: typeof comprRenda === 'number' ? comprRenda : undefined,
+    capacidade_pagamento: typeof capacidadePagamento === 'number' ? capacidadePagamento : undefined,
 
     negativacoes,
     total_negativacoes: resumos.debitos?.sumQuantidade ?? negativacoes.length,
@@ -327,6 +348,9 @@ export function parseMixPf(raw: any) {
 
     ccf,
     total_ccf: resumos.cheques?.sumQuantidade ?? ccf.length,
+
+    operacoes_credito: operacoes.length > 0 ? operacoes : undefined,
+    total_operacoes_credito: resumos.operacoesCredito?.sumQuantidade ?? operacoes.length,
 
     participacoes_societarias: participacoes.length > 0 ? participacoes : undefined,
 
@@ -408,6 +432,15 @@ export function parseMixPj(raw: any) {
 
   const fatPresumido = resumos.faturamentoPresumido
 
+  const operacoes = (ocorrs.operacoesCredito ?? ocorrs.operacoes ?? []).map((op: any) => ({
+    modalidade: op.modalidade ?? op.tipo ?? op.submodalidade,
+    contratante: op.contratante ?? op.instituicao,
+    valor: op.valor ?? op.valorContratado,
+    data: formatarDataParaIso(op.data ?? op.dataContratacao),
+    situacao: op.situacao,
+    parcelas: op.parcelas ?? op.quantidadeParcelas,
+  }))
+
   return {
     razao_social: cad.razaoSocial,
     nome_fantasia: cad.nomeFantasia,
@@ -446,6 +479,9 @@ export function parseMixPj(raw: any) {
 
     ccf,
     total_ccf: resumos.cheques?.sumQuantidade ?? ccf.length,
+
+    operacoes_credito: operacoes.length > 0 ? operacoes : undefined,
+    total_operacoes_credito: resumos.operacoesCredito?.sumQuantidade ?? operacoes.length,
 
     consultas_anteriores: consultas,
     total_consultas_anteriores: resumos.consultasAnteriores?.sumQuantidade ?? consultas.length,

@@ -85,6 +85,27 @@ function Chip({ children, color }: { children: React.ReactNode; color: string })
   )
 }
 
+// ─── Parecer de Crédito ─────────────────────────────────────────────────────
+
+function parecerCredito(score?: number, totalDividas?: number, pep?: boolean, indicadorObito?: boolean): {
+  label: string
+  desc: string
+  color: string
+  bg: string
+  border: string
+  icon: 'check' | 'warn' | 'x'
+} {
+  if (indicadorObito) return { label: 'Recusar', desc: 'Indicador de óbito registrado.', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-300', icon: 'x' }
+  if (pep) return { label: 'Atenção — PEP', desc: 'Pessoa Politicamente Exposta. Análise especial obrigatória.', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-300', icon: 'warn' }
+  if (score == null) return { label: 'Sem Score', desc: 'Score não disponível. Analise manualmente os dados cadastrais.', color: 'text-gray-600', bg: 'bg-gray-50', border: 'border-gray-200', icon: 'warn' }
+  const dividas = totalDividas ?? 0
+  if (score >= 800 && dividas === 0) return { label: 'Perfil Excelente', desc: 'Score muito alto e sem restrições. Crédito recomendado.', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-300', icon: 'check' }
+  if (score >= 600 && dividas <= 1) return { label: 'Aprovável', desc: 'Perfil com bom score. Avaliar valor e prazo com cautela.', color: 'text-emerald-600', bg: 'bg-emerald-50/70', border: 'border-emerald-200', icon: 'check' }
+  if (score >= 400 && dividas <= 3) return { label: 'Analisar', desc: 'Risco moderado. Exija garantias ou avalista.', color: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-300', icon: 'warn' }
+  if (score >= 300) return { label: 'Alto Risco', desc: 'Score baixo com múltiplas restrições. Garantias sólidas necessárias.', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-300', icon: 'warn' }
+  return { label: 'Recusar', desc: 'Score muito baixo ou muitas restrições. Crédito não recomendado.', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-300', icon: 'x' }
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────
 
 export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
@@ -98,6 +119,8 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
   const temCcf   = (relatorio.total_ccf ?? 0) > 0
   const limpo    = !temNeg && !temProt && !temAcoes && !temCcf
 
+  const parecer = parecerCredito(relatorio.score, relatorio.total_dividas, relatorio.pep, relatorio.indicador_obito)
+
   return (
     <div className="space-y-4">
 
@@ -109,6 +132,27 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
             <p className="font-semibold">Dados de crédito (score, negativações) não disponíveis</p>
             <p className="text-amber-700 mt-0.5">Seu plano Assertiva não inclui o produto Crédito Mix. Os dados de localização (endereço, telefone, e-mail) estão disponíveis normalmente.</p>
           </div>
+        </div>
+      )}
+
+      {/* ── Parecer de Crédito ────────────────────────────────────────────── */}
+      {!mix403 && (
+        <div className={`flex items-start gap-3 px-4 py-3.5 rounded-xl border ${parecer.bg} ${parecer.border}`}>
+          <div className="shrink-0 mt-0.5">
+            {parecer.icon === 'check' && <CheckCircle size={16} className={parecer.color} />}
+            {parecer.icon === 'warn' && <AlertTriangle size={16} className={parecer.color} />}
+            {parecer.icon === 'x' && <XCircle size={16} className={parecer.color} />}
+          </div>
+          <div>
+            <p className={`text-sm font-bold ${parecer.color}`}>Parecer: {parecer.label}</p>
+            <p className={`text-xs mt-0.5 ${parecer.color} opacity-80`}>{parecer.desc}</p>
+          </div>
+          {relatorio.score != null && (
+            <div className="ml-auto shrink-0 text-right">
+              <p className={`text-xl font-black font-mono ${parecer.color}`}>{relatorio.score}</p>
+              <p className={`text-[10px] font-semibold ${parecer.color} opacity-70`}>Score Assertiva</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -443,12 +487,15 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
         {(relatorio.vinculos?.length ?? 0) > 0 && (
           <Section title="Vínculos e Relacionamentos" icon={Heart} count={relatorio.vinculos!.length} severity="ok">
             {relatorio.vinculos!.map((v: any, i: number) => (
-              <div key={i} className="flex justify-between items-center text-xs py-1.5 border-b border-border/30 last:border-0">
-                <div>
-                  <span className="font-medium">{v.nome}</span>
-                  {v.cpf && <span className="text-muted-foreground font-mono text-[10px] ml-2">{formatCpf(v.cpf)}</span>}
+              <div key={i} className="text-xs py-1.5 border-b border-border/30 last:border-0">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    <span className="font-medium">{v.nome}</span>
+                    {v.cpf && <span className="text-muted-foreground font-mono text-[10px] ml-2">{formatCpf(v.cpf)}</span>}
+                  </div>
+                  <span className="text-muted-foreground shrink-0 ml-2">{v.tipo ?? v.parentesco}</span>
                 </div>
-                <span className="text-muted-foreground shrink-0 ml-2">{v.tipo ?? v.parentesco}</span>
+                {v.data && <p className="text-[10px] text-muted-foreground mt-0.5">Desde {formatarData(v.data)}</p>}
               </div>
             ))}
           </Section>
