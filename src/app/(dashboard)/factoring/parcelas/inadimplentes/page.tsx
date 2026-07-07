@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  AlertTriangle, MessageCircle, Eye, CreditCard, Gavel,
-  Users, DollarSign, Clock, Flame, Filter, RefreshCw, CheckCircle2, Loader2, Send
+  AlertTriangle, Eye, CreditCard, Gavel,
+  Users, DollarSign, Clock, Flame, Filter, RefreshCw, CheckCircle2, Loader2, Send, ArrowRightCircle
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
@@ -437,7 +437,6 @@ export default function InadimplentesPage() {
                           title="Ver detalhes do cliente"
                         >
                           <Eye size={13} />
-                          Ver
                         </Button>
                         <Button
                           size="sm"
@@ -451,6 +450,17 @@ export default function InadimplentesPage() {
                           Pagar
                         </Button>
                       </div>
+
+                      {/* Renegociar */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full h-9 gap-2 text-xs font-bold text-[var(--gt-blue)] hover:bg-[var(--gt-blue-light)] hover:border-[var(--gt-blue)]/40 rounded-full transition-colors flex items-center justify-center border-border/60"
+                        onClick={() => router.push(`/factoring/emprestimos/novo?cliente_id=${c.id}`)}
+                      >
+                        <ArrowRightCircle size={13} />
+                        Renegociar
+                      </Button>
 
                       {/* Juridico */}
                       {!bloqueadoAgora && (

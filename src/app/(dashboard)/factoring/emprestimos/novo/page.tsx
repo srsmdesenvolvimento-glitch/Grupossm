@@ -518,20 +518,27 @@ export default function NovoEmprestimoPage() {
               )}
               {showDropdown && resultados.length > 0 && (
                 <div className="absolute z-50 top-full mt-2 w-full bg-card border border-border/50 rounded-2xl shadow-m3-3 overflow-hidden">
-                  {resultados.map(c => (
-                    <button
-                      key={c.id}
-                      className="w-full px-4 py-3.5 flex items-center gap-3 hover:bg-muted/65 text-left border-b border-border/30 last:border-0 transition-colors"
-                      onClick={() => { setCliente(c); setBusca(c.nome); setShowDropdown(false) }}
-                    >
-                      {renderAvatar(c.nome)}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-foreground text-sm truncate leading-none">{c.nome}</p>
-                        <p className="text-xs text-muted-foreground/80 mt-1 font-semibold">{c.cpf ? formatarCPF(c.cpf) : ''} · {formatarTelefone(c.telefone)}</p>
-                      </div>
-                      <span className="text-xs font-bold shrink-0 bg-[#E8F0FE] text-[#1A73E8] px-2.5 py-0.5 rounded-full border border-[#1A73E8]/10 shadow-sm">Score {c.score_interno}</span>
-                    </button>
-                  ))}
+                  {resultados.map(c => {
+                    const temDividas = (c.total_dividas_assertiva ?? 0) > 0
+                    const creditoDisp = c.credito_disponivel ?? 0
+                    return (
+                      <button
+                        key={c.id}
+                        className="w-full px-4 py-3.5 flex items-center gap-3 hover:bg-muted/65 text-left border-b border-border/30 last:border-0 transition-colors"
+                        onClick={() => { setCliente(c); setBusca(c.nome); setShowDropdown(false) }}
+                      >
+                        {renderAvatar(c.nome)}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-bold text-foreground text-sm truncate leading-none">{c.nome}</p>
+                            {temDividas && <AlertTriangle size={11} className="text-red-500 shrink-0" />}
+                          </div>
+                          <p className="text-xs text-muted-foreground/80 mt-1 font-semibold">{c.cpf ? formatarCPF(c.cpf) : ''} · Disponível: {formatarMoeda(creditoDisp)}</p>
+                        </div>
+                        <span className="text-xs font-bold shrink-0 bg-[#E8F0FE] text-[#1A73E8] px-2.5 py-0.5 rounded-full border border-[#1A73E8]/10 shadow-sm">Score {c.score_interno}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
 

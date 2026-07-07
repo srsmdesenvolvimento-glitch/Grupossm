@@ -791,6 +791,32 @@ export default function ContasPagarFactoringPage() {
                 emptyMessage="Nenhuma conta encontrada"
                 perPage={20}
               />
+              {contasFiltradas.length > 0 && (() => {
+                const pendentes = contasFiltradas.filter(c => c.status !== 'pago' && c.status !== 'cancelado')
+                const pagas     = contasFiltradas.filter(c => c.status === 'pago')
+                const totalPend = pendentes.reduce((s, c) => s + c.valor, 0)
+                const totalPago = pagas.reduce((s, c) => s + (c.valor_pago ?? c.valor), 0)
+                return (
+                  <div className="px-6 py-3.5 border-t border-border/40 bg-muted/20 flex flex-wrap items-center justify-end gap-6">
+                    {totalPend > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground font-semibold">{pendentes.length} pendente(s):</span>
+                        <span className="text-sm font-black text-[var(--gt-red)]">{formatarMoeda(totalPend)}</span>
+                      </div>
+                    )}
+                    {totalPago > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground font-semibold">{pagas.length} pago(s):</span>
+                        <span className="text-sm font-black text-[var(--gt-green)]">{formatarMoeda(totalPago)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 border-l border-border/40 pl-6">
+                      <span className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Total:</span>
+                      <span className="text-sm font-black text-foreground">{formatarMoeda(contasFiltradas.reduce((s, c) => s + c.valor, 0))}</span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </TabsContent>
         </Tabs>

@@ -159,12 +159,22 @@ export default function ParcelasPage() {
     },
     {
       key: 'mora',
-      header: 'Juros Diários',
+      header: 'Encargos',
       render: p => {
-        const mora = p.multa + p.juros_mora
-        return mora > 0
-          ? <MoneyDisplay valor={mora} tamanho="sm" negativo />
-          : <span className="text-muted-foreground/30 text-sm">—</span>
+        const multa = Number(p.multa ?? 0)
+        const juros = Number(p.juros_mora ?? 0)
+        const mora = multa + juros
+        if (mora <= 0) return <span className="text-muted-foreground/30 text-sm">—</span>
+        return (
+          <div>
+            <MoneyDisplay valor={mora} tamanho="sm" negativo />
+            {multa > 0 && juros > 0 && (
+              <p className="text-[10px] text-muted-foreground/60 leading-none mt-0.5">
+                M {formatarMoeda(multa)} + J {formatarMoeda(juros)}
+              </p>
+            )}
+          </div>
+        )
       },
     },
     {
