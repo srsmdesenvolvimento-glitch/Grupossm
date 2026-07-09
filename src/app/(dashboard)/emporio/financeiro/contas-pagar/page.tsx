@@ -683,7 +683,7 @@ export default function ContasPagarPage() {
                 setCategoriaFiltro(v as Categoria | 'todas')
               }
             >
-              <SelectTrigger className="w-36 h-9 text-xs">
+              <SelectTrigger className="w-full sm:w-36 h-9 text-xs">
                 <SelectValue placeholder="Categoria" />
               </SelectTrigger>
               <SelectContent>

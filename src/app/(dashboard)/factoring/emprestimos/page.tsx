@@ -283,7 +283,7 @@ export default function EmprestimosPage() {
 
         <div className="bg-card rounded-3xl border border-border/50 shadow-m3-1 overflow-hidden transition-all duration-300 hover:shadow-m3-2">
           <div className="px-5 py-4 border-b border-border/40 flex flex-wrap items-center justify-between gap-4 bg-muted/20">
-            <div className="flex flex-wrap items-center gap-4 flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-3 w-full">
               <SearchInput
                 value={busca}
                 onChange={setBusca}
@@ -291,7 +291,7 @@ export default function EmprestimosPage() {
                 className="flex-1 min-w-48 max-w-md"
               />
               <Select value={filtroStatus} onValueChange={v => setFiltroStatus(v ?? 'todos')}>
-                <SelectTrigger className="h-9.5 text-xs font-semibold rounded-full px-5 border-border bg-background focus:ring-[var(--gt-blue)] focus:border-[var(--gt-blue)] w-44 hover:bg-accent transition-colors">
+                <SelectTrigger className="h-9.5 text-xs font-semibold rounded-full px-5 border-border bg-background focus:ring-[var(--gt-blue)] focus:border-[var(--gt-blue)] w-full sm:w-44 hover:bg-accent transition-colors">
                   <SelectValue placeholder="Filtrar por Status" />
                 </SelectTrigger>
                 <SelectContent className="rounded-2xl border border-border bg-card">
@@ -306,7 +306,7 @@ export default function EmprestimosPage() {
               </Select>
               
               <Select value={filtroAssinatura} onValueChange={v => setFiltroAssinatura(v ?? 'todos')}>
-                <SelectTrigger className="h-9.5 text-xs font-semibold rounded-full px-5 border-border bg-background focus:ring-[var(--gt-blue)] focus:border-[var(--gt-blue)] w-44 hover:bg-accent transition-colors">
+                <SelectTrigger className="h-9.5 text-xs font-semibold rounded-full px-5 border-border bg-background focus:ring-[var(--gt-blue)] focus:border-[var(--gt-blue)] w-full sm:w-44 hover:bg-accent transition-colors">
                   <SelectValue placeholder="Assinatura" />
                 </SelectTrigger>
                 <SelectContent className="rounded-2xl border border-border bg-card">

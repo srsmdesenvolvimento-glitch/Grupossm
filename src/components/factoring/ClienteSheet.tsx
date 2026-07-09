@@ -7,6 +7,7 @@ import { ExternalLink, User, Banknote } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { ScoreGauge } from '@/components/factoring/ScoreGauge'
+import { RestricoesAlerta } from '@/components/factoring/RestricoesBadge'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { formatarCPF, formatarTelefone, formatarMoeda, formatarData, iniciais } from '@/lib/utils/formatters'
@@ -119,6 +120,11 @@ export function ClienteSheet({ clienteId, empresaId, trigger }: ClienteSheetProp
                       {cliente.status === 'ativo' ? 'Ativo' : cliente.status === 'bloqueado' ? 'Bloqueado' : 'Inativo'}
                     </span>
                   </div>
+                </div>
+
+                {/* Restrições — alerta crítico */}
+                <div className="px-5 pt-4">
+                  <RestricoesAlerta cliente={cliente} />
                 </div>
 
                 {/* Score */}

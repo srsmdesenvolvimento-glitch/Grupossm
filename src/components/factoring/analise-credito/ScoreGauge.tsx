@@ -32,19 +32,45 @@ export function ScoreGauge({ score, size = 180 }: Props) {
     return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`
   }
 
-  const angle  = score != null ? toAngle(score) : null
-  const color  = scoreColor(score)
-  const label  = scoreLabel(score)
+  const color = scoreColor(score)
+  const label = scoreLabel(score)
 
-  const needle = angle != null ? {
+  // Sem score: arco cinza neutro + traço central
+  if (score == null) {
+    return (
+      <div className="flex flex-col items-center gap-2 select-none">
+        <svg width={size} height={size * 0.65} viewBox={`0 0 ${size} ${size * 0.65}`}>
+          <path
+            d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+            fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round"
+            className="text-muted/20"
+          />
+          <text x={cx} y={cy - 6} textAnchor="middle"
+            fontSize={size * 0.12} fontWeight="700" fill="currentColor" opacity="0.3" fontFamily="inherit">
+            —
+          </text>
+          <text x={cx} y={cy + 12} textAnchor="middle"
+            fontSize={size * 0.07} fill="currentColor" opacity="0.3" fontFamily="inherit">
+            sem dados
+          </text>
+        </svg>
+        <span className="px-4 py-1 rounded-full text-xs font-bold tracking-wide bg-muted/40 text-muted-foreground">
+          Sem Score
+        </span>
+      </div>
+    )
+  }
+
+  const angle = toAngle(score)
+  const needle = {
     x: cx + (r - 4) * Math.cos(toRad(angle)),
     y: cy + (r - 4) * Math.sin(toRad(angle)),
-  } : null
+  }
 
   return (
     <div className="flex flex-col items-center gap-2 select-none">
       <svg width={size} height={size * 0.65} viewBox={`0 0 ${size} ${size * 0.65}`}>
-        {/* Background */}
+        {/* Background track */}
         <path
           d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
           fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round"
@@ -66,21 +92,17 @@ export function ScoreGauge({ score, size = 180 }: Props) {
           )
         })}
         {/* Needle */}
-        {needle && (
-          <>
-            <line
-              x1={cx} y1={cy} x2={needle.x} y2={needle.y}
-              stroke={color} strokeWidth={3} strokeLinecap="round"
-              style={{ transition: 'all 0.8s ease-out' }}
-            />
-            <circle cx={cx} cy={cy} r={6} fill={color} />
-            <circle cx={cx} cy={cy} r={3} fill="white" />
-          </>
-        )}
+        <line
+          x1={cx} y1={cy} x2={needle.x} y2={needle.y}
+          stroke={color} strokeWidth={3} strokeLinecap="round"
+          style={{ transition: 'all 0.8s ease-out' }}
+        />
+        <circle cx={cx} cy={cy} r={6} fill={color} />
+        <circle cx={cx} cy={cy} r={3} fill="white" />
         {/* Score */}
         <text x={cx} y={cy - 8} textAnchor="middle"
           fontSize={size * 0.18} fontWeight="800" fill={color} fontFamily="inherit">
-          {score ?? '—'}
+          {score}
         </text>
         <text x={cx} y={cy + 12} textAnchor="middle"
           fontSize={size * 0.07} fill="currentColor" opacity="0.5" fontFamily="inherit">

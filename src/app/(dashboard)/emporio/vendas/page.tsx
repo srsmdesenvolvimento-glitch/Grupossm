@@ -334,7 +334,7 @@ export default function VendasPage() {
 
           {/* Filters */}
           <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap gap-3">
-            <div className="flex-1 min-w-48">
+            <div className="flex-1 min-w-0 w-full sm:min-w-48">
               <SearchInput
                 value={busca}
                 onChange={setBusca}
@@ -342,7 +342,7 @@ export default function VendasPage() {
               />
             </div>
             <Select value={filtroStatus} onValueChange={(v) => setFiltroStatus(v ?? 'todos')}>
-              <SelectTrigger className="h-8 text-sm w-40">
+              <SelectTrigger className="h-8 text-sm w-full sm:w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -354,7 +354,7 @@ export default function VendasPage() {
               </SelectContent>
             </Select>
             <Select value={filtroPagamento} onValueChange={(v) => setFiltroPagamento(v ?? 'todos')}>
-              <SelectTrigger className="h-8 text-sm w-36">
+              <SelectTrigger className="h-8 text-sm w-full sm:w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

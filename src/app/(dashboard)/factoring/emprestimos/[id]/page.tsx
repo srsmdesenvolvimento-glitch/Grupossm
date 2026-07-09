@@ -1648,7 +1648,7 @@ export default function EmprestimoDetalhePage() {
                     
                     <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">Como organizar este saldo?</Label>
                     
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => setPartialOption('proxima')}

@@ -487,11 +487,11 @@ export default function ProdutosPage() {
           value={search}
           onChange={setSearch}
           placeholder="Buscar por nome ou SKU..."
-          className="flex-1 min-w-48"
+          className="flex-1 min-w-0 w-full sm:min-w-48"
         />
 
         <Select value={selectedCategoria} onValueChange={(v) => setSelectedCategoria(v ?? 'todas')}>
-          <SelectTrigger className="w-48 shrink-0">
+          <SelectTrigger className="w-full sm:w-48 shrink-0">
             <SelectValue placeholder="Todas as categorias" />
           </SelectTrigger>
           <SelectContent>
@@ -508,7 +508,7 @@ export default function ProdutosPage() {
           value={filterEstoque}
           onValueChange={(v) => setFilterEstoque(v as EstoqueFilter)}
         >
-          <SelectTrigger className="w-40 shrink-0">
+          <SelectTrigger className="w-full sm:w-40 shrink-0">
             <SelectValue placeholder="Estoque" />
           </SelectTrigger>
           <SelectContent>

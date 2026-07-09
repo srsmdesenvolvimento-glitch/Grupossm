@@ -320,6 +320,25 @@ export type ClienteFactoring = {
   status: StatusCliente
   created_at: string
   updated_at: string
+  // Assertiva
+  dados_assertiva: Record<string, unknown> | null
+  score_assertiva: number | null
+  faixa_risco_assertiva: string | null
+  renda_estimada_assertiva: number | null
+  assertiva_consultado_em: string | null
+  total_negativacoes_assertiva: number | null
+  valor_total_negativacoes_assertiva: number | null
+  total_protestos_assertiva: number | null
+  valor_total_protestos_assertiva: number | null
+  total_acoes_judiciais_assertiva: number | null
+  valor_total_acoes_assertiva: number | null
+  total_ccf_assertiva: number | null
+  total_dividas_assertiva: number | null
+  valor_total_dividas_assertiva: number | null
+  pep_assertiva: boolean | null
+  indicador_obito_assertiva: boolean | null
+  situacao_documento_assertiva: string | null
+  faturamento_presumido_assertiva: number | null
 }
 export type ClienteFactoringInsert = Omit<ClienteFactoring, 'id' | 'created_at' | 'updated_at' | 'credito_disponivel'> & {
   id?: string

@@ -22,6 +22,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { AppShell } from '@/components/layout/AppShell'
 import { ScoreGauge } from '@/components/factoring/ScoreGauge'
+import { RestricoesAlerta } from '@/components/factoring/RestricoesBadge'
 import {
   calcularScore,
   REGRAS_SCORE_PADRAO,
@@ -101,19 +102,19 @@ interface ClienteFactoring {
   faixa_risco_assertiva: string | null
   renda_estimada_assertiva: number | null
   assertiva_consultado_em: string | null
-  total_negativacoes_assertiva?: number | null
-  valor_total_negativacoes_assertiva?: number | null
-  total_protestos_assertiva?: number | null
-  valor_total_protestos_assertiva?: number | null
-  total_acoes_judiciais_assertiva?: number | null
-  valor_total_acoes_assertiva?: number | null
-  total_ccf_assertiva?: number | null
-  total_dividas_assertiva?: number | null
-  valor_total_dividas_assertiva?: number | null
-  pep_assertiva?: boolean | null
-  indicador_obito_assertiva?: boolean | null
-  situacao_documento_assertiva?: string | null
-  faturamento_presumido_assertiva?: number | null
+  total_negativacoes_assertiva: number | null
+  valor_total_negativacoes_assertiva: number | null
+  total_protestos_assertiva: number | null
+  valor_total_protestos_assertiva: number | null
+  total_acoes_judiciais_assertiva: number | null
+  valor_total_acoes_assertiva: number | null
+  total_ccf_assertiva: number | null
+  total_dividas_assertiva: number | null
+  valor_total_dividas_assertiva: number | null
+  pep_assertiva: boolean | null
+  indicador_obito_assertiva: boolean | null
+  situacao_documento_assertiva: string | null
+  faturamento_presumido_assertiva: number | null
 }
 
 interface Emprestimo {
@@ -920,6 +921,11 @@ export default function ClientePerfilPage() {
                   </Button>
                 </div>
               </div>
+            </div>
+
+            {/* Alerta de restrições */}
+            <div className="mt-3 w-full lg:w-auto lg:max-w-sm">
+              <RestricoesAlerta cliente={cliente} />
             </div>
 
             {/* Gauges and summaries */}

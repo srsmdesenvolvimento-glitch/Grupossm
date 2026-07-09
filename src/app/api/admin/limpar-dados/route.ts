@@ -10,6 +10,18 @@ export async function POST() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
 
+    const { data: adminCheck } = await supabase
+      .from('usuario_empresa')
+      .select('papel')
+      .eq('usuario_id', user.id)
+      .eq('papel', 'admin')
+      .eq('ativo', true)
+      .limit(1)
+
+    if (!adminCheck || adminCheck.length === 0) {
+      return NextResponse.json({ erro: 'Acesso negado. Apenas administradores.' }, { status: 403 })
+    }
+
     const admin = createAdminClient()
 
     // Tabelas para limpar (ordem importa — FK constraints)

@@ -37,6 +37,14 @@ export async function POST(
       return NextResponse.json({ erro: 'Parcelas do contrato não localizadas.' }, { status: 500 })
     }
 
+    if (emprestimo.assinado_em) {
+      return NextResponse.json({ erro: 'Este contrato já foi assinado anteriormente.' }, { status: 409 })
+    }
+
+    if (emprestimo.status === 'cancelado') {
+      return NextResponse.json({ erro: 'Não é possível assinar um contrato cancelado.' }, { status: 409 })
+    }
+
     // 2. Fetch customer (needs cliente_id from loan)
     const { data: cliente, error: cliError } = await supabase
       .from('clientes_factoring')
@@ -163,6 +171,8 @@ export async function POST(
       .update({
         documentos: updatedDocs,
         observacoes: `${emprestimo.observacoes || ''}\n[Assinado Digitalmente via IP: ${ip} em ${signedAt.split('T')[0]}]`.trim(),
+        assinado_em: signedAt,
+        assinado_ip: ip,
       })
       .eq('id', id)
 

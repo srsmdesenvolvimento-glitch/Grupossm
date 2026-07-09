@@ -60,7 +60,8 @@ export function DataTable<T>({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-hidden overflow-x-auto rounded-2xl bg-card" style={{ boxShadow: 'var(--shadow-m3-1)' }}>
+      <div className="rounded-2xl bg-card overflow-hidden" style={{ boxShadow: 'var(--shadow-m3-1)' }}>
+        <div className="overflow-x-auto">
         <Table className="min-w-full">
           <TableHeader>
             <TableRow className="bg-muted/30 hover:bg-muted/30 border-b border-border/50">
@@ -128,6 +129,7 @@ export function DataTable<T>({
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       {totalPages > 1 && (

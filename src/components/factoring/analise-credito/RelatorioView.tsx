@@ -124,16 +124,6 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
   return (
     <div className="space-y-4">
 
-      {/* ── Aviso: plano sem crédito Mix ──────────────────────────────────── */}
-      {mix403 && (
-        <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
-          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold">Dados de crédito (score, negativações) não disponíveis</p>
-            <p className="text-amber-700 mt-0.5">Seu plano Assertiva não inclui o produto Crédito Mix. Os dados de localização (endereço, telefone, e-mail) estão disponíveis normalmente.</p>
-          </div>
-        </div>
-      )}
 
       {/* ── Parecer de Crédito ────────────────────────────────────────────── */}
       {!mix403 && (
@@ -159,9 +149,11 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
       {/* ── Score Header ──────────────────────────────────────────────────── */}
       <SectionCard>
         <div className="flex flex-col sm:flex-row items-center gap-6">
-          <div className="shrink-0">
-            <ScoreGauge score={relatorio.score} size={150} />
-          </div>
+          {relatorio.score != null && (
+            <div className="shrink-0">
+              <ScoreGauge score={relatorio.score} size={150} />
+            </div>
+          )}
 
           <div className="flex-1 space-y-3 w-full">
             <div>

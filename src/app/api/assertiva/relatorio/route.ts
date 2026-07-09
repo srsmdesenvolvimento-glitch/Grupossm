@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   parseLocalizePf, parseLocalizePj,
@@ -80,6 +81,10 @@ function only(s: string) { return s.replace(/\D/g, '') }
 
 export async function POST(request: NextRequest) {
   try {
+    const supabaseAuth = await createClient()
+    const { data: { user } } = await supabaseAuth.auth.getUser()
+    if (!user) return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
+
     const body = await request.json()
     const { documento, tipo } = body as { documento: string; tipo: 'pf' | 'pj' }
 

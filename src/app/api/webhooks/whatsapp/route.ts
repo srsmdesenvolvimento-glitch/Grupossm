@@ -1,7 +1,20 @@
+import { createHmac, timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const VERIFY_TOKEN = process.env.WEBHOOK_SECRET ?? process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+const APP_SECRET   = process.env.WHATSAPP_APP_SECRET
+
+function verifyMetaSignature(rawBody: string, signature: string | null): boolean {
+  if (!APP_SECRET) return true // skip if not configured
+  if (!signature?.startsWith('sha256=')) return false
+  const expected = createHmac('sha256', APP_SECRET).update(rawBody).digest('hex')
+  try {
+    return timingSafeEqual(Buffer.from(signature.slice(7)), Buffer.from(expected))
+  } catch {
+    return false
+  }
+}
 
 // GET — verificação do webhook pela Meta (obrigatório para configurar no Developer Console)
 export async function GET(request: NextRequest) {
@@ -21,7 +34,15 @@ export async function GET(request: NextRequest) {
 // POST — recebe eventos da Meta Cloud API
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    const rawBody = await request.text()
+    const signature = (request as NextRequest).headers.get('x-hub-signature-256')
+
+    if (!verifyMetaSignature(rawBody, signature)) {
+      console.warn('[Webhook WhatsApp] Assinatura inválida')
+      return NextResponse.json({ error: 'Assinatura inválida' }, { status: 401 })
+    }
+
+    const body = JSON.parse(rawBody)
     const supabase = createAdminClient()
 
     // Grava log bruto para auditoria

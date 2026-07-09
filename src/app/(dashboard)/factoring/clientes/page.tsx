@@ -23,6 +23,7 @@ import { exportarCSV } from '@/lib/utils/export'
 import { usePermissao } from '@/hooks/usePermissao'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
+import { RestricoesBadgeCompacto } from '@/components/factoring/RestricoesBadge'
 
 type ClienteComSaldo = ClienteFactoring & {
   emAberto: number
@@ -155,7 +156,10 @@ export default function FactoringClientesPage() {
               {iniciais(c.nome)}
             </div>
             <div className="min-w-0">
-              <p className="font-semibold text-sm text-foreground truncate max-w-[140px] sm:max-w-[200px]">{c.nome}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="font-semibold text-sm text-foreground truncate max-w-[140px] sm:max-w-[200px]">{c.nome}</p>
+                <RestricoesBadgeCompacto cliente={c} />
+              </div>
               {c.cidade && <p className="text-[10px] text-muted-foreground font-medium">{c.cidade}/{c.estado}</p>}
             </div>
           </div>
@@ -316,12 +320,12 @@ export default function FactoringClientesPage() {
               value={busca}
               onChange={setBusca}
               placeholder="Buscar por nome, CPF/CNPJ ou telefone..."
-              className="flex-1 min-w-56"
+              className="flex-1 min-w-0 w-full sm:min-w-56"
             />
             
-            <div className="flex gap-2 items-center flex-wrap shrink-0">
+            <div className="flex gap-2 items-center flex-wrap w-full sm:w-auto">
               <Select value={filtroRisco} onValueChange={v => setFiltroRisco(v ?? 'todos')}>
-                <SelectTrigger className="h-9 text-xs font-semibold w-40 rounded-full bg-background border-border hover:bg-accent transition-colors">
+                <SelectTrigger className="h-9 text-xs font-semibold w-full sm:w-40 rounded-full bg-background border-border hover:bg-accent transition-colors">
                   <SelectValue placeholder="Mesa de Risco" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border border-border bg-card">
@@ -334,7 +338,7 @@ export default function FactoringClientesPage() {
               </Select>
 
               <Select value={filtroStatus} onValueChange={v => setFiltroStatus(v ?? 'todos')}>
-                <SelectTrigger className="h-9 text-xs font-semibold w-36 rounded-full bg-background border-border hover:bg-accent transition-colors">
+                <SelectTrigger className="h-9 text-xs font-semibold w-full sm:w-36 rounded-full bg-background border-border hover:bg-accent transition-colors">
                   <SelectValue placeholder="Status Cadastral" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border border-border bg-card">

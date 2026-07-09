@@ -294,12 +294,12 @@ export default function ParcelasPage() {
             ))}
           </div>
 
-          <div className="px-6 py-5 border-b border-border/50 flex items-center justify-between gap-4">
+          <div className="px-6 py-4 border-b border-border/50 flex flex-wrap items-center gap-3">
             <SearchInput
               value={busca}
               onChange={setBusca}
               placeholder="Buscar por contrato ou cliente..."
-              className="flex-1 min-w-48 max-w-md"
+              className="flex-1 min-w-0 w-full sm:w-auto"
             />
             {temPermissao('financeiro') && filtradas.length > 0 && (
               <Button
