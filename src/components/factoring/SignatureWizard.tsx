@@ -12,12 +12,44 @@ import { formatarMoeda, formatarCPF, formatarData } from '@/lib/utils/formatters
 
 interface SignatureWizardProps {
   id: string
+  token: string
   contrato: any
   cliente: any
   parcelas: any[]
 }
 
-export default function SignatureWizard({ id, contrato, cliente, parcelas }: SignatureWizardProps) {
+// Redimensiona/recomprime uma imagem antes de embutir no payload da assinatura.
+// Necessário porque: (1) câmeras de celular costumam negociar uma resolução
+// bem maior do que o `ideal` pedido em getUserMedia, e (2) uma foto escolhida
+// da galeria não passa por nenhuma captura controlada — pode vir com vários
+// MB direto do rolo de câmera do aparelho. Sem isso, os 3 dados da assinatura
+// (selfie + documento + rubrica) somados no corpo da requisição JSON podem
+// passar do limite de payload da função serverless em produção, e o
+// envio falha com um erro genérico bem na hora de assinar.
+function redimensionarImagemBase64(dataUrl: string, maxDimensao: number, qualidade: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      let { width, height } = img
+      if (width > maxDimensao || height > maxDimensao) {
+        const escala = maxDimensao / Math.max(width, height)
+        width = Math.round(width * escala)
+        height = Math.round(height * escala)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { reject(new Error('Canvas indisponível')); return }
+      ctx.drawImage(img, 0, 0, width, height)
+      resolve(canvas.toDataURL('image/jpeg', qualidade))
+    }
+    img.onerror = () => reject(new Error('Falha ao carregar imagem para redimensionar'))
+    img.src = dataUrl
+  })
+}
+
+export default function SignatureWizard({ id, token, contrato, cliente, parcelas }: SignatureWizardProps) {
   const [passo, setPasso] = useState(0)
   const [contratoLido, setContratoLido] = useState(false)
   const [termosAceitos, setTermosAceitos] = useState(false)
@@ -209,17 +241,21 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     setDocCameraAtiva(false)
   }
 
-  const capturarFotoDocumento = () => {
+  const capturarFotoDocumento = async () => {
     const video = docVideoRef.current
     if (!video) return
     try {
+      // Câmeras de celular costumam negociar uma resolução bem maior do que o
+      // "ideal" pedido — captura no tamanho nativo e redimensiona em seguida,
+      // em vez de confiar que a câmera respeitou o pedido de 1280x960.
       const canvas = document.createElement('canvas')
       canvas.width = video.videoWidth || 1280
       canvas.height = video.videoHeight || 960
       const ctx = canvas.getContext('2d')
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const base64 = canvas.toDataURL('image/jpeg', 0.9)
+        const bruto = canvas.toDataURL('image/jpeg', 0.9)
+        const base64 = await redimensionarImagemBase64(bruto, 1400, 0.85)
         setDocumento(base64)
         pararCameraDocumento()
         toast.success('Documento fotografado com sucesso!')
@@ -229,24 +265,25 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
     }
   }
 
-  const capturarFoto = () => {
+  const capturarFoto = async () => {
     const video = videoRef.current
     if (!video) return
-    
+
     try {
       const canvas = document.createElement('canvas')
       canvas.width = video.videoWidth || 640
       canvas.height = video.videoHeight || 480
       const ctx = canvas.getContext('2d')
-      
+
       if (ctx) {
         // Mirror the image horizontally
         ctx.translate(canvas.width, 0)
         ctx.scale(-1, 1)
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
         ctx.setTransform(1, 0, 0, 1, 0, 0)
-        
-        const base64 = canvas.toDataURL('image/jpeg', 0.85)
+
+        const bruto = canvas.toDataURL('image/jpeg', 0.85)
+        const base64 = await redimensionarImagemBase64(bruto, 900, 0.85)
         setSelfie(base64)
         pararCamera()
         toast.success('Selfie capturada com sucesso!')
@@ -424,11 +461,19 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
       toast.error('O arquivo selecionado precisa ser uma imagem.')
       return
     }
-    
+
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       if (e.target?.result && typeof e.target.result === 'string') {
-        callback(e.target.result)
+        try {
+          // Foto escolhida da galeria não passa por nenhuma captura
+          // controlada — pode vir com vários MB direto do rolo de câmera do
+          // aparelho. Redimensiona antes de mandar pro servidor.
+          const base64 = await redimensionarImagemBase64(e.target.result, 1400, 0.85)
+          callback(base64)
+        } catch {
+          toast.error('Erro ao processar a imagem selecionada. Tente novamente.')
+        }
       }
     }
     reader.onerror = () => {
@@ -472,6 +517,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          token,
           selfie,
           documento,
           assinatura: signatureBase64,
@@ -603,7 +649,7 @@ export default function SignatureWizard({ id, contrato, cliente, parcelas }: Sig
               <p>
                 Pelo presente contrato particular de empréstimo de dinheiro, de um lado,{' '}
                 <span className="font-bold text-slate-100">SRS M FACTORING LTDA.</span>, CNPJ: 64.479.167/0001-60,
-                situado na Rua 03, nº 679, quadra C, lote 10, Setor Morais, Goiânia/GO, de ora em diante denominado
+                de ora em diante denominado
                 simplesmente por <span className="font-bold text-slate-100">CREDOR</span>, e, de outro lado,{' '}
                 <span className="font-bold text-indigo-300">{cliente.nome}</span>
                 {qualificacao ? `, ${qualificacao}` : ''},

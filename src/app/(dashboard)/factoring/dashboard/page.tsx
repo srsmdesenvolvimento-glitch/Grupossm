@@ -12,10 +12,15 @@ import { useEmpresa } from '@/contexts/EmpresaContext'
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
 import {
   Banknote, TrendingUp, Clock, AlertTriangle, CheckCircle,
   Percent, MessageCircle, RefreshCw, CalendarDays, Scale, AlertCircle,
-  UserCheck, ShieldCheck, DollarSign, ArrowUpRight
+  UserCheck, ShieldCheck, DollarSign, ArrowUpRight, BellRing,
 } from 'lucide-react'
 
 // ──────────────────────────────────────────────
@@ -173,6 +178,31 @@ export default function FactoringDashboard() {
   const [diaFiltro, setDiaFiltro] = useState(() => new Date().toISOString().split('T')[0])
   const [enviandoCobrancaDash, setEnviandoCobrancaDash] = useState<string | null>(null)
   const [pixPadraoDash, setPixPadraoDash] = useState('')
+
+  // Lembretes vencidos/de hoje, de qualquer cliente — popup de aviso geral ao
+  // abrir o dashboard (o popup específico por cliente fica no perfil dele).
+  const [lembretesHoje, setLembretesHoje] = useState<{ id: string; titulo: string; data_lembrete: string; cliente_id: string; cliente_nome: string }[]>([])
+  const [popupLembretesDashFechado, setPopupLembretesDashFechado] = useState(false)
+
+  useEffect(() => {
+    if (!empresaAtual?.id) return
+    let cancelado = false
+    createClient()
+      .from('lembretes_cliente_factoring')
+      .select('id, titulo, data_lembrete, cliente_id, clientes_factoring(nome)')
+      .eq('empresa_id', empresaAtual.id)
+      .eq('concluido', false)
+      .lte('data_lembrete', hoje())
+      .order('data_lembrete', { ascending: true })
+      .then(({ data: lembretesData }) => {
+        if (cancelado || !lembretesData) return
+        setLembretesHoje(lembretesData.map((l: any) => ({
+          id: l.id, titulo: l.titulo, data_lembrete: l.data_lembrete,
+          cliente_id: l.cliente_id, cliente_nome: l.clientes_factoring?.nome ?? 'Cliente',
+        })))
+      })
+    return () => { cancelado = true }
+  }, [empresaAtual?.id])
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual?.id) return
@@ -991,6 +1021,46 @@ export default function FactoringDashboard() {
         </div>
 
       </div>
+
+      {/* Popup — lembretes vencidos/de hoje, de qualquer cliente */}
+      <Dialog
+        open={lembretesHoje.length > 0 && !popupLembretesDashFechado}
+        onOpenChange={(open) => !open && setPopupLembretesDashFechado(true)}
+      >
+        <DialogContent className="sm:max-w-md rounded-2xl border-border">
+          <DialogHeader>
+            <DialogTitle className="font-extrabold text-foreground tracking-tight flex items-center gap-2">
+              <BellRing size={20} className="text-[#FA903E]" />
+              {lembretesHoje.length === 1 ? 'Você tem um lembrete' : `Você tem ${lembretesHoje.length} lembretes`}
+            </DialogTitle>
+            <DialogDescription>Vencidos ou para hoje</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2.5 py-1 max-h-80 overflow-y-auto">
+            {lembretesHoje.map(l => (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => router.push(`/factoring/clientes/${l.cliente_id}`)}
+                className="w-full text-left rounded-xl border border-[#EA4335]/25 bg-[#FCE8E6]/40 hover:bg-[#FCE8E6]/70 transition-colors px-3.5 py-3"
+              >
+                <p className="text-sm font-bold text-foreground leading-snug">{l.titulo}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{l.cliente_nome}</p>
+                <p className="text-[11px] font-bold text-[#C5221F] mt-1">
+                  {new Date(l.data_lembrete + 'T12:00:00').toLocaleDateString('pt-BR')}
+                </p>
+              </button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setPopupLembretesDashFechado(true)}
+              className="w-full text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-semibold"
+            >
+              Ok, entendi
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   )
 }

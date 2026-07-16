@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireSuperAdmin } from '@/lib/supabase/superAdmin'
 import { z } from 'zod'
 
 const assinaturaSchema = z.object({
@@ -16,27 +17,11 @@ const assinaturaSchema = z.object({
   observacoes: z.string().nullable().optional(),
 })
 
-async function assertAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  const { data: ue } = await supabase
-    .from('usuario_empresa')
-    .select('papel')
-    .eq('usuario_id', user.id)
-    .eq('papel', 'admin')
-    .eq('ativo', true)
-    .limit(1)
-    .maybeSingle()
-
-  return ue ? user : null
-}
-
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const user = await assertAdmin(supabase)
-    if (!user) return NextResponse.json({ erro: 'Sem permissão' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const { searchParams } = new URL(request.url)
     const empresa_id = searchParams.get('empresa_id')
@@ -64,8 +49,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const user = await assertAdmin(supabase)
-    if (!user) return NextResponse.json({ erro: 'Sem permissão' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const body = await request.json()
     const parsed = assinaturaSchema.safeParse(body)
@@ -123,8 +108,8 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const user = await assertAdmin(supabase)
-    if (!user) return NextResponse.json({ erro: 'Sem permissão' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const body = await request.json()
     const { id, ...rest } = body

@@ -50,3 +50,14 @@ export function validarTelefone(tel: string): boolean {
 export function validarCEP(cep: string): boolean {
   return /^\d{8}$/.test(limparDocumento(cep))
 }
+
+// Monta o link do wa.me só quando o telefone é válido (DDD + 8 ou 9 dígitos).
+// Antes, cada tela montava a URL direto (`wa.me/55${tel.replace(...)}`) sem
+// checar o tamanho — telefone vazio/incompleto abria o WhatsApp com um
+// número quebrado, sem nenhum aviso pro usuário.
+export function linkWhatsApp(telefone: string, mensagem?: string): string | null {
+  if (!validarTelefone(telefone)) return null
+  const numero = limparDocumento(telefone)
+  const texto = mensagem ? `?text=${encodeURIComponent(mensagem)}` : ''
+  return `https://wa.me/55${numero}${texto}`
+}

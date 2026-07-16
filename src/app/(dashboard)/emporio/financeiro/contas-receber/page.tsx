@@ -11,6 +11,7 @@ import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { toast } from 'sonner'
 import { formatarMoeda, formatarData } from '@/lib/utils/formatters'
+import { calcularStatusPagamento, calcularValorPagoAcumulado, calcularSaldoRestante } from '@/lib/utils/pagamentos'
 import { cn } from '@/lib/utils'
 import {
   TrendingUp,
@@ -56,7 +57,7 @@ type Parcela = {
   data_vencimento: string
   data_pagamento: string | null
   tipo_pagamento: string | null
-  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado'
+  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado' | 'parcial'
   observacoes: string | null
   clientes_emporio?: { nome: string; telefone: string | null } | null
   vendas?: { numero_venda: string | number } | null
@@ -125,15 +126,15 @@ export default function ContasReceberPage() {
   const totalReceber = useMemo(
     () =>
       parcelas
-        .filter((p) => ['pendente', 'atrasado'].includes(p.status))
-        .reduce((s, p) => s + Number(p.valor), 0),
+        .filter((p) => ['pendente', 'atrasado', 'parcial'].includes(p.status))
+        .reduce((s, p) => s + calcularSaldoRestante(Number(p.valor), p.valor_pago), 0),
     [parcelas],
   )
 
   const vencendoHoje = useMemo(
     () =>
       parcelas.filter(
-        (p) => p.status === 'pendente' && p.data_vencimento === hoje,
+        (p) => ['pendente', 'parcial'].includes(p.status) && p.data_vencimento === hoje,
       ),
     [parcelas, hoje],
   )
@@ -160,11 +161,11 @@ export default function ContasReceberPage() {
 
     switch (tabAtiva) {
       case 'pendentes':
-        lista = lista.filter((p) => p.status === 'pendente')
+        lista = lista.filter((p) => p.status === 'pendente' || p.status === 'parcial')
         break
       case 'vencendo':
         lista = lista.filter(
-          (p) => p.status === 'pendente' && p.data_vencimento === hoje,
+          (p) => (p.status === 'pendente' || p.status === 'parcial') && p.data_vencimento === hoje,
         )
         break
       case 'atrasadas':
@@ -192,7 +193,7 @@ export default function ContasReceberPage() {
 
   function abrirReceberDialog(parcela: Parcela) {
     setForm({
-      valor_recebido: Number(parcela.valor),
+      valor_recebido: calcularSaldoRestante(Number(parcela.valor), parcela.valor_pago),
       data_pagamento: new Date().toISOString().split('T')[0],
       forma_pagamento: '',
       observacoes: '',
@@ -207,17 +208,24 @@ export default function ContasReceberPage() {
       toast.error('Selecione a forma de pagamento')
       return
     }
+    if (!form.valor_recebido || form.valor_recebido <= 0) {
+      toast.error('Informe um valor válido')
+      return
+    }
 
     setSalvando(true)
     try {
       const clienteNome =
         parcela.clientes_emporio?.nome ?? 'Cliente não informado'
 
+      const valorPagoAcumulado = calcularValorPagoAcumulado(parcela.valor_pago, form.valor_recebido)
+      const novoStatus = calcularStatusPagamento(Number(parcela.valor), valorPagoAcumulado)
+
       const { error: errUpdate } = await supabase
         .from('parcelas_receber')
         .update({
-          status: 'pago',
-          valor_pago: form.valor_recebido,
+          status: novoStatus,
+          valor_pago: valorPagoAcumulado,
           data_pagamento: form.data_pagamento,
           tipo_pagamento: form.forma_pagamento,
           observacoes: form.observacoes || null,
@@ -297,7 +305,17 @@ export default function ContasReceberPage() {
     {
       key: 'valor',
       header: 'Valor',
-      render: (row) => <MoneyDisplay valor={Number(row.valor)} tamanho="sm" />,
+      render: (row) => (
+        <div>
+          <MoneyDisplay valor={Number(row.valor)} tamanho="sm" />
+          {row.status === 'parcial' && (
+            <p className="text-xs text-amber-600 mt-0.5">
+              Recebido {formatarMoeda(Number(row.valor_pago ?? 0))} · falta{' '}
+              {formatarMoeda(calcularSaldoRestante(Number(row.valor), row.valor_pago))}
+            </p>
+          )}
+        </div>
+      ),
     },
     {
       key: 'vencimento',
@@ -358,7 +376,7 @@ export default function ContasReceberPage() {
       header: '',
       className: 'text-right w-[80px]',
       render: (row) =>
-        ['pendente', 'atrasado'].includes(row.status) ? (
+        ['pendente', 'atrasado', 'parcial'].includes(row.status) ? (
           <Button
             size="sm"
             className="text-xs h-7 px-3 bg-[#D4A528] hover:bg-[#B8891F] text-white border-0 shadow-sm"
@@ -497,11 +515,17 @@ export default function ContasReceberPage() {
               {/* Valor highlight */}
               <div className="rounded-xl bg-[#FFFBEB] border border-[#D4A528]/30 p-4 text-center">
                 <p className="text-xs text-muted-foreground mb-1">
-                  Valor da parcela
+                  {receberDialog.parcela.status === 'parcial' ? 'Saldo restante' : 'Valor da parcela'}
                 </p>
                 <p className="text-2xl font-bold text-[#D4A528]">
-                  {formatarMoeda(Number(receberDialog.parcela.valor))}
+                  {formatarMoeda(calcularSaldoRestante(Number(receberDialog.parcela.valor), receberDialog.parcela.valor_pago))}
                 </p>
+                {receberDialog.parcela.status === 'parcial' && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Já recebido: {formatarMoeda(Number(receberDialog.parcela.valor_pago ?? 0))} de{' '}
+                    {formatarMoeda(Number(receberDialog.parcela.valor))}
+                  </p>
+                )}
                 {receberDialog.parcela.total_parcelas > 1 && (
                   <p className="text-xs text-muted-foreground mt-1">
                     Parcela {receberDialog.parcela.numero_parcela}/

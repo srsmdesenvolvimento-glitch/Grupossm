@@ -11,10 +11,13 @@ export const metadata: Metadata = {
 
 export default async function AssinarContratoPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ token?: string }>
 }) {
   const { id } = await params
+  const { token } = await searchParams
   const supabase = createAdminClient()
 
   // 1. Fetch Loan Details securely on the server
@@ -24,7 +27,13 @@ export default async function AssinarContratoPage({
     .eq('id', id)
     .single()
 
-  if (!emprestimo) {
+  // Sem o token do contrato (enviado só no link que vai pro cliente por
+  // WhatsApp), qualquer pessoa com o UUID do empréstimo conseguiria ver os
+  // dados do cliente e assinar o contrato no lugar dele — tratamos igual a
+  // "não encontrado" pra não revelar se o UUID existe ou não.
+  const tokenValido = !!token && !!emprestimo && token === emprestimo.assinatura_token
+
+  if (!emprestimo || !tokenValido) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-6 shadow-2xl">
@@ -107,6 +116,7 @@ export default async function AssinarContratoPage({
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none antialiased">
       <SignatureWizard
         id={id}
+        token={token!}
         contrato={emprestimo}
         cliente={cliente}
         parcelas={parcelas || []}

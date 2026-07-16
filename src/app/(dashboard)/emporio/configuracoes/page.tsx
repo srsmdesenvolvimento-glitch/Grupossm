@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DataTable, type Column } from '@/components/shared/DataTable'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { CriarUsuarioDialog } from '@/components/shared/CriarUsuarioDialog'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { toast } from 'sonner'
@@ -147,6 +148,8 @@ export default function ConfiguracoesEmporioPage() {
   const [usuarios, setUsuarios] = useState<UsuarioRow[]>([])
   const [loadingUsuarios, setLoadingUsuarios] = useState(false)
   const [dialogConvidar, setDialogConvidar] = useState(false)
+  const [removerDialog, setRemoverDialog] = useState<UsuarioRow | null>(null)
+  const [removendoUsuario, setRemovendoUsuario] = useState(false)
 
   // ---------------------------------------------------------------------------
   // Load data
@@ -357,7 +360,7 @@ export default function ConfiguracoesEmporioPage() {
   }
 
   async function removerUsuario(ueId: string) {
-    if (!confirm('Remover este usuário da empresa?')) return
+    setRemovendoUsuario(true)
     try {
       const { error } = await supabase
         .from('usuario_empresa')
@@ -366,8 +369,11 @@ export default function ConfiguracoesEmporioPage() {
       if (error) throw error
       setUsuarios(prev => prev.filter(u => u.ue_id !== ueId))
       toast.success('Usuário removido')
+      setRemoverDialog(null)
     } catch {
       toast.error('Erro ao remover usuário')
+    } finally {
+      setRemovendoUsuario(false)
     }
   }
 
@@ -420,7 +426,7 @@ export default function ConfiguracoesEmporioPage() {
           variant="ghost"
           size="sm"
           className="text-red-500 hover:text-red-700 hover:bg-red-50"
-          onClick={() => removerUsuario(row.ue_id)}
+          onClick={() => setRemoverDialog(row)}
         >
           <Trash2 size={15} />
         </Button>
@@ -742,6 +748,17 @@ export default function ConfiguracoesEmporioPage() {
           onSuccess={carregarDados}
         />
       )}
+
+      <ConfirmDialog
+        open={!!removerDialog}
+        onOpenChange={(open) => !removendoUsuario && !open && setRemoverDialog(null)}
+        titulo="Remover usuário"
+        descricao={`Remover ${removerDialog?.nome ?? 'este usuário'} da empresa? Ele perderá o acesso imediatamente.`}
+        labelConfirmar="Remover"
+        variante="danger"
+        onConfirmar={() => { if (removerDialog) removerUsuario(removerDialog.ue_id) }}
+        carregando={removendoUsuario}
+      />
     </AppShell>
   )
 }

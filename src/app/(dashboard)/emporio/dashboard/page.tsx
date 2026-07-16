@@ -9,6 +9,7 @@ import { StatCard } from '@/components/shared/StatCard'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { toast } from 'sonner'
 import { formatarMoeda } from '@/lib/utils/formatters'
+import { linkWhatsApp } from '@/lib/utils/validators'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -486,12 +487,8 @@ export default function EmporioDashboard() {
                   const dias = diasAtraso(parcela.data_vencimento)
                   const telefone = (parcela as unknown as { clientes_emporio: { nome: string; telefone?: string } | null }).clientes_emporio?.telefone
                   const nome = parcela.clientes_emporio?.nome ?? 'Cliente não identificado'
-                  const whatsappMsg = encodeURIComponent(
-                    `Olá ${nome}! Passando para lembrar sobre a parcela em atraso de ${formatarMoeda(Number(parcela.valor))} que venceu em ${new Date(parcela.data_vencimento).toLocaleDateString('pt-BR')}. Podemos resolver?`,
-                  )
-                  const whatsappUrl = telefone
-                    ? `https://wa.me/55${telefone.replace(/\D/g, '')}?text=${whatsappMsg}`
-                    : null
+                  const whatsappMsg = `Olá ${nome}! Passando para lembrar sobre a parcela em atraso de ${formatarMoeda(Number(parcela.valor))} que venceu em ${new Date(parcela.data_vencimento).toLocaleDateString('pt-BR')}. Podemos resolver?`
+                  const whatsappUrl = telefone ? linkWhatsApp(telefone, whatsappMsg) : null
 
                   return (
                     <div key={parcela.id} className="flex items-center justify-between px-5 py-3 bg-red-50/30">

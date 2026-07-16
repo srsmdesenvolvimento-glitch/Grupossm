@@ -6,7 +6,14 @@ const VERIFY_TOKEN = process.env.WEBHOOK_SECRET ?? process.env.WHATSAPP_WEBHOOK_
 const APP_SECRET   = process.env.WHATSAPP_APP_SECRET
 
 function verifyMetaSignature(rawBody: string, signature: string | null): boolean {
-  if (!APP_SECRET) return true // skip if not configured
+  // Nega por padrão se o segredo não estiver configurado — aceitar tudo sem
+  // verificar (comportamento antigo) deixaria qualquer um forjar eventos de
+  // status de mensagem. Configure WHATSAPP_APP_SECRET (Meta Developer
+  // Console → App Settings → Basic) pra este webhook voltar a funcionar.
+  if (!APP_SECRET) {
+    console.error('[Webhook WhatsApp] WHATSAPP_APP_SECRET não configurado — requisição recusada por padrão')
+    return false
+  }
   if (!signature?.startsWith('sha256=')) return false
   const expected = createHmac('sha256', APP_SECRET).update(rawBody).digest('hex')
   try {

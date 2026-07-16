@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle, Eye, CreditCard, Gavel,
-  Users, DollarSign, Clock, Flame, Filter, RefreshCw, CheckCircle2, Loader2, Send, ArrowRightCircle
+  Users, DollarSign, Clock, Flame, Filter, RefreshCw, CheckCircle2, Loader2, Send, ArrowRightCircle,
+  MessageSquare, UserCheck, Phone,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
@@ -15,6 +16,15 @@ import { SearchInput } from '@/components/shared/SearchInput'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '@/components/ui/select'
 import { formatarMoeda, formatarCPF, iniciais } from '@/lib/utils/formatters'
 import type { ParcelaEmprestimo } from '@/lib/types/database'
 import { cn } from '@/lib/utils'
@@ -27,6 +37,7 @@ type ClienteInadimplente = {
   telefone: string
   score_interno: number
   status: 'ativo' | 'inativo' | 'bloqueado'
+  responsavel_cobranca_id: string | null
   parcelas: (ParcelaEmprestimo & { emprestimos?: { numero_contrato: string } | null })[]
   totalDevido: number
   maxDiasAtraso: number
@@ -34,6 +45,15 @@ type ClienteInadimplente = {
 }
 
 type Filtro = 'todos' | 'leve' | 'moderado' | 'critico' | 'grave'
+type FiltroResponsavel = 'todos' | 'meus'
+
+const TIPOS_CONTATO = [
+  { id: 'ligacao',            label: 'Ligação',            icone: '📞' },
+  { id: 'whatsapp',           label: 'WhatsApp / Mensagem', icone: '💬' },
+  { id: 'visita',             label: 'Visita',             icone: '🏠' },
+  { id: 'promessa_pagamento', label: 'Promessa de pagamento', icone: '🤝' },
+  { id: 'nao_atendeu',        label: 'Não atendeu',        icone: '📵' },
+] as const
 
 type NivelAtraso = {
   label: string
@@ -75,9 +95,23 @@ export default function InadimplentesPage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<Filtro>('todos')
+  const [filtroResponsavel, setFiltroResponsavel] = useState<FiltroResponsavel>('todos')
   const [bloqueando, setBloqueando] = useState<string | null>(null)
   const [enviandoCobranca, setEnviandoCobranca] = useState<string | null>(null)
   const [pixPadrao, setPixPadrao] = useState('financeiro@srsm.com.br')
+  const [usuarioAtualId, setUsuarioAtualId] = useState<string | null>(null)
+  const [assumindo, setAssumindo] = useState<string | null>(null)
+
+  // Registrar contato (fila de cobrança)
+  const [contatoDialogCliente, setContatoDialogCliente] = useState<ClienteInadimplente | null>(null)
+  const [contatoTipo, setContatoTipo] = useState<string>('ligacao')
+  const [contatoObservacao, setContatoObservacao] = useState('')
+  const [contatoDataPromessa, setContatoDataPromessa] = useState('')
+  const [salvandoContato, setSalvandoContato] = useState(false)
+
+  useEffect(() => {
+    createClient().auth.getUser().then(({ data }) => setUsuarioAtualId(data.user?.id ?? null))
+  }, [])
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual) { setLoading(false); return }
@@ -95,7 +129,7 @@ export default function InadimplentesPage() {
           .order('data_vencimento', { ascending: true }),
         supabase
           .from('clientes_factoring')
-          .select('id, nome, cpf, telefone, score_interno, status')
+          .select('id, nome, cpf, telefone, score_interno, status, responsavel_cobranca_id')
           .eq('empresa_id', empresaAtual.id),
         supabase
           .from('config_factoring')
@@ -105,7 +139,7 @@ export default function InadimplentesPage() {
       ])
       if (config?.whatsapp_padrao) setPixPadrao(config.whatsapp_padrao)
 
-      const clienteMap: Record<string, { id: string; nome: string; cpf: string | null; telefone: string; score_interno: number; status: 'ativo' | 'inativo' | 'bloqueado' }> = {}
+      const clienteMap: Record<string, { id: string; nome: string; cpf: string | null; telefone: string; score_interno: number; status: 'ativo' | 'inativo' | 'bloqueado'; responsavel_cobranca_id: string | null }> = {}
       for (const c of clientesData ?? []) clienteMap[c.id] = c
 
       const grouped: Record<string, ParcelaEmprestimo[]> = {}
@@ -130,6 +164,7 @@ export default function InadimplentesPage() {
           telefone: c?.telefone ?? '',
           score_interno: c?.score_interno ?? 0,
           status: c?.status ?? 'ativo',
+          responsavel_cobranca_id: c?.responsavel_cobranca_id ?? null,
           parcelas: pList,
           totalDevido,
           maxDiasAtraso,
@@ -210,6 +245,62 @@ export default function InadimplentesPage() {
     }
   }
 
+  async function assumirCliente(clienteId: string) {
+    if (!usuarioAtualId) return
+    setAssumindo(clienteId)
+    try {
+      const { error } = await supabase
+        .from('clientes_factoring')
+        .update({ responsavel_cobranca_id: usuarioAtualId })
+        .eq('id', clienteId)
+      if (error) throw error
+      setClientes(prev => prev.map(c => c.id === clienteId ? { ...c, responsavel_cobranca_id: usuarioAtualId } : c))
+      toast.success('Você assumiu este cliente na fila de cobrança.')
+    } catch {
+      toast.error('Erro ao assumir cliente')
+    } finally {
+      setAssumindo(null)
+    }
+  }
+
+  function abrirRegistrarContato(c: ClienteInadimplente) {
+    setContatoDialogCliente(c)
+    setContatoTipo('ligacao')
+    setContatoObservacao('')
+    setContatoDataPromessa('')
+  }
+
+  async function salvarContato() {
+    const c = contatoDialogCliente
+    if (!c || !empresaAtual?.id) return
+    setSalvandoContato(true)
+    try {
+      const tipoLabel = TIPOS_CONTATO.find(t => t.id === contatoTipo)?.label ?? contatoTipo
+      let mensagem = contatoObservacao.trim()
+      if (contatoTipo === 'promessa_pagamento' && contatoDataPromessa) {
+        const dataFmt = new Date(contatoDataPromessa + 'T12:00:00').toLocaleDateString('pt-BR')
+        mensagem = `Prometeu pagar até ${dataFmt}. ${mensagem}`.trim()
+      }
+      const { error } = await supabase.from('notificacoes_log').insert({
+        empresa_id: empresaAtual.id,
+        canal: 'sistema',
+        destinatario: c.nome,
+        assunto: contatoTipo,
+        mensagem: mensagem || tipoLabel,
+        referencia_tipo: 'cliente',
+        referencia_id: c.id,
+        status: 'enviado',
+      })
+      if (error) throw error
+      toast.success('Contato registrado!')
+      setContatoDialogCliente(null)
+    } catch {
+      toast.error('Erro ao registrar contato')
+    } finally {
+      setSalvandoContato(false)
+    }
+  }
+
   const filtrados = useMemo(() => {
     let lista = clientes
     if (busca) {
@@ -220,11 +311,14 @@ export default function InadimplentesPage() {
         c.telefone.includes(q)
       )
     }
+    if (filtroResponsavel === 'meus' && usuarioAtualId) {
+      lista = lista.filter(c => c.responsavel_cobranca_id === usuarioAtualId)
+    }
     if (filtro !== 'todos') {
       lista = lista.filter(c => getNivelKey(c.maxDiasAtraso) === filtro)
     }
     return lista
-  }, [clientes, busca, filtro])
+  }, [clientes, busca, filtro, filtroResponsavel, usuarioAtualId])
 
   const totalDevido   = clientes.reduce((s, c) => s + c.totalDevido, 0)
   const mediaAtraso   = clientes.length ? Math.round(clientes.reduce((s, c) => s + c.maxDiasAtraso, 0) / clientes.length) : 0
@@ -272,10 +366,26 @@ export default function InadimplentesPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Meus clientes / Todos */}
+            <div className="flex rounded-full border border-border/60 bg-muted/20 p-1 items-center">
+              {(['todos', 'meus'] as FiltroResponsavel[]).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFiltroResponsavel(f)}
+                  className={cn(
+                    'px-3.5 py-1 text-xs font-bold rounded-full transition-all duration-200',
+                    filtroResponsavel === f ? 'text-white shadow-sm bg-[var(--gt-blue)]' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {f === 'todos' ? 'Todos' : 'Meus Clientes'}
+                </button>
+              ))}
+            </div>
+
             <div className="p-2 bg-muted/40 border border-border/40 rounded-xl shrink-0 flex items-center justify-center">
               <Filter size={14} className="text-muted-foreground" />
             </div>
-            
+
             {/* Google Filter chips */}
             <div className="flex rounded-full border border-border/60 bg-muted/20 p-1 items-center max-w-full">
               {(['todos', 'leve', 'moderado', 'critico', 'grave'] as Filtro[]).map(f => {
@@ -417,6 +527,25 @@ export default function InadimplentesPage() {
                         </div>
                       </div>
 
+                      {/* Responsável pela cobrança */}
+                      <div className="flex items-center justify-between text-xs -mb-1">
+                        <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                          <UserCheck size={12} />
+                          {c.responsavel_cobranca_id
+                            ? (c.responsavel_cobranca_id === usuarioAtualId ? 'Você é responsável' : 'Já atribuído')
+                            : 'Sem responsável'}
+                        </span>
+                        {c.responsavel_cobranca_id !== usuarioAtualId && (
+                          <button
+                            onClick={() => assumirCliente(c.id)}
+                            disabled={assumindo === c.id}
+                            className="text-[var(--gt-blue)] font-bold hover:underline disabled:opacity-50"
+                          >
+                            {assumindo === c.id ? 'Assumindo...' : 'Assumir'}
+                          </button>
+                        )}
+                      </div>
+
                       {/* Actions */}
                       <div className="flex gap-2 pt-1.5">
                         <Button
@@ -451,16 +580,30 @@ export default function InadimplentesPage() {
                         </Button>
                       </div>
 
-                      {/* Renegociar */}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full h-9 gap-2 text-xs font-bold text-[var(--gt-blue)] hover:bg-[var(--gt-blue-light)] hover:border-[var(--gt-blue)]/40 rounded-full transition-colors flex items-center justify-center border-border/60"
-                        onClick={() => router.push(`/factoring/emprestimos/novo?cliente_id=${c.id}`)}
-                      >
-                        <ArrowRightCircle size={13} />
-                        Renegociar
-                      </Button>
+                      {/* Registrar contato + Renegociar */}
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 h-9 gap-2 text-xs font-bold text-foreground hover:bg-muted rounded-full transition-colors flex items-center justify-center border-border/60"
+                          onClick={() => abrirRegistrarContato(c)}
+                        >
+                          <MessageSquare size={13} />
+                          Registrar Contato
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 h-9 gap-2 text-xs font-bold text-[var(--gt-blue)] hover:bg-[var(--gt-blue-light)] hover:border-[var(--gt-blue)]/40 rounded-full transition-colors flex items-center justify-center border-border/60"
+                          onClick={() => {
+                            const p = c.parcelas[0]
+                            if (p) router.push(`/factoring/emprestimos/${p.emprestimo_id}`)
+                          }}
+                        >
+                          <ArrowRightCircle size={13} />
+                          Renegociar
+                        </Button>
+                      </div>
 
                       {/* Juridico */}
                       {!bloqueadoAgora && (
@@ -482,6 +625,58 @@ export default function InadimplentesPage() {
           </div>
         )}
       </div>
+
+      {/* Registrar Contato */}
+      <Dialog open={!!contatoDialogCliente} onOpenChange={(open) => { if (!open) setContatoDialogCliente(null) }}>
+        <DialogContent className="sm:max-w-md rounded-2xl border-border">
+          <DialogHeader>
+            <DialogTitle className="font-extrabold text-foreground tracking-tight flex items-center gap-2">
+              <Phone size={18} className="text-[var(--gt-blue)]" />
+              Registrar Contato
+            </DialogTitle>
+            <DialogDescription>{contatoDialogCliente?.nome}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Tipo de contato</Label>
+              <Select value={contatoTipo} onValueChange={v => setContatoTipo(v ?? 'ligacao')}>
+                <SelectTrigger className="w-full h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIPOS_CONTATO.map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.icone} {t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {contatoTipo === 'promessa_pagamento' && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Data prometida</Label>
+                <Input type="date" value={contatoDataPromessa} onChange={e => setContatoDataPromessa(e.target.value)} className="h-11" />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Observação</Label>
+              <Textarea
+                value={contatoObservacao}
+                onChange={e => setContatoObservacao(e.target.value)}
+                placeholder="O que foi conversado..."
+                rows={3}
+                className="resize-none"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setContatoDialogCliente(null)} disabled={salvandoContato} className="rounded-full font-semibold border-border">
+              Cancelar
+            </Button>
+            <Button onClick={salvarContato} disabled={salvandoContato} className="text-white rounded-full bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] font-semibold">
+              {salvandoContato ? 'Salvando...' : 'Salvar Contato'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   )
 }

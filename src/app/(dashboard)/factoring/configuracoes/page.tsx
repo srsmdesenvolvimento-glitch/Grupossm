@@ -16,7 +16,8 @@ import type { ConfigFactoring } from '@/lib/types/database'
 import { Settings, Award } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { REGRAS_SCORE_PADRAO, type RegraScore } from '@/lib/utils/calculos'
+import { REGRAS_SCORE_PADRAO, FAIXAS_RISCO_PADRAO, type RegraScore, type FaixaRisco } from '@/lib/utils/calculos'
+import { recalcularScoreClienteEmLote } from '@/lib/utils/score'
 
 export default function ConfiguracoesFactoringPage() {
   const supabase = createClient()
@@ -32,7 +33,9 @@ export default function ConfiguracoesFactoringPage() {
 
   // Score Engine Configurations
   const [regrasScore, setRegrasScore] = useState<RegraScore[]>([])
+  const [faixasRisco, setFaixasRisco] = useState<FaixaRisco[]>([])
   const [salvandoScore, setSalvandoScore] = useState(false)
+  const [recalculandoClientes, setRecalculandoClientes] = useState(false)
 
   const toggleRegraScore = (regraId: string) => {
     setRegrasScore(prev => prev.map(r => r.id === regraId ? { ...r, ativo: !r.ativo } : r))
@@ -46,6 +49,10 @@ export default function ConfiguracoesFactoringPage() {
     setRegrasScore(prev => prev.map(r => r.id === regraId ? { ...r, limite_maximo_pontos: max } : r))
   }
 
+  function changeFaixaRisco<K extends keyof FaixaRisco>(faixaId: string, campo: K, valor: FaixaRisco[K]) {
+    setFaixasRisco(prev => prev.map(f => f.id === faixaId ? { ...f, [campo]: valor } : f))
+  }
+
   async function salvarScore() {
     if (!empresaAtual) return
     setSalvandoScore(true)
@@ -55,13 +62,14 @@ export default function ConfiguracoesFactoringPage() {
       const { error } = config
         ? await supabase
             .from('config_factoring')
-            .update({ regras_score: regrasScore })
+            .update({ regras_score: regrasScore, faixas_risco: faixasRisco })
             .eq('empresa_id', empresaAtual.id)
         : await supabase
             .from('config_factoring')
             .insert({
               empresa_id: empresaAtual.id,
               regras_score: regrasScore,
+              faixas_risco: faixasRisco,
               taxa_juros_padrao: 5,
               tipo_taxa_padrao: 'mensal',
               dias_carencia: 0,
@@ -75,6 +83,15 @@ export default function ConfiguracoesFactoringPage() {
 
       if (error) throw error
       toast.success('Motor de Score atualizado com sucesso!')
+
+      // Sem isso, mudar peso/faixa não muda o score_interno de ninguém até o
+      // próximo pagamento ou empréstimo — o admin mexe na regra e nada muda
+      // na tela na hora, o que parece que não funcionou.
+      setRecalculandoClientes(true)
+      recalcularScoreClienteEmLote(empresaAtual.id, supabase)
+        .then(qtd => toast.success(`Score recalculado para ${qtd} cliente(s) com as novas regras.`))
+        .catch(() => toast.warning('Regras salvas, mas houve falha ao recalcular o score de todos os clientes.'))
+        .finally(() => setRecalculandoClientes(false))
     } catch (err) {
       console.error('Erro ao salvar score:', err)
       toast.error('Erro ao salvar configurações do score')
@@ -126,8 +143,14 @@ export default function ConfiguracoesFactoringPage() {
           return saved ? { ...def, peso: saved.peso, ativo: saved.ativo, limite_maximo_pontos: saved.limite_maximo_pontos } : def
         })
         setRegrasScore(merged)
+
+        // Merge: preserva faixas salvas pela empresa e inclui faixas novas com defaults
+        const dbFaixas: FaixaRisco[] = Array.isArray(c.faixas_risco) ? c.faixas_risco : []
+        const faixasMerged = FAIXAS_RISCO_PADRAO.map(def => dbFaixas.find(f => f.id === def.id) ?? def)
+        setFaixasRisco(faixasMerged)
       } else {
         setRegrasScore(REGRAS_SCORE_PADRAO)
+        setFaixasRisco(FAIXAS_RISCO_PADRAO)
       }
 
     } catch {
@@ -575,13 +598,107 @@ export default function ConfiguracoesFactoringPage() {
                 })}
               </div>
 
-              <div className="flex justify-end border-t border-border/40 pt-5">
-                <Button 
-                  onClick={salvarScore} 
-                  disabled={salvandoScore} 
+              <div className="border-t border-border/40 pt-5 space-y-3">
+                <div>
+                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-lg w-fit">
+                    Faixas de Risco
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Define os intervalos de score (0–100) que classificam o risco do cliente, a recomendação padrão e o limite/taxa sugeridos para cada faixa.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5">
+                  {[...faixasRisco].sort((a, b) => b.min - a.min).map(f => (
+                    <div key={f.id} className="flex flex-col lg:flex-row lg:items-center gap-4 p-4 rounded-xl border border-border/80 bg-card">
+                      <div className="flex items-center gap-2.5 lg:w-40 shrink-0">
+                        <input
+                          type="color"
+                          value={f.cor}
+                          onChange={e => changeFaixaRisco(f.id, 'cor', e.target.value)}
+                          className="w-7 h-7 rounded-lg border border-border/60 cursor-pointer shrink-0 bg-transparent"
+                          aria-label={`Cor da faixa ${f.nome}`}
+                        />
+                        <Input
+                          value={f.nome}
+                          onChange={e => changeFaixaRisco(f.id, 'nome', e.target.value)}
+                          className="h-9 text-sm font-bold rounded-lg bg-card"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-3 flex-wrap flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-[10px] font-bold text-muted-foreground uppercase">Score</Label>
+                          <Input
+                            type="number" min={0} max={100} value={f.min}
+                            onChange={e => changeFaixaRisco(f.id, 'min', Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                            className="w-16 h-9 text-xs font-bold text-center rounded-lg bg-card"
+                          />
+                          <span className="text-xs text-muted-foreground">–</span>
+                          <Input
+                            type="number" min={0} max={100} value={f.max}
+                            onChange={e => changeFaixaRisco(f.id, 'max', Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                            className="w-16 h-9 text-xs font-bold text-center rounded-lg bg-card"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-[10px] font-bold text-muted-foreground uppercase">Limite sugerido</Label>
+                          <Input
+                            type="number" min={0} max={100} value={f.limiteSugeridoPercentual}
+                            onChange={e => changeFaixaRisco(f.id, 'limiteSugeridoPercentual', Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                            className="w-16 h-9 text-xs font-bold text-center rounded-lg bg-card"
+                          />
+                          <span className="text-xs text-muted-foreground">%</span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-[10px] font-bold text-muted-foreground uppercase">Taxa sugerida</Label>
+                          <Input
+                            type="number" min={0} step={0.1} value={f.taxaSugerida}
+                            onChange={e => changeFaixaRisco(f.id, 'taxaSugerida', Math.max(0, parseFloat(e.target.value) || 0))}
+                            className="w-16 h-9 text-xs font-bold text-center rounded-lg bg-card"
+                          />
+                          <span className="text-xs text-muted-foreground">% a.m.</span>
+                        </div>
+
+                        <div className="flex items-center gap-1 ml-auto">
+                          {(['aprovar', 'analisar', 'negar'] as const).map(rec => (
+                            <button
+                              key={rec}
+                              type="button"
+                              onClick={() => changeFaixaRisco(f.id, 'recomendacao', rec)}
+                              className={cn(
+                                "px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition-all duration-200 border",
+                                f.recomendacao === rec
+                                  ? rec === 'aprovar'
+                                    ? "bg-[var(--gt-green-light)] text-[var(--gt-green)] border-[var(--gt-green-light)]"
+                                    : rec === 'negar'
+                                      ? "bg-red-500/10 text-red-500 border-red-500/20"
+                                      : "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                  : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                              )}
+                            >
+                              {rec}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-border/40 pt-5">
+                {recalculandoClientes && (
+                  <span className="text-xs text-muted-foreground">Recalculando score de todos os clientes...</span>
+                )}
+                <Button
+                  onClick={salvarScore}
+                  disabled={salvandoScore}
                   className="h-10 text-white bg-[var(--gt-blue)] hover:bg-[var(--gt-blue-hover)] border-0 rounded-full px-6 font-medium shadow-sm transition-all duration-200"
                 >
-                  {salvandoScore ? 'Salvando...' : 'Salvar Regras de Score'}
+                  {salvandoScore ? 'Salvando...' : 'Salvar Motor de Score'}
                 </Button>
               </div>
             </div>

@@ -1,28 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireSuperAdmin } from '@/lib/supabase/superAdmin'
 import { z } from 'zod'
 
-async function verificarAdmin(supabase: Awaited<ReturnType<typeof createClient>>, userId: string): Promise<boolean> {
-  const { data } = await supabase
-    .from('usuario_empresa')
-    .select('papel')
-    .eq('usuario_id', userId)
-    .eq('papel', 'admin')
-    .eq('ativo', true)
-    .limit(1)
-  return (data?.length ?? 0) > 0
-}
-
-// GET /api/admin/usuarios — lista todos os usuários (bypassa RLS via admin client)
+// GET /api/admin/usuarios — lista todos os usuários de todas as empresas
+// (bypassa RLS via admin client) — painel do operador da plataforma, por
+// isso exige super_admin, não só "admin" de uma empresa.
 export async function GET() {
   try {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
-
-    const isAdmin = await verificarAdmin(supabase, user.id)
-    if (!isAdmin) return NextResponse.json({ erro: 'Acesso negado. Apenas administradores.' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const admin = createAdminClient()
 
@@ -67,11 +56,8 @@ const editSchema = z.object({
 export async function PATCH(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
-
-    const isAdmin = await verificarAdmin(supabase, user.id)
-    if (!isAdmin) return NextResponse.json({ erro: 'Acesso negado. Apenas administradores.' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const body   = await request.json()
     const parsed = editSchema.safeParse(body)
@@ -117,11 +103,8 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ erro: 'Não autenticado' }, { status: 401 })
-
-    const isAdmin = await verificarAdmin(supabase, user.id)
-    if (!isAdmin) return NextResponse.json({ erro: 'Acesso negado. Apenas administradores.' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const id = request.nextUrl.searchParams.get('id')
     if (!id || !/^[0-9a-f-]{36}$/.test(id)) {
@@ -129,7 +112,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Não permite excluir a si mesmo
-    if (id === user.id) {
+    if (id === auth.userId) {
       return NextResponse.json({ erro: 'Você não pode excluir sua própria conta' }, { status: 400 })
     }
 

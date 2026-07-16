@@ -35,8 +35,10 @@ import {
   formatarTelefone,
   iniciais,
 } from '@/lib/utils/formatters'
+import { calcularStatusPagamento, calcularValorPagoAcumulado, calcularSaldoRestante } from '@/lib/utils/pagamentos'
+import { linkWhatsApp } from '@/lib/utils/validators'
 import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
-import { buscarRelatorioAssertiva, scoreLabel, scoreColor } from '@/lib/assertiva/client'
+import { buscarRelatorioAssertiva, faixaRiscoLabel, faixaRiscoColor } from '@/lib/assertiva/client'
 import type { RelatorioCompleto } from '@/lib/assertiva/types'
 
 import { Button } from '@/components/ui/button'
@@ -141,14 +143,24 @@ interface Parcela {
   data_vencimento: string
   data_pagamento: string | null
   tipo_pagamento: string | null
-  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado'
+  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado' | 'parcial'
   observacoes: string | null
 }
 
 // ─── Masks ────────────────────────────────────────────────────────────────────
 
-function maskCPF(v: string) {
-  const d = v.replace(/\D/g, '').slice(0, 11)
+// Clientes do Empório podem ser PF ou PJ, mas guardam o documento num único
+// campo `cpf` (sem coluna tipo_pessoa). Mascarar sempre como CPF truncava
+// CNPJs (14 dígitos) para 11 — aqui o formato é escolhido pelo tamanho.
+function maskDocumento(v: string) {
+  const d = v.replace(/\D/g, '').slice(0, 14)
+  if (d.length > 11) {
+    return d
+      .replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')
+      .replace(/(\d{2})(\d{3})(\d{3})(\d{4})/, '$1.$2.$3/$4')
+      .replace(/(\d{2})(\d{3})(\d{3})/, '$1.$2.$3')
+      .replace(/(\d{2})(\d{3})/, '$1.$2')
+  }
   return d
     .replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
     .replace(/(\d{3})(\d{3})(\d{3})/, '$1.$2.$3')
@@ -210,6 +222,7 @@ const dadosSchema = z.object({
 type DadosFormData = z.infer<typeof dadosSchema>
 
 const receberSchema = z.object({
+  valor_recebido: z.number().positive('Informe um valor válido'),
   data_pagamento: z.string().min(1, 'Informe a data'),
   tipo_pagamento: z.string().min(1, 'Informe a forma de pagamento'),
   observacoes: z.string().optional(),
@@ -293,7 +306,7 @@ function AssertivaTab({
             <p className="text-xs text-muted-foreground mt-0.5">
               Última consulta: <span className="font-medium">{consultadoEm.toLocaleString('pt-BR')}</span>
               {relatorio?.score != null && (
-                <> · Score: <span className="font-bold" style={{ color: scoreColor(relatorio.score) }}>{relatorio.score}</span> ({scoreLabel(relatorio.score)})</>
+                <> · <span className="font-bold" style={{ color: faixaRiscoColor(relatorio.faixa_risco, relatorio.score) }}>{faixaRiscoLabel(relatorio.faixa_risco, relatorio.score)}</span></>
               )}
               {bloqueadoPorTempo && (
                 <span className="ml-1 text-amber-600 font-semibold"> · atualização disponível em {horasRestantes}h</span>
@@ -429,7 +442,7 @@ export default function ClienteDetalhePage() {
 
       dadosForm.reset({
         nome: c.nome,
-        cpf: c.cpf ? maskCPF(c.cpf) : '',
+        cpf: c.cpf ? maskDocumento(c.cpf) : '',
         rg: c.rg ?? '',
         data_nascimento: c.data_nascimento ?? '',
         telefone: c.telefone ? maskPhone(c.telefone) : '',
@@ -546,6 +559,7 @@ export default function ClienteDetalhePage() {
   const abrirReceber = (parcela: Parcela) => {
     setParcelaSelecionada(parcela)
     receberForm.reset({
+      valor_recebido: calcularSaldoRestante(parcela.valor, parcela.valor_pago),
       data_pagamento: new Date().toISOString().split('T')[0],
       tipo_pagamento: '',
       observacoes: '',
@@ -557,11 +571,14 @@ export default function ClienteDetalhePage() {
     if (!parcelaSelecionada) return
     setSalvandoPagamento(true)
     try {
+      const valorPagoAcumulado = calcularValorPagoAcumulado(parcelaSelecionada.valor_pago, data.valor_recebido)
+      const novoStatus = calcularStatusPagamento(parcelaSelecionada.valor, valorPagoAcumulado)
+
       const { error } = await supabase
         .from('parcelas_receber')
         .update({
-          status: 'pago',
-          valor_pago: parcelaSelecionada.valor,
+          status: novoStatus,
+          valor_pago: valorPagoAcumulado,
           data_pagamento: data.data_pagamento,
           tipo_pagamento: data.tipo_pagamento,
           observacoes: data.observacoes || null,
@@ -583,8 +600,8 @@ export default function ClienteDetalhePage() {
   // ─── Derived ──────────────────────────────────────────────────────────────
 
   const totalParcelasAbertas = parcelas
-    .filter((p) => p.status === 'pendente' || p.status === 'atrasado')
-    .reduce((acc, p) => acc + p.valor, 0)
+    .filter((p) => p.status === 'pendente' || p.status === 'atrasado' || p.status === 'parcial')
+    .reduce((acc, p) => acc + calcularSaldoRestante(p.valor, p.valor_pago), 0)
 
   const hoje = new Date()
   hoje.setHours(0, 0, 0, 0)
@@ -664,7 +681,16 @@ export default function ClienteDetalhePage() {
     {
       key: 'valor',
       header: 'Valor',
-      render: (row) => <MoneyDisplay valor={row.valor} />,
+      render: (row) => (
+        <div>
+          <MoneyDisplay valor={row.valor} />
+          {row.status === 'parcial' && (
+            <p className="text-xs text-amber-600 mt-0.5">
+              Recebido {formatarMoeda(row.valor_pago ?? 0)} · falta {formatarMoeda(calcularSaldoRestante(row.valor, row.valor_pago))}
+            </p>
+          )}
+        </div>
+      ),
     },
     {
       key: 'vencimento',
@@ -697,7 +723,7 @@ export default function ClienteDetalhePage() {
       header: '',
       className: 'w-24',
       render: (row) => {
-        if (row.status !== 'pendente' && row.status !== 'atrasado') return null
+        if (row.status !== 'pendente' && row.status !== 'atrasado' && row.status !== 'parcial') return null
         return (
           <Button
             size="sm"
@@ -761,17 +787,17 @@ export default function ClienteDetalhePage() {
             {/* Assertiva Summary Header */}
             {cliente.dados_assertiva && (
               <div className="flex gap-3 bg-muted/20 border border-border/40 rounded-2xl p-3 shadow-sm text-xs min-w-[280px]">
-                {/* Score Assertiva */}
+                {/* Nível de confiança (Assertiva) */}
                 {cliente.score_assertiva !== null && (
-                  <div className="flex flex-col items-center justify-center gap-1 bg-white border border-border/40 rounded-xl p-1.5 min-w-[80px] shrink-0">
-                    <div
-                      className="flex h-10 w-10 items-center justify-center rounded-full border-4 font-black text-xs"
-                      style={{ borderColor: scoreColor(cliente.score_assertiva), color: scoreColor(cliente.score_assertiva) }}
+                  <div className="flex items-center justify-center shrink-0">
+                    <span
+                      className="px-3 py-1.5 rounded-full text-[10px] font-bold text-center leading-tight"
+                      style={{
+                        backgroundColor: `${faixaRiscoColor(cliente.faixa_risco_assertiva ?? undefined, cliente.score_assertiva ?? undefined)}1A`,
+                        color: faixaRiscoColor(cliente.faixa_risco_assertiva ?? undefined, cliente.score_assertiva ?? undefined),
+                      }}
                     >
-                      {cliente.score_assertiva}
-                    </div>
-                    <span className="text-[9px] font-bold" style={{ color: scoreColor(cliente.score_assertiva) }}>
-                      {scoreLabel(cliente.score_assertiva)}
+                      {faixaRiscoLabel(cliente.faixa_risco_assertiva ?? undefined, cliente.score_assertiva ?? undefined)}
                     </span>
                   </div>
                 )}
@@ -795,12 +821,11 @@ export default function ClienteDetalhePage() {
 
             <Button
               className="gap-2 bg-green-500 text-white hover:bg-green-600 sm:self-center"
-              onClick={() =>
-                window.open(
-                  `https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`,
-                  '_blank',
-                )
-              }
+              onClick={() => {
+                const url = linkWhatsApp(cliente.telefone)
+                if (!url) { toast.error('Telefone inválido ou não cadastrado'); return }
+                window.open(url, '_blank')
+              }}
             >
               <MessageCircle className="h-4 w-4" />
               WhatsApp
@@ -902,7 +927,7 @@ export default function ClienteDetalhePage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="d-cpf">CPF</Label>
+                    <Label htmlFor="d-cpf">CPF / CNPJ</Label>
                     <Controller
                       name="cpf"
                       control={dadosForm.control}
@@ -911,7 +936,7 @@ export default function ClienteDetalhePage() {
                           id="d-cpf"
                           placeholder="000.000.000-00"
                           value={field.value ?? ''}
-                          onChange={(e) => field.onChange(maskCPF(e.target.value))}
+                          onChange={(e) => field.onChange(maskDocumento(e.target.value))}
                         />
                       )}
                     />
@@ -1177,6 +1202,10 @@ export default function ClienteDetalhePage() {
                   Parcela {parcelaSelecionada.numero_parcela}/
                   {parcelaSelecionada.total_parcelas} —{' '}
                   <strong>{formatarMoeda(parcelaSelecionada.valor)}</strong>
+                  {parcelaSelecionada.status === 'parcial' && (
+                    <> · já recebido {formatarMoeda(parcelaSelecionada.valor_pago ?? 0)}, falta{' '}
+                    {formatarMoeda(calcularSaldoRestante(parcelaSelecionada.valor, parcelaSelecionada.valor_pago))}</>
+                  )}
                 </>
               )}
             </DialogDescription>
@@ -1186,6 +1215,22 @@ export default function ClienteDetalhePage() {
             onSubmit={receberForm.handleSubmit(onConfirmarReceber)}
             className="space-y-4 py-2"
           >
+            <div className="space-y-2">
+              <Label htmlFor="r-valor">Valor Recebido (R$)</Label>
+              <Input
+                id="r-valor"
+                type="number"
+                step="0.01"
+                min="0"
+                {...receberForm.register('valor_recebido', { valueAsNumber: true })}
+              />
+              {receberForm.formState.errors.valor_recebido && (
+                <p className="text-xs text-red-500">
+                  {receberForm.formState.errors.valor_recebido.message}
+                </p>
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="r-data">Data do Pagamento</Label>
               <Input

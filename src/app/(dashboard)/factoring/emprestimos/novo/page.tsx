@@ -19,6 +19,7 @@ import { handleCurrencyChange, parseBRL, formatBRL, valorPorExtenso } from '@/li
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { toast } from 'sonner'
 import type { ClienteFactoring } from '@/lib/types/database'
+import { salvarRascunho, lerRascunho, limparRascunho } from '@/lib/utils/formDraft'
 
 type ClienteSumario = {
   id: string
@@ -44,6 +45,22 @@ type TabelaLinha = {
   parcela: number
   saldo_antes: number
   saldo_apos: number
+}
+
+// Rascunho em memória — sair pra outra tela no meio da criação do contrato e
+// voltar não deve perder o que já foi preenchido (só refresh/fechar reseta).
+const RASCUNHO_NOVO_EMPRESTIMO = 'novo-emprestimo-factoring'
+
+type RascunhoNovoEmprestimo = {
+  step: number
+  cliente: ClienteSumario | null
+  valor: string
+  taxa: string
+  numParcelas: string
+  dataVenc: string
+  garantias: string
+  observacoes: string
+  jurosMoraDiarioInput: string
 }
 
 function calcularJurosSimples(valor: number, taxa: number, n: number, dataInicio: string) {
@@ -127,6 +144,30 @@ export default function NovoEmprestimoPage() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // Restaura o rascunho, se existir — sair pra outra tela no meio da criação
+  // do contrato e voltar não perde nada (só refresh/fechar aba reseta).
+  useEffect(() => {
+    const r = lerRascunho<RascunhoNovoEmprestimo>(RASCUNHO_NOVO_EMPRESTIMO)
+    if (!r) return
+    setStep(r.step)
+    setCliente(r.cliente)
+    setValor(r.valor)
+    setTaxa(r.taxa)
+    setNumParcelas(r.numParcelas)
+    setDataVenc(r.dataVenc)
+    setGarantias(r.garantias)
+    setObservacoes(r.observacoes)
+    setJurosMoraDiarioInput(r.jurosMoraDiarioInput)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Salva o rascunho a cada mudança relevante.
+  useEffect(() => {
+    salvarRascunho<RascunhoNovoEmprestimo>(RASCUNHO_NOVO_EMPRESTIMO, {
+      step, cliente, valor, taxa, numParcelas, dataVenc, garantias, observacoes, jurosMoraDiarioInput,
+    })
+  }, [step, cliente, valor, taxa, numParcelas, dataVenc, garantias, observacoes, jurosMoraDiarioInput])
 
   const buscarClientes = useCallback(async (q: string) => {
     if (!empresaAtual || q.trim().length < 2) { setResultados([]); setShowDropdown(false); return }
@@ -278,7 +319,7 @@ export default function NovoEmprestimoPage() {
           documentos: [],
           status: 'ativo',
         })
-        .select('id')
+        .select('id, assinatura_token')
         .single()
 
       if (empError || !empData) throw empError
@@ -332,7 +373,7 @@ export default function NovoEmprestimoPage() {
 
       // ── Enviar Link de Assinatura via WhatsApp (independente do PDF) ──
       if (cliente.telefone) {
-        const linkAssinatura = `${window.location.origin}/assinar/${empId}`
+        const linkAssinatura = `${window.location.origin}/assinar/${empId}?token=${empData.assinatura_token}`
         try {
           await fetch('/api/whatsapp/enviar', {
             method: 'POST',
@@ -433,6 +474,7 @@ export default function NovoEmprestimoPage() {
         console.error('Erro ao gerar PDF do contrato:', e)
       }
 
+      limparRascunho(RASCUNHO_NOVO_EMPRESTIMO)
       toast.success(`Contrato ${numero_contrato} criado! Link de assinatura enviado via WhatsApp.`, { duration: 5000 })
       router.push(`/factoring/emprestimos/${empId}`)
     } catch (err) {
@@ -491,7 +533,11 @@ export default function NovoEmprestimoPage() {
               </div>
               {!cliente && (
                 <button
-                  onClick={() => router.push('/factoring/clientes/novo?redirect=/factoring/emprestimos/novo')}
+                  onClick={() => {
+                    const docLimpo = busca.replace(/\D/g, '')
+                    const doc = docLimpo.length === 11 || docLimpo.length === 14 ? `&documento=${docLimpo}` : ''
+                    router.push(`/factoring/clientes/novo?redirect=/factoring/emprestimos/novo${doc}`)
+                  }}
                   className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-full border border-[#1A73E8] text-[#1A73E8] bg-transparent hover:bg-[#E8F0FE] transition-all hover:scale-105 active:scale-95 shadow-sm"
                 >
                   <UserPlus size={14} />
@@ -501,21 +547,26 @@ export default function NovoEmprestimoPage() {
             </div>
 
             <div ref={wrapperRef} className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" size={18} />
-              <input
-                value={busca}
-                onChange={e => { setBusca(e.target.value); if (!e.target.value) setCliente(null) }}
-                placeholder="Pesquisar por nome, CPF/CNPJ ou telefone..."
-                className="w-full pl-11 pr-10 py-3 border border-border/60 focus:border-[#1A73E8] focus:ring-1 focus:ring-[#1A73E8]/20 rounded-xl text-sm focus:outline-none transition-all"
-              />
-              {buscando && (
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-t-transparent rounded-full animate-spin border-[#1A73E8]" />
-              )}
-              {cliente && !buscando && (
-                <button className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground" onClick={() => { setCliente(null); setBusca('') }}>
-                  <X size={16} />
-                </button>
-              )}
+              {/* Input isolado num wrapper próprio — o dropdown/hint abaixo não
+                  pode influenciar a altura desse bloco, senão os ícones (que se
+                  centralizam com top-1/2 relativo ao pai) saem do lugar. */}
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" size={18} />
+                <input
+                  value={busca}
+                  onChange={e => { setBusca(e.target.value); if (!e.target.value) setCliente(null) }}
+                  placeholder="Pesquisar por nome, CPF/CNPJ ou telefone..."
+                  className="w-full pl-11 pr-10 py-3 border border-border/60 focus:border-[var(--gt-blue)] focus:ring-1 focus:ring-[var(--gt-blue)]/20 rounded-xl text-sm focus:outline-none transition-all"
+                />
+                {buscando && (
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-t-transparent rounded-full animate-spin border-[var(--gt-blue)]" />
+                )}
+                {cliente && !buscando && (
+                  <button className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground" onClick={() => { setCliente(null); setBusca('') }}>
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
               {showDropdown && resultados.length > 0 && (
                 <div className="absolute z-50 top-full mt-2 w-full bg-card border border-border/50 rounded-2xl shadow-m3-3 overflow-hidden">
                   {resultados.map(c => {
@@ -535,20 +586,24 @@ export default function NovoEmprestimoPage() {
                           </div>
                           <p className="text-xs text-muted-foreground/80 mt-1 font-semibold">{c.cpf ? formatarCPF(c.cpf) : ''} · Disponível: {formatarMoeda(creditoDisp)}</p>
                         </div>
-                        <span className="text-xs font-bold shrink-0 bg-[#E8F0FE] text-[#1A73E8] px-2.5 py-0.5 rounded-full border border-[#1A73E8]/10 shadow-sm">Score {c.score_interno}</span>
+                        <span className="text-xs font-bold shrink-0 bg-[var(--gt-blue-light)] dark:bg-[var(--gt-blue)]/10 text-[var(--gt-blue)] px-2.5 py-0.5 rounded-full border border-[var(--gt-blue)]/10 shadow-sm">Score {c.score_interno}</span>
                       </button>
                     )
                   })}
                 </div>
               )}
 
-              {/* Hint "não achou?" */}
+              {/* Hint "não achou?" — overlay (absolute), não empurra o layout abaixo */}
               {busca.length >= 2 && resultados.length === 0 && !buscando && !cliente && (
-                <div className="mt-3 flex items-center justify-between rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground bg-muted/10">
+                <div className="absolute z-50 top-full mt-2 w-full flex items-center justify-between rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground bg-card shadow-m3-2">
                   <span className="font-semibold text-xs text-muted-foreground/75">Nenhum tomador ativo localizado para &quot;{busca}&quot;</span>
                   <button
-                    onClick={() => router.push('/factoring/clientes/novo?redirect=/factoring/emprestimos/novo')}
-                    className="ml-3 flex items-center gap-1 font-bold text-xs shrink-0 text-[#1A73E8] hover:underline"
+                    onClick={() => {
+                    const docLimpo = busca.replace(/\D/g, '')
+                    const doc = docLimpo.length === 11 || docLimpo.length === 14 ? `&documento=${docLimpo}` : ''
+                    router.push(`/factoring/clientes/novo?redirect=/factoring/emprestimos/novo${doc}`)
+                  }}
+                    className="ml-3 flex items-center gap-1 font-bold text-xs shrink-0 text-[var(--gt-blue)] hover:underline"
                   >
                     <UserPlus size={14} /> Cadastro de Cliente
                   </button>

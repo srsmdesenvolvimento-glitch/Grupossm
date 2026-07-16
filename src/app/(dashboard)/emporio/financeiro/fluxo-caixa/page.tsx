@@ -250,7 +250,12 @@ export default function FluxoCaixaPage() {
     [movimentacoes],
   )
 
-  const virtualRow: MovimentacaoCaixa[] = saldoInicial > 0 ? [{
+  // A linha de Saldo Inicial não é uma movimentação real datada — ela só faz
+  // sentido aparecer na tabela quando a data em que foi configurada cai
+  // dentro do período filtrado. Sem essa checagem, ela aparecia sempre,
+  // mesmo filtrando "Esta Semana" com o saldo configurado há meses.
+  const saldoInicialNoPeriodo = saldoInicial > 0 && configDate >= dataInicioFilter
+  const virtualRow: MovimentacaoCaixa[] = saldoInicialNoPeriodo ? [{
     id: 'saldo-inicial',
     empresa_id: empresaAtual?.id ?? '',
     usuario_id: null,

@@ -9,6 +9,7 @@ import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { toast } from 'sonner'
 import { formatarMoeda } from '@/lib/utils/formatters'
 import { cn } from '@/lib/utils'
+import { salvarRascunho, lerRascunho, limparRascunho } from '@/lib/utils/formDraft'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -70,6 +71,21 @@ type ItemCarrinho = {
   quantidade: number
 }
 
+// Rascunho em memória — sair pra outra tela no meio da venda e voltar não
+// perde o carrinho (só refresh/fechar aba reseta).
+const RASCUNHO_NOVA_VENDA = 'nova-venda-emporio'
+
+type RascunhoNovaVenda = {
+  clienteSelecionado: ClienteEmporio | null
+  carrinho: ItemCarrinho[]
+  formaPagamento: string | null
+  parcelas: number
+  valorEntrada: number
+  desconto: number
+  tipoDesconto: 'valor' | 'pct'
+  observacoes: string
+}
+
 const FORMAS_PAGAMENTO = [
   { value: 'dinheiro', label: 'Dinheiro', icon: Banknote },
   { value: 'pix', label: 'PIX', icon: Smartphone },
@@ -102,6 +118,29 @@ export default function NovaVendaPage() {
     numero_venda?: number
     venda_id?: string
   }>({ open: false })
+
+  // Restaura o rascunho, se existir — sair pra outra tela no meio da venda e
+  // voltar não perde o carrinho (só refresh/fechar aba reseta).
+  useEffect(() => {
+    const r = lerRascunho<RascunhoNovaVenda>(RASCUNHO_NOVA_VENDA)
+    if (!r) return
+    setClienteSelecionado(r.clienteSelecionado)
+    setCarrinho(r.carrinho)
+    setFormaPagamento(r.formaPagamento)
+    setParcelas(r.parcelas)
+    setValorEntrada(r.valorEntrada)
+    setDesconto(r.desconto)
+    setTipoDesconto(r.tipoDesconto)
+    setObservacoes(r.observacoes)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Salva o rascunho a cada mudança relevante.
+  useEffect(() => {
+    salvarRascunho<RascunhoNovaVenda>(RASCUNHO_NOVA_VENDA, {
+      clienteSelecionado, carrinho, formaPagamento, parcelas, valorEntrada, desconto, tipoDesconto, observacoes,
+    })
+  }, [clienteSelecionado, carrinho, formaPagamento, parcelas, valorEntrada, desconto, tipoDesconto, observacoes])
 
   const carregarDados = useCallback(async () => {
     if (!empresaAtual?.id) return
@@ -143,12 +182,16 @@ export default function NovaVendaPage() {
     return d.toLocaleDateString('pt-BR')
   })()
 
+  // cpf no banco só tem dígitos — comparar com o texto digitado (que pode
+  // ter pontuação) sem normalizar os dois lados fazia a busca não achar o
+  // cliente existente.
+  const buscaClienteDigits = buscaCliente.replace(/\D/g, '')
   const clientesFiltrados = buscaCliente.trim()
     ? clientes
         .filter(
           (c) =>
             c.nome.toLowerCase().includes(buscaCliente.toLowerCase()) ||
-            (c.cpf && c.cpf.includes(buscaCliente)),
+            (buscaClienteDigits && c.cpf && c.cpf.includes(buscaClienteDigits)),
         )
         .slice(0, 5)
     : []
@@ -198,6 +241,7 @@ export default function NovaVendaPage() {
   }
 
   const resetarFormulario = () => {
+    limparRascunho(RASCUNHO_NOVA_VENDA)
     setCarrinho([])
     setClienteSelecionado(null)
     setBuscaCliente('')
@@ -219,16 +263,29 @@ export default function NovaVendaPage() {
         data: { user },
       } = await supabase.auth.getUser()
 
-      const { data: venda, error: vendaError } = await supabase
-        .from('vendas')
-        .insert({
-          empresa_id: empresaAtual!.id,
-          cliente_id: clienteSelecionado?.id ?? null,
-          usuario_id: user?.id ?? null,
-          subtotal,
-          desconto: descontoValor,
-          total,
-          tipo_pagamento:
+      // Toda a venda (venda + itens + baixa de estoque + parcelas + caixa) é
+      // feita numa única função Postgres, dentro de uma transação: ou tudo
+      // é confirmado, ou nada é (evita dados parciais em caso de falha no
+      // meio do processo). A função também trava (FOR UPDATE) a linha de
+      // cada produto antes de checar/decrementar o estoque, então duas
+      // vendas simultâneas do mesmo produto nunca conseguem vender além do
+      // disponível.
+      const { data: vendaRaw, error: vendaError } = await supabase
+        .rpc('finalizar_venda_emporio', {
+          p_empresa_id: empresaAtual!.id,
+          p_cliente_id: clienteSelecionado?.id ?? null,
+          p_usuario_id: user?.id ?? null,
+          p_itens: carrinho.map((item) => ({
+            produto_id: item.produto.id,
+            nome_produto: item.produto.nome,
+            sku_produto: item.produto.sku ?? null,
+            quantidade: item.quantidade,
+            preco_unitario: item.produto.preco,
+          })),
+          p_subtotal: subtotal,
+          p_desconto: descontoValor,
+          p_total: total,
+          p_tipo_pagamento:
             formaPagamento === 'crediario'
               ? 'boleto'
               : (formaPagamento as
@@ -239,78 +296,23 @@ export default function NovaVendaPage() {
                   | 'boleto'
                   | 'transferencia'
                   | 'cheque'),
-          parcelas: isCrediario ? parcelas : 1,
-          valor_entrada: isCrediario ? valorEntrada : 0,
-          observacoes: observacoes || null,
-          status: 'aprovada',
+          p_parcelas: isCrediario ? parcelas : 1,
+          p_valor_entrada: isCrediario ? valorEntrada : 0,
+          p_observacoes: observacoes || null,
+          p_gerar_parcelas: isCrediario && parcelas > 1,
         })
-        .select('id, numero_venda')
         .single()
 
+      const venda = vendaRaw as { venda_id: string; numero_venda: number } | null
       if (vendaError || !venda) throw vendaError
 
-      const { error: itensError } = await supabase.from('itens_venda').insert(
-        carrinho.map((item) => ({
-          venda_id: venda.id,
-          produto_id: item.produto.id,
-          nome_produto: item.produto.nome,
-          sku_produto: item.produto.sku ?? null,
-          quantidade: item.quantidade,
-          preco_unitario: item.produto.preco,
-          desconto: 0,
-          total: item.produto.preco * item.quantidade,
-        })),
-      )
-      if (itensError) throw itensError
-
-      for (const item of carrinho) {
-        const { error: estoqueError } = await supabase
-          .from('produtos')
-          .update({ estoque: Math.max(0, item.produto.estoque - item.quantidade) })
-          .eq('id', item.produto.id)
-        if (estoqueError) throw estoqueError
-      }
-
-      if (isCrediario && parcelas > 1) {
-        const valorParcela = (total - valorEntrada) / parcelas
-        const hoje = new Date()
-        const parcelasInsert = []
-        for (let i = 1; i <= parcelas; i++) {
-          const vencimento = new Date(hoje)
-          vencimento.setMonth(vencimento.getMonth() + i)
-          parcelasInsert.push({
-            empresa_id: empresaAtual!.id,
-            venda_id: venda.id,
-            cliente_id: clienteSelecionado?.id ?? null,
-            numero_parcela: i,
-            total_parcelas: parcelas,
-            valor: valorParcela,
-            data_vencimento: vencimento.toISOString().split('T')[0],
-            status: 'pendente',
-          })
-        }
-        const { error: parcelasError } = await supabase.from('parcelas_receber').insert(parcelasInsert)
-        if (parcelasError) throw parcelasError
-      }
-
-      const { error: caixaError } = await supabase.from('movimentacoes_caixa').insert({
-        empresa_id: empresaAtual!.id,
-        usuario_id: user?.id ?? null,
-        tipo: 'entrada',
-        categoria: 'venda',
-        descricao: `Venda #${venda.numero_venda}`,
-        valor: total,
-        referencia_tipo: 'venda',
-        referencia_id: venda.id,
-        data_movimentacao: new Date().toISOString().split('T')[0],
-      })
-      if (caixaError) throw caixaError
-
-      setSuccessDialog({ open: true, numero_venda: venda.numero_venda, venda_id: venda.id })
+      setSuccessDialog({ open: true, numero_venda: venda.numero_venda, venda_id: venda.venda_id })
       resetarFormulario()
-    } catch (e) {
-      toast.error('Erro ao finalizar venda. Tente novamente.')
+    } catch (e: unknown) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : null
+      toast.error(msg || 'Erro ao finalizar venda. Tente novamente.')
       console.error(e)
+      carregarDados()
     } finally {
       setSalvando(false)
     }

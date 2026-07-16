@@ -18,9 +18,9 @@ CREATE TYPE status_produto      AS ENUM ('ativo', 'inativo', 'sem_estoque');
 CREATE TYPE status_cliente      AS ENUM ('ativo', 'inativo', 'bloqueado');
 CREATE TYPE status_venda        AS ENUM ('orcamento', 'aprovada', 'entregue', 'cancelada');
 CREATE TYPE tipo_pagamento      AS ENUM ('dinheiro', 'pix', 'cartao_credito', 'cartao_debito', 'boleto', 'transferencia', 'cheque');
-CREATE TYPE status_parcela      AS ENUM ('pendente', 'pago', 'atrasado', 'cancelado');
+CREATE TYPE status_parcela      AS ENUM ('pendente', 'pago', 'atrasado', 'cancelado', 'parcial');
 CREATE TYPE categoria_conta     AS ENUM ('fornecedor', 'aluguel', 'salario', 'imposto', 'servico', 'outros');
-CREATE TYPE status_conta_pagar  AS ENUM ('pendente', 'pago', 'atrasado', 'cancelado');
+CREATE TYPE status_conta_pagar  AS ENUM ('pendente', 'pago', 'atrasado', 'cancelado', 'parcial');
 CREATE TYPE status_emprestimo   AS ENUM ('analise', 'aprovado', 'ativo', 'quitado', 'inadimplente', 'cancelado');
 CREATE TYPE tipo_taxa            AS ENUM ('mensal', 'anual');
 CREATE TYPE status_parcela_emp  AS ENUM ('pendente', 'pago', 'atrasado', 'renegociado', 'cancelado');
@@ -273,7 +273,9 @@ CREATE TABLE clientes_factoring (
   id                    UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
   empresa_id            UUID          NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
   nome                  VARCHAR(255)  NOT NULL,
+  tipo_pessoa           VARCHAR(10)   NOT NULL DEFAULT 'fisica' CHECK (tipo_pessoa IN ('fisica', 'juridica')),
   cpf                   VARCHAR(14)   UNIQUE,
+  cnpj                  VARCHAR(18)   UNIQUE,
   rg                    VARCHAR(20),
   orgao_emissor         VARCHAR(20),
   data_nascimento       DATE,
@@ -305,6 +307,7 @@ CREATE TABLE clientes_factoring (
   observacoes           TEXT,
   documentos            JSONB         NOT NULL DEFAULT '[]',
   status                status_cliente NOT NULL DEFAULT 'ativo',
+  responsavel_cobranca_id UUID        REFERENCES usuarios(id) ON DELETE SET NULL,
   created_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   updated_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
@@ -316,8 +319,24 @@ CREATE TABLE referencias_cliente_factoring (
   nome        VARCHAR(255) NOT NULL,
   parentesco  VARCHAR(100),
   telefone    VARCHAR(20)  NOT NULL,
+  endereco    TEXT,
+  email       VARCHAR(255),
   observacoes TEXT,
   created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- 15b. lembretes_cliente_factoring (follow-ups com data e popup de aviso)
+CREATE TABLE lembretes_cliente_factoring (
+  id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  empresa_id    UUID          NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  cliente_id    UUID          NOT NULL REFERENCES clientes_factoring(id) ON DELETE CASCADE,
+  usuario_id    UUID          REFERENCES usuarios(id) ON DELETE SET NULL,
+  titulo        VARCHAR(255)  NOT NULL,
+  descricao     TEXT,
+  data_lembrete DATE          NOT NULL,
+  concluido     BOOLEAN       NOT NULL DEFAULT FALSE,
+  concluido_em  TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
 -- 16. emprestimos (Factoring)
@@ -343,6 +362,9 @@ CREATE TABLE emprestimos (
   garantias               TEXT,
   documentos              JSONB         NOT NULL DEFAULT '[]',
   status                  status_emprestimo NOT NULL DEFAULT 'analise',
+  assinado_em             TIMESTAMPTZ,
+  assinado_ip             TEXT,
+  assinatura_token        TEXT          NOT NULL DEFAULT gen_random_uuid()::text,
   created_at              TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   updated_at              TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   UNIQUE(empresa_id, numero_contrato)
@@ -391,6 +413,23 @@ CREATE TABLE historico_status_emprestimo (
   created_at      TIMESTAMPTZ       NOT NULL DEFAULT NOW()
 );
 
+-- 18b. renegociacoes_emprestimo (auditoria de renegociação: nova tabela / desconto de quitação)
+CREATE TABLE renegociacoes_emprestimo (
+  id                   UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  empresa_id           UUID          NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  emprestimo_id        UUID          NOT NULL REFERENCES emprestimos(id) ON DELETE CASCADE,
+  usuario_id           UUID          REFERENCES usuarios(id) ON DELETE SET NULL,
+  tipo                 VARCHAR(30)   NOT NULL,
+  saldo_anterior       DECIMAL(12,2) NOT NULL,
+  saldo_novo           DECIMAL(12,2) NOT NULL,
+  desconto_valor       DECIMAL(12,2) NOT NULL DEFAULT 0,
+  parcelas_antigas_qtd INT           NOT NULL DEFAULT 0,
+  parcelas_novas_qtd   INT           NOT NULL DEFAULT 0,
+  taxa_juros_usada     DECIMAL(8,4),
+  motivo               TEXT,
+  created_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
 -- 19. config_factoring (configurações e mensagens da financeira)
 CREATE TABLE config_factoring (
   id                       UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -430,6 +469,22 @@ CREATE TABLE movimentacoes_caixa (
   data_movimentacao   DATE             NOT NULL DEFAULT CURRENT_DATE,
   observacoes         TEXT,
   created_at          TIMESTAMPTZ      NOT NULL DEFAULT NOW()
+);
+
+-- 20b. movimentacoes_estoque (histórico de entrada/ajuste/perda/venda por produto)
+CREATE TABLE movimentacoes_estoque (
+  id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  empresa_id        UUID          NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  produto_id        UUID          NOT NULL REFERENCES produtos(id) ON DELETE RESTRICT,
+  usuario_id        UUID          REFERENCES usuarios(id) ON DELETE SET NULL,
+  tipo              VARCHAR(20)   NOT NULL,
+  quantidade        INT           NOT NULL,
+  estoque_anterior  INT           NOT NULL,
+  estoque_novo      INT           NOT NULL,
+  motivo            TEXT,
+  referencia_tipo   VARCHAR(50),
+  referencia_id     UUID,
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
 -- 21. notificacoes_log (log de mensagens enviadas)
@@ -524,6 +579,7 @@ CREATE INDEX idx_clientes_factoring_cpf       ON clientes_factoring(cpf);
 CREATE INDEX idx_clientes_factoring_telefone  ON clientes_factoring(telefone);
 CREATE INDEX idx_clientes_factoring_status    ON clientes_factoring(status);
 CREATE INDEX idx_clientes_factoring_nome_trgm ON clientes_factoring USING GIN(nome gin_trgm_ops);
+CREATE INDEX idx_clientes_factoring_responsavel ON clientes_factoring(responsavel_cobranca_id);
 
 -- referencias_cliente_factoring
 CREATE INDEX idx_referencias_cliente ON referencias_cliente_factoring(cliente_id);
@@ -546,10 +602,21 @@ CREATE INDEX idx_parcelas_emp_vencimento ON parcelas_emprestimo(empresa_id, data
 -- historico_status_emprestimo
 CREATE INDEX idx_historico_emprestimo ON historico_status_emprestimo(emprestimo_id);
 
+-- renegociacoes_emprestimo
+CREATE INDEX idx_renegociacoes_emprestimo ON renegociacoes_emprestimo(emprestimo_id);
+
+-- lembretes_cliente_factoring
+CREATE INDEX idx_lembretes_empresa_data ON lembretes_cliente_factoring(empresa_id, data_lembrete) WHERE NOT concluido;
+CREATE INDEX idx_lembretes_cliente       ON lembretes_cliente_factoring(cliente_id, data_lembrete);
+
 -- movimentacoes_caixa
 CREATE INDEX idx_movimentacoes_empresa ON movimentacoes_caixa(empresa_id);
 CREATE INDEX idx_movimentacoes_data    ON movimentacoes_caixa(empresa_id, data_movimentacao DESC);
 CREATE INDEX idx_movimentacoes_tipo    ON movimentacoes_caixa(tipo);
+
+-- movimentacoes_estoque
+CREATE INDEX idx_movimentacoes_estoque_empresa ON movimentacoes_estoque(empresa_id, created_at DESC);
+CREATE INDEX idx_movimentacoes_estoque_produto ON movimentacoes_estoque(produto_id, created_at DESC);
 
 -- notificacoes_log
 CREATE INDEX idx_notificacoes_empresa    ON notificacoes_log(empresa_id);
@@ -620,8 +687,251 @@ BEGIN
 
   UPDATE parcelas_receber
   SET status = 'atrasado'
-  WHERE status = 'pendente'
+  WHERE status IN ('pendente', 'parcial')
     AND data_vencimento < CURRENT_DATE;
+END;
+$$;
+
+-- Estoque: entrada/ajuste/perda unitários e venda completa, todos atômicos
+-- (SELECT ... FOR UPDATE trava a linha do produto, eliminando a race
+-- condition de duas operações concorrentes lendo o mesmo estoque
+-- desatualizado) e todos gravam em movimentacoes_estoque para histórico.
+
+CREATE OR REPLACE FUNCTION registrar_entrada_estoque(
+  p_produto_id UUID,
+  p_quantidade INT,
+  p_usuario_id UUID,
+  p_motivo TEXT DEFAULT NULL
+)
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_empresa_id UUID;
+  v_atual      INT;
+  v_novo       INT;
+BEGIN
+  SELECT empresa_id, estoque INTO v_empresa_id, v_atual
+  FROM produtos WHERE id = p_produto_id FOR UPDATE;
+
+  IF v_empresa_id IS NULL THEN
+    RAISE EXCEPTION 'Produto não encontrado';
+  END IF;
+  IF NOT has_empresa_access(v_empresa_id) THEN
+    RAISE EXCEPTION 'Sem acesso a esta empresa';
+  END IF;
+  IF p_quantidade IS NULL OR p_quantidade < 1 THEN
+    RAISE EXCEPTION 'Quantidade deve ser maior que zero';
+  END IF;
+
+  v_novo := v_atual + p_quantidade;
+  UPDATE produtos SET estoque = v_novo WHERE id = p_produto_id;
+
+  INSERT INTO movimentacoes_estoque (
+    empresa_id, produto_id, usuario_id, tipo, quantidade, estoque_anterior, estoque_novo, motivo
+  ) VALUES (
+    v_empresa_id, p_produto_id, p_usuario_id, 'entrada', p_quantidade, v_atual, v_novo, p_motivo
+  );
+
+  RETURN v_novo;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION registrar_perda_estoque(
+  p_produto_id UUID,
+  p_quantidade INT,
+  p_usuario_id UUID,
+  p_motivo TEXT DEFAULT NULL
+)
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_empresa_id UUID;
+  v_atual      INT;
+  v_novo       INT;
+BEGIN
+  SELECT empresa_id, estoque INTO v_empresa_id, v_atual
+  FROM produtos WHERE id = p_produto_id FOR UPDATE;
+
+  IF v_empresa_id IS NULL THEN
+    RAISE EXCEPTION 'Produto não encontrado';
+  END IF;
+  IF NOT has_empresa_access(v_empresa_id) THEN
+    RAISE EXCEPTION 'Sem acesso a esta empresa';
+  END IF;
+  IF p_quantidade IS NULL OR p_quantidade < 1 THEN
+    RAISE EXCEPTION 'Quantidade deve ser maior que zero';
+  END IF;
+  IF p_quantidade > v_atual THEN
+    RAISE EXCEPTION 'Quantidade maior que o estoque atual (%)', v_atual;
+  END IF;
+
+  v_novo := v_atual - p_quantidade;
+  UPDATE produtos SET estoque = v_novo WHERE id = p_produto_id;
+
+  INSERT INTO movimentacoes_estoque (
+    empresa_id, produto_id, usuario_id, tipo, quantidade, estoque_anterior, estoque_novo, motivo
+  ) VALUES (
+    v_empresa_id, p_produto_id, p_usuario_id, 'perda', -p_quantidade, v_atual, v_novo, p_motivo
+  );
+
+  RETURN v_novo;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION registrar_ajuste_estoque(
+  p_produto_id UUID,
+  p_quantidade_real INT,
+  p_usuario_id UUID,
+  p_motivo TEXT DEFAULT NULL
+)
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_empresa_id UUID;
+  v_atual      INT;
+BEGIN
+  SELECT empresa_id, estoque INTO v_empresa_id, v_atual
+  FROM produtos WHERE id = p_produto_id FOR UPDATE;
+
+  IF v_empresa_id IS NULL THEN
+    RAISE EXCEPTION 'Produto não encontrado';
+  END IF;
+  IF NOT has_empresa_access(v_empresa_id) THEN
+    RAISE EXCEPTION 'Sem acesso a esta empresa';
+  END IF;
+  IF p_quantidade_real IS NULL OR p_quantidade_real < 0 THEN
+    RAISE EXCEPTION 'Quantidade não pode ser negativa';
+  END IF;
+
+  UPDATE produtos SET estoque = p_quantidade_real WHERE id = p_produto_id;
+
+  INSERT INTO movimentacoes_estoque (
+    empresa_id, produto_id, usuario_id, tipo, quantidade, estoque_anterior, estoque_novo, motivo
+  ) VALUES (
+    v_empresa_id, p_produto_id, p_usuario_id, 'ajuste', p_quantidade_real - v_atual, v_atual, p_quantidade_real, p_motivo
+  );
+
+  RETURN p_quantidade_real;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION finalizar_venda_emporio(
+  p_empresa_id     UUID,
+  p_cliente_id     UUID,
+  p_usuario_id     UUID,
+  p_itens          JSONB,
+  p_subtotal       DECIMAL,
+  p_desconto       DECIMAL,
+  p_total          DECIMAL,
+  p_tipo_pagamento VARCHAR,
+  p_parcelas       INT,
+  p_valor_entrada  DECIMAL,
+  p_observacoes    TEXT,
+  p_gerar_parcelas BOOLEAN
+)
+RETURNS TABLE(venda_id UUID, numero_venda INT)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_venda_id      UUID;
+  v_numero_venda  INT;
+  v_item          JSONB;
+  v_produto_id    UUID;
+  v_quantidade    INT;
+  v_estoque_atual INT;
+  v_estoque_novo  INT;
+  v_valor_parcela DECIMAL(12,2);
+  v_vencimento    DATE;
+  i               INT;
+BEGIN
+  IF NOT has_empresa_access(p_empresa_id) THEN
+    RAISE EXCEPTION 'Sem acesso a esta empresa';
+  END IF;
+  IF p_itens IS NULL OR jsonb_array_length(p_itens) = 0 THEN
+    RAISE EXCEPTION 'A venda precisa de ao menos um item';
+  END IF;
+
+  INSERT INTO vendas (
+    empresa_id, cliente_id, usuario_id, subtotal, desconto, total,
+    tipo_pagamento, parcelas, valor_entrada, observacoes, status
+  ) VALUES (
+    p_empresa_id, p_cliente_id, p_usuario_id, p_subtotal, p_desconto, p_total,
+    p_tipo_pagamento::tipo_pagamento, p_parcelas, p_valor_entrada, p_observacoes, 'aprovada'
+  )
+  RETURNING vendas.id, vendas.numero_venda INTO v_venda_id, v_numero_venda;
+
+  -- Trava as linhas de produto em ordem determinística (por id) para
+  -- eliminar deadlock entre vendas concorrentes com itens em comum.
+  FOR v_item IN
+    SELECT * FROM jsonb_array_elements(p_itens) elem
+    ORDER BY (elem->>'produto_id')
+  LOOP
+    v_produto_id := (v_item->>'produto_id')::UUID;
+    v_quantidade := (v_item->>'quantidade')::INT;
+
+    IF v_quantidade IS NULL OR v_quantidade < 1 THEN
+      RAISE EXCEPTION 'Quantidade inválida para o produto %', v_produto_id;
+    END IF;
+
+    INSERT INTO itens_venda (
+      venda_id, produto_id, nome_produto, sku_produto, quantidade, preco_unitario, desconto, total
+    ) VALUES (
+      v_venda_id, v_produto_id, v_item->>'nome_produto', v_item->>'sku_produto',
+      v_quantidade, (v_item->>'preco_unitario')::DECIMAL, 0,
+      (v_item->>'preco_unitario')::DECIMAL * v_quantidade
+    );
+
+    SELECT estoque INTO v_estoque_atual FROM produtos WHERE id = v_produto_id FOR UPDATE;
+    IF v_estoque_atual IS NULL THEN
+      RAISE EXCEPTION 'Produto % não encontrado', v_produto_id;
+    END IF;
+    IF v_estoque_atual < v_quantidade THEN
+      RAISE EXCEPTION 'Estoque insuficiente para "%" (disponível: %, solicitado: %)',
+        v_item->>'nome_produto', v_estoque_atual, v_quantidade;
+    END IF;
+
+    v_estoque_novo := v_estoque_atual - v_quantidade;
+    UPDATE produtos SET estoque = v_estoque_novo WHERE id = v_produto_id;
+
+    INSERT INTO movimentacoes_estoque (
+      empresa_id, produto_id, usuario_id, tipo, quantidade,
+      estoque_anterior, estoque_novo, referencia_tipo, referencia_id
+    ) VALUES (
+      p_empresa_id, v_produto_id, p_usuario_id, 'venda', -v_quantidade,
+      v_estoque_atual, v_estoque_novo, 'venda', v_venda_id
+    );
+  END LOOP;
+
+  IF p_gerar_parcelas AND p_parcelas > 1 THEN
+    v_valor_parcela := (p_total - p_valor_entrada) / p_parcelas;
+    FOR i IN 1..p_parcelas LOOP
+      v_vencimento := (CURRENT_DATE + (i || ' months')::INTERVAL)::DATE;
+      INSERT INTO parcelas_receber (
+        empresa_id, venda_id, cliente_id, numero_parcela, total_parcelas,
+        valor, data_vencimento, status
+      ) VALUES (
+        p_empresa_id, v_venda_id, p_cliente_id, i, p_parcelas,
+        v_valor_parcela, v_vencimento, 'pendente'
+      );
+    END LOOP;
+  END IF;
+
+  INSERT INTO movimentacoes_caixa (
+    empresa_id, usuario_id, tipo, categoria, descricao, valor,
+    referencia_tipo, referencia_id, data_movimentacao
+  ) VALUES (
+    p_empresa_id, p_usuario_id, 'entrada', 'venda', 'Venda #' || v_numero_venda, p_total,
+    'venda', v_venda_id, CURRENT_DATE
+  );
+
+  RETURN QUERY SELECT v_venda_id, v_numero_venda;
 END;
 $$;
 
@@ -818,11 +1128,14 @@ ALTER TABLE contas_pagar                    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE config_emporio                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clientes_factoring              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE referencias_cliente_factoring   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE lembretes_cliente_factoring     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE emprestimos                     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE parcelas_emprestimo             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE historico_status_emprestimo     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE renegociacoes_emprestimo        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE config_factoring                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movimentacoes_caixa             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE movimentacoes_estoque           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notificacoes_log                ENABLE ROW LEVEL SECURITY;
 
 -- empresas: ver apenas as que tem acesso
@@ -918,6 +1231,10 @@ CREATE POLICY "referencias_factoring_all" ON referencias_cliente_factoring
     )
   );
 
+-- lembretes_cliente_factoring
+CREATE POLICY "lembretes_cliente_factoring_all" ON lembretes_cliente_factoring
+  FOR ALL USING (has_empresa_access(empresa_id));
+
 -- emprestimos
 CREATE POLICY "emprestimos_all" ON emprestimos
   FOR ALL USING (has_empresa_access(empresa_id));
@@ -936,6 +1253,10 @@ CREATE POLICY "historico_emprestimo_all" ON historico_status_emprestimo
     )
   );
 
+-- renegociacoes_emprestimo
+CREATE POLICY "renegociacoes_emprestimo_all" ON renegociacoes_emprestimo
+  FOR ALL USING (has_empresa_access(empresa_id));
+
 -- config_factoring
 CREATE POLICY "config_factoring_all" ON config_factoring
   FOR ALL USING (has_empresa_access(empresa_id));
@@ -943,6 +1264,11 @@ CREATE POLICY "config_factoring_all" ON config_factoring
 -- movimentacoes_caixa
 CREATE POLICY "movimentacoes_caixa_all" ON movimentacoes_caixa
   FOR ALL USING (has_empresa_access(empresa_id));
+
+-- movimentacoes_estoque: somente leitura pelo client — os únicos gravadores
+-- são as funções SECURITY DEFINER, que já validam o acesso à empresa.
+CREATE POLICY "movimentacoes_estoque_select" ON movimentacoes_estoque
+  FOR SELECT USING (has_empresa_access(empresa_id));
 
 -- notificacoes_log
 CREATE POLICY "notificacoes_log_all" ON notificacoes_log

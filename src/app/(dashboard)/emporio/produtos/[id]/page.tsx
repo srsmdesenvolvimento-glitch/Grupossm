@@ -306,6 +306,20 @@ export default function EditarProdutoPage() {
     if (!empresaAtual) return
     setDeletando(true)
     try {
+      // Produto com vendas ou movimentações de estoque não pode ser
+      // excluído de verdade — isso apagaria (ou, no caso de vendas,
+      // desvincularia silenciosamente) histórico financeiro. Checar antes
+      // evita depender só do erro genérico de violação de FK do Postgres.
+      const [{ count: totalVendas }, { count: totalMovimentacoes }] = await Promise.all([
+        supabase.from('itens_venda').select('id', { count: 'exact', head: true }).eq('produto_id', id),
+        supabase.from('movimentacoes_estoque').select('id', { count: 'exact', head: true }).eq('produto_id', id),
+      ])
+
+      if ((totalVendas ?? 0) > 0 || (totalMovimentacoes ?? 0) > 0) {
+        toast.error('Este produto já tem vendas ou movimentações de estoque registradas. Marque-o como inativo em vez de excluir.')
+        return
+      }
+
       const { error } = await supabase
         .from('produtos')
         .delete()
@@ -315,8 +329,13 @@ export default function EditarProdutoPage() {
       if (error) throw error
       toast.success('Produto excluído com sucesso')
       router.push('/emporio/produtos')
-    } catch {
-      toast.error('Erro ao excluir produto')
+    } catch (err: unknown) {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code: unknown }).code : null
+      if (code === '23503') {
+        toast.error('Este produto tem registros vinculados e não pode ser excluído. Marque-o como inativo em vez de excluir.')
+      } else {
+        toast.error('Erro ao excluir produto')
+      }
     } finally {
       setDeletando(false)
       setDeleteDialogOpen(false)
@@ -852,8 +871,9 @@ export default function EditarProdutoPage() {
           </DialogHeader>
 
           <div className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-800">
-            O produto será removido permanentemente do sistema. Movimentações e
-            vendas associadas não serão afetadas.
+            O produto será removido permanentemente do sistema. Se ele já tiver
+            vendas ou movimentações de estoque registradas, a exclusão será
+            bloqueada — marque-o como inativo nesse caso.
           </div>
 
           <DialogFooter>

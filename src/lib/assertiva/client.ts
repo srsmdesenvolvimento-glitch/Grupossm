@@ -44,6 +44,27 @@ export function scoreColor(score?: number): string {
   return '#dc2626'
 }
 
+const COR_POR_CLASSE: Record<string, string> = {
+  A: '#10b981', B: '#22c55e', C: '#f59e0b', D: '#f97316', E: '#ef4444', F: '#dc2626',
+}
+
+function classeDeFaixaRisco(faixaRisco?: string): string | undefined {
+  const classe = faixaRisco?.trim().charAt(0).toUpperCase()
+  return classe && COR_POR_CLASSE[classe] ? classe : undefined
+}
+
+// Rótulo de risco preciso — usa a classificação que a própria Assertiva calculou
+// (`faixa_risco`, ex: "F — Altíssimo risco") em vez de recalcular por faixa
+// numérica genérica. Só cai no `scoreLabel` aproximado se não tiver o dado.
+export function faixaRiscoLabel(faixaRisco?: string, score?: number): string {
+  return faixaRisco?.trim() || scoreLabel(score)
+}
+
+export function faixaRiscoColor(faixaRisco?: string, score?: number): string {
+  const classe = classeDeFaixaRisco(faixaRisco)
+  return classe ? COR_POR_CLASSE[classe] : scoreColor(score)
+}
+
 export function maskDoc(value: string): string {
   const d = value.replace(/\D/g, '').slice(0, 14)
   if (d.length <= 11) {

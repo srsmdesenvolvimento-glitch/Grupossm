@@ -1,7 +1,7 @@
 export type TipoPagamento = 'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'boleto' | 'transferencia' | 'cheque'
 export type StatusVenda = 'orcamento' | 'aprovada' | 'entregue' | 'cancelada'
-export type StatusParcela = 'pendente' | 'pago' | 'atrasado' | 'cancelado'
-export type StatusContaPagar = 'pendente' | 'pago' | 'atrasado' | 'cancelado'
+export type StatusParcela = 'pendente' | 'pago' | 'atrasado' | 'cancelado' | 'parcial'
+export type StatusContaPagar = 'pendente' | 'pago' | 'atrasado' | 'cancelado' | 'parcial'
 export type StatusEmprestimo = 'analise' | 'aprovado' | 'ativo' | 'quitado' | 'inadimplente' | 'cancelado'
 export type StatusParcelaEmprestimo = 'pendente' | 'pago' | 'atrasado' | 'renegociado' | 'cancelado'
 export type StatusCliente = 'ativo' | 'inativo' | 'bloqueado'
@@ -286,7 +286,9 @@ export type ClienteFactoring = {
   id: string
   empresa_id: string
   nome: string
+  tipo_pessoa: 'fisica' | 'juridica'
   cpf: string | null
+  cnpj: string | null
   rg: string | null
   orgao_emissor: string | null
   data_nascimento: string | null
@@ -363,6 +365,25 @@ export type ReferenciaClienteFactoring = {
 export type ReferenciaClienteFactoringInsert = Omit<ReferenciaClienteFactoring, 'id' | 'created_at'> & { id?: string }
 export type ReferenciaClienteFactoringUpdate = Partial<ReferenciaClienteFactoringInsert>
 
+export type LembreteClienteFactoring = {
+  id: string
+  empresa_id: string
+  cliente_id: string
+  usuario_id: string | null
+  titulo: string
+  descricao: string | null
+  data_lembrete: string
+  concluido: boolean
+  concluido_em: string | null
+  created_at: string
+}
+export type LembreteClienteFactoringInsert = Omit<LembreteClienteFactoring, 'id' | 'created_at' | 'concluido' | 'concluido_em'> & {
+  id?: string
+  concluido?: boolean
+  concluido_em?: string | null
+}
+export type LembreteClienteFactoringUpdate = Partial<LembreteClienteFactoringInsert>
+
 export type Emprestimo = {
   id: string
   empresa_id: string
@@ -385,6 +406,9 @@ export type Emprestimo = {
   garantias: string | null
   documentos: unknown[]
   status: StatusEmprestimo
+  assinado_em: string | null
+  assinado_ip: string | null
+  assinatura_token: string
   created_at: string
   updated_at: string
 }

@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { toast } from 'sonner'
 import { formatarMoeda, formatarData } from '@/lib/utils/formatters'
+import { calcularStatusPagamento, calcularValorPagoAcumulado, calcularSaldoRestante } from '@/lib/utils/pagamentos'
 import { cn } from '@/lib/utils'
 import {
   TrendingDown,
@@ -82,7 +83,7 @@ type ContaPagar = {
   numero_documento: string | null
   observacoes: string | null
   comprovante_url: string | null
-  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado'
+  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado' | 'parcial'
 }
 
 type TabAtiva = 'todas' | 'pendentes' | 'vencendo' | 'atrasadas' | 'pagas'
@@ -244,11 +245,11 @@ export default function ContasPagarPage() {
   const mesAtual = new Date().toISOString().slice(0, 7)
 
   const pendentes = useMemo(
-    () => contas.filter((c) => c.status === 'pendente'),
+    () => contas.filter((c) => c.status === 'pendente' || c.status === 'parcial'),
     [contas],
   )
   const totalPendente = useMemo(
-    () => pendentes.reduce((s, c) => s + Number(c.valor), 0),
+    () => pendentes.reduce((s, c) => s + calcularSaldoRestante(Number(c.valor), c.valor_pago), 0),
     [pendentes],
   )
   const vencendoHoje = useMemo(
@@ -279,11 +280,11 @@ export default function ContasPagarPage() {
 
     switch (tabAtiva) {
       case 'pendentes':
-        lista = lista.filter((c) => c.status === 'pendente')
+        lista = lista.filter((c) => c.status === 'pendente' || c.status === 'parcial')
         break
       case 'vencendo':
         lista = lista.filter(
-          (c) => c.status === 'pendente' && c.data_vencimento === hoje,
+          (c) => (c.status === 'pendente' || c.status === 'parcial') && c.data_vencimento === hoje,
         )
         break
       case 'atrasadas':
@@ -383,7 +384,7 @@ export default function ContasPagarPage() {
 
   function abrirPagarDialog(conta: ContaPagar) {
     setPagarForm({
-      valor_pago: Number(conta.valor),
+      valor_pago: calcularSaldoRestante(Number(conta.valor), conta.valor_pago),
       data_pagamento: new Date().toISOString().split('T')[0],
       tipo_pagamento: '',
     })
@@ -408,11 +409,14 @@ export default function ContasPagarPage() {
 
     setSalvandoPagamento(true)
     try {
+      const valorPagoAcumulado = calcularValorPagoAcumulado(conta.valor_pago, pagarForm.valor_pago)
+      const novoStatus = calcularStatusPagamento(Number(conta.valor), valorPagoAcumulado)
+
       const { error: errUpdate } = await supabase
         .from('contas_pagar')
         .update({
-          status: 'pago',
-          valor_pago: pagarForm.valor_pago,
+          status: novoStatus,
+          valor_pago: valorPagoAcumulado,
           data_pagamento: pagarForm.data_pagamento,
           tipo_pagamento: pagarForm.tipo_pagamento,
         })
@@ -510,7 +514,17 @@ export default function ContasPagarPage() {
     {
       key: 'valor',
       header: 'Valor',
-      render: (row) => <MoneyDisplay valor={Number(row.valor)} tamanho="sm" />,
+      render: (row) => (
+        <div>
+          <MoneyDisplay valor={Number(row.valor)} tamanho="sm" />
+          {row.status === 'parcial' && (
+            <p className="text-xs text-amber-600 mt-0.5">
+              Pago {formatarMoeda(Number(row.valor_pago ?? 0))} · falta{' '}
+              {formatarMoeda(calcularSaldoRestante(Number(row.valor), row.valor_pago))}
+            </p>
+          )}
+        </div>
+      ),
     },
     {
       key: 'vencimento',
@@ -551,7 +565,7 @@ export default function ContasPagarPage() {
       className: 'text-right w-[140px]',
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
-          {['pendente', 'atrasado'].includes(row.status) && (
+          {['pendente', 'atrasado', 'parcial'].includes(row.status) && (
             <Button
               size="sm"
               className="text-xs h-7 px-2.5 bg-[#D4A528] hover:bg-[#B8891F] text-white border-0"
@@ -896,11 +910,17 @@ export default function ContasPagarPage() {
             <div className="space-y-4 py-2">
               <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-center">
                 <p className="text-xs text-muted-foreground mb-1">
-                  Valor da conta
+                  {pagarDialog.conta.status === 'parcial' ? 'Saldo restante' : 'Valor da conta'}
                 </p>
                 <p className="text-2xl font-bold text-red-600">
-                  {formatarMoeda(Number(pagarDialog.conta.valor))}
+                  {formatarMoeda(calcularSaldoRestante(Number(pagarDialog.conta.valor), pagarDialog.conta.valor_pago))}
                 </p>
+                {pagarDialog.conta.status === 'parcial' && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Já pago: {formatarMoeda(Number(pagarDialog.conta.valor_pago ?? 0))} de{' '}
+                    {formatarMoeda(Number(pagarDialog.conta.valor))}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground mt-1">
                   Vence em {formatarData(pagarDialog.conta.data_vencimento)}
                 </p>

@@ -5,6 +5,7 @@ import {
   parseLocalizePj,
   parseMixPf,
   parseMixPj,
+  parseConexoes,
   mergeData,
   calcularTotais,
   generateSandboxReport,
@@ -13,7 +14,7 @@ import {
 
 test('Assertiva Parsers - unit tests', async (t) => {
 
-  await t.test('parseLocalizePf parses basic info, veiculos, and vinculos successfully', () => {
+  await t.test('parseLocalizePf parses basic info and veiculos successfully', () => {
     const mockRawResponse = {
       resposta: {
         dadosCadastrais: {
@@ -54,14 +55,6 @@ test('Assertiva Parsers - unit tests', async (t) => {
             cidade: 'GOIANIA',
             uf: 'GO'
           }
-        ],
-        vinculos: [
-          {
-            nome: 'MARIA FRANCO LEITE',
-            cpf: '11122233344',
-            tipo: 'MAE',
-            parentesco: 'Familiar'
-          }
         ]
       }
     };
@@ -80,15 +73,53 @@ test('Assertiva Parsers - unit tests', async (t) => {
     assert.strictEqual(parsed.veiculos[0].placa, 'AAA0A00');
     assert.strictEqual(parsed.veiculos[0].modelo, 'GOL');
     assert.strictEqual(parsed.veiculos[0].ano_fabricacao, 2020);
-
-    // Verify vinculos
-    assert.ok(Array.isArray(parsed.vinculos));
-    assert.strictEqual(parsed.vinculos.length, 1);
-    assert.strictEqual(parsed.vinculos[0].nome, 'MARIA FRANCO LEITE');
-    assert.strictEqual(parsed.vinculos[0].tipo, 'MAE');
   });
 
-  await t.test('parseLocalizePj parses legal entities, veiculos, and vinculos successfully', () => {
+  await t.test('parseConexoes lê o formato real (resposta como lista plana)', () => {
+    // Confirmado em teste ao vivo em 2026-07-14 contra a API real: `resposta` é uma
+    // lista plana de conexões, NÃO agrupada por categoria como a doc (swagger) sugere.
+    const mockRawResponse = {
+      resposta: [
+        { nomeOuRazaoSocial: 'MARIA FRANCO LEITE', documento: '11122233344', tipoDocumento: 'PF', tipoRelacao: 'Parentes', relacao: 'Mãe', telefone: '(62) 99250-4174', whatsapp: true },
+        { nomeOuRazaoSocial: 'JOSE FRANCO LEITE', documento: '55566677788', tipoDocumento: 'PF', tipoRelacao: 'Parentes', relacao: 'Pai', telefone: '(62) 98888-7777', whatsapp: false },
+        { nomeOuRazaoSocial: 'EMPRESA PARCEIRA LTDA', documento: '11222333000144', tipoDocumento: 'PJ', tipoRelacao: 'Sócios', relacao: 'Sócio(a)' },
+      ],
+    };
+
+    const vinculos = parseConexoes(mockRawResponse);
+
+    assert.strictEqual(vinculos.length, 3);
+    const mae = vinculos.find(v => v.parentesco === 'Mãe');
+    assert.ok(mae);
+    assert.strictEqual(mae?.nome, 'MARIA FRANCO LEITE');
+    assert.strictEqual(mae?.telefone, '(62) 99250-4174');
+    assert.strictEqual(mae?.whatsapp, true);
+
+    const pai = vinculos.find(v => v.parentesco === 'Pai');
+    assert.ok(pai);
+    assert.strictEqual(pai?.nome, 'JOSE FRANCO LEITE');
+
+    const socio = vinculos.find(v => v.documento_tipo === 'PJ');
+    assert.ok(socio);
+    assert.strictEqual(socio?.nome, 'EMPRESA PARCEIRA LTDA');
+  });
+
+  await t.test('parseConexoes também aceita o formato agrupado por categoria (fallback)', () => {
+    const mockRawResponse = {
+      resposta: {
+        parentes: {
+          conexoes: [
+            { nomeOuRazaoSocial: 'MARIA FRANCO LEITE', documento: '11122233344', tipoDocumento: 'PF', tipoRelacao: 'Parentes', relacao: 'Mãe' },
+          ],
+        },
+      },
+    };
+    const vinculos = parseConexoes(mockRawResponse);
+    assert.strictEqual(vinculos.length, 1);
+    assert.strictEqual(vinculos[0].nome, 'MARIA FRANCO LEITE');
+  });
+
+  await t.test('parseLocalizePj parses legal entities and veiculos successfully', () => {
     const mockRawResponse = {
       resposta: {
         dadosCadastrais: {
@@ -105,13 +136,6 @@ test('Assertiva Parsers - unit tests', async (t) => {
             anoFabricacao: '2018',
             cor: 'AZUL'
           }
-        ],
-        vinculos: [
-          {
-            nome: 'GUSTAVO GOMES',
-            cpf: '00000000000',
-            tipo: 'SOCIO'
-          }
         ]
       }
     };
@@ -126,10 +150,6 @@ test('Assertiva Parsers - unit tests', async (t) => {
     assert.ok(Array.isArray(parsed.veiculos));
     assert.strictEqual(parsed.veiculos[0].placa, 'BBB1B11');
     assert.strictEqual(parsed.veiculos[0].marca, 'FORD');
-
-    // Verify vinculos
-    assert.ok(Array.isArray(parsed.vinculos));
-    assert.strictEqual(parsed.vinculos[0].nome, 'GUSTAVO GOMES');
   });
 
   await t.test('parseMixPf parses score and debts details correctly', () => {

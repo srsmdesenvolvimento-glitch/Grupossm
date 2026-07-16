@@ -20,7 +20,8 @@ import {
 } from '@/components/ui/select'
 import { formatarCPF, formatarTelefone } from '@/lib/utils/formatters'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
-import { buscarRelatorioAssertiva, scoreLabel, scoreColor } from '@/lib/assertiva/client'
+import { handleCurrencyChange, parseBRL, formatBRL } from '@/lib/utils/currency'
+import { buscarRelatorioAssertiva, faixaRiscoLabel, faixaRiscoColor } from '@/lib/assertiva/client'
 import type { RelatorioCompleto } from '@/lib/assertiva/types'
 import { buscarEnderecoPorCep } from '@/lib/utils/cep'
 import {
@@ -29,6 +30,7 @@ import {
 } from '@/lib/utils/storage'
 import { toast } from 'sonner'
 import { recalcularScoreCliente } from '@/lib/utils/score'
+import { salvarRascunho, lerRascunho, limparRascunho } from '@/lib/utils/formDraft'
 
 // ── Validadores locais ────────────────────────────────────────────────────────
 function validarCPF(cpf: string): boolean {
@@ -80,9 +82,66 @@ const STEPS = [
   { label: 'Revisão', icon: CheckCircle2 },
 ]
 
-type Referencia = { nome: string; parentesco: string; telefone: string }
+type Referencia = { nome: string; parentesco: string; telefone: string; endereco: string; email: string }
 
-const emptyRef = (): Referencia => ({ nome: '', parentesco: '', telefone: '' })
+const emptyRef = (): Referencia => ({ nome: '', parentesco: '', telefone: '', endereco: '', email: '' })
+
+// Rascunho em memória do cadastro — sair pra outra tela e voltar não deve
+// perder o que já foi preenchido (só um refresh ou fechar a aba reseta).
+const RASCUNHO_CADASTRO_CLIENTE = 'cadastro-cliente-factoring'
+
+type RascunhoCadastroCliente = {
+  step: number
+  tipoPessoa: 'fisica' | 'juridica'
+  cnpj: string
+  cnpjConsultado: Record<string, unknown> | null
+  nome: string
+  cpf: string
+  rg: string
+  orgaoEmissor: string
+  dataNascimento: string
+  estadoCivil: string
+  profissao: string
+  rendaMensal: string
+  telefone: string
+  telefone2: string
+  email: string
+  cep: string
+  endereco: string
+  numero: string
+  complemento: string
+  bairro: string
+  cidade: string
+  estado: string
+  banco: string
+  agencia: string
+  conta: string
+  tipoConta: string
+  pix: string
+  referencias: Referencia[]
+  dadosAssertiva: RelatorioCompleto | null
+  assertivaConsultada: boolean
+  assertivaErro: string | null
+  arquivosPendentes: Map<string, File>
+  previews: Map<string, string>
+}
+
+// Formata o endereço de um vínculo Assertiva em uma linha única para o campo de referência
+function formatarEnderecoVinculo(end?: { logradouro?: string; numero?: string; bairro?: string; municipio?: string; uf?: string }): string {
+  if (!end) return ''
+  const rua = [end.logradouro, end.numero].filter(Boolean).join(', ')
+  return [rua, end.bairro, end.municipio && end.uf ? `${end.municipio}/${end.uf}` : end.municipio].filter(Boolean).join(' - ')
+}
+
+// Prioriza mãe/pai/cônjuge ao escolher quais vínculos viram referências automáticas
+function prioridadeVinculo(parentesco?: string): number {
+  const p = (parentesco ?? '').toLowerCase()
+  if (p === 'mãe' || p === 'mae') return 0
+  if (p === 'pai') return 1
+  if (p.includes('cônjuge') || p.includes('conjuge')) return 2
+  if (p.includes('sócio') || p.includes('socio')) return 3
+  return 4
+}
 
 const ICONES_CATEGORIA: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   foto:                   Camera,
@@ -97,6 +156,9 @@ export default function NovoClienteFactoringPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectParam = searchParams.get('redirect')
+  // CPF/CNPJ digitado em outra tela (ex: busca de beneficiário no empréstimo) que
+  // não achou o cliente — chega aqui pra já preencher, sem o usuário ter que digitar de novo.
+  const documentoParamLimpo = (searchParams.get('documento') ?? '').replace(/\D/g, '')
   const { empresaAtual } = useEmpresa()
   const supabase = createClient()
 
@@ -111,18 +173,20 @@ export default function NovoClienteFactoringPage() {
   const [assertivaErro, setAssertivaErro] = useState<string | null>(null)
   const [expandirRelatorio, setExpandirRelatorio] = useState(true)
   const [verificandoDuplicata, setVerificandoDuplicata] = useState(false)
-  const [cpfDuplicado, setCpfDuplicado] = useState(false)
+  const [documentoDuplicado, setDocumentoDuplicado] = useState(false)
   const [clienteDuplicadoId, setClienteDuplicadoId] = useState<string | null>(null)
   const [clienteDuplicadoNome, setClienteDuplicadoNome] = useState<string | null>(null)
 
   // Tipo de pessoa
-  const [tipoPessoa, setTipoPessoa] = useState<'fisica' | 'juridica'>('fisica')
-  const [cnpj, setCnpj] = useState('')
+  const [tipoPessoa, setTipoPessoa] = useState<'fisica' | 'juridica'>(() =>
+    documentoParamLimpo.length === 14 ? 'juridica' : 'fisica'
+  )
+  const [cnpj, setCnpj] = useState(() => documentoParamLimpo.length === 14 ? mascaraCNPJ(documentoParamLimpo) : '')
   const [cnpjConsultado, setCnpjConsultado] = useState<Record<string, unknown> | null>(null)
 
   // Step 1 — Dados pessoais
   const [nome, setNome] = useState('')
-  const [cpf, setCpf] = useState('')
+  const [cpf, setCpf] = useState(() => documentoParamLimpo.length === 11 ? mascaraCPF(documentoParamLimpo) : '')
   const [rg, setRg] = useState('')
   const [orgaoEmissor, setOrgaoEmissor] = useState('')
   const [dataNascimento, setDataNascimento] = useState('')
@@ -178,6 +242,68 @@ export default function NovoClienteFactoringPage() {
     setPreviews(prev => { const m = new Map(prev); m.delete(categoriaId); return m })
   }, [])
 
+  // Restaura o rascunho, se existir — cobre o caso de sair pra outra tela no
+  // meio do cadastro e voltar (navegação dentro do app não perde nada; só um
+  // refresh ou fechar a aba reseta, porque o rascunho vive em memória).
+  useEffect(() => {
+    const r = lerRascunho<RascunhoCadastroCliente>(RASCUNHO_CADASTRO_CLIENTE)
+    if (!r) return
+    setStep(r.step)
+    setTipoPessoa(r.tipoPessoa)
+    setCnpj(r.cnpj)
+    setCnpjConsultado(r.cnpjConsultado)
+    setNome(r.nome)
+    setCpf(r.cpf)
+    setRg(r.rg)
+    setOrgaoEmissor(r.orgaoEmissor)
+    setDataNascimento(r.dataNascimento)
+    setEstadoCivil(r.estadoCivil)
+    setProfissao(r.profissao)
+    setRendaMensal(r.rendaMensal)
+    setTelefone(r.telefone)
+    setTelefone2(r.telefone2)
+    setEmail(r.email)
+    setCep(r.cep)
+    setEndereco(r.endereco)
+    setNumero(r.numero)
+    setComplemento(r.complemento)
+    setBairro(r.bairro)
+    setCidade(r.cidade)
+    setEstado(r.estado)
+    setBanco(r.banco)
+    setAgencia(r.agencia)
+    setConta(r.conta)
+    setTipoConta(r.tipoConta)
+    setPix(r.pix)
+    setReferencias(r.referencias)
+    setDadosAssertiva(r.dadosAssertiva)
+    setAssertivaConsultada(r.assertivaConsultada)
+    setAssertivaErro(r.assertivaErro)
+    // Arquivos/previews só vêm preenchidos se o rascunho ainda estiver na
+    // memória (navegação dentro do app); depois de um reload real eles se
+    // perdem (File não sobrevive à serialização) — precisa reanexar.
+    if (r.arquivosPendentes instanceof Map) setArquivosPendentes(r.arquivosPendentes)
+    if (r.previews instanceof Map) setPreviews(r.previews)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Salva o rascunho a cada mudança relevante.
+  useEffect(() => {
+    salvarRascunho<RascunhoCadastroCliente>(RASCUNHO_CADASTRO_CLIENTE, {
+      step, tipoPessoa, cnpj, cnpjConsultado, nome, cpf, rg, orgaoEmissor,
+      dataNascimento, estadoCivil, profissao, rendaMensal, telefone, telefone2,
+      email, cep, endereco, numero, complemento, bairro, cidade, estado,
+      banco, agencia, conta, tipoConta, pix, referencias, dadosAssertiva,
+      assertivaConsultada, assertivaErro, arquivosPendentes, previews,
+    })
+  }, [
+    step, tipoPessoa, cnpj, cnpjConsultado, nome, cpf, rg, orgaoEmissor,
+    dataNascimento, estadoCivil, profissao, rendaMensal, telefone, telefone2,
+    email, cep, endereco, numero, complemento, bairro, cidade, estado,
+    banco, agencia, conta, tipoConta, pix, referencias, dadosAssertiva,
+    assertivaConsultada, assertivaErro, arquivosPendentes, previews,
+  ])
+
   const buscarCep = useCallback(async (cepDigitos?: string) => {
     const c = (cepDigitos ?? cep).replace(/\D/g, '')
     if (c.length !== 8) { toast.error('CEP inválido — deve ter 8 dígitos'); return }
@@ -223,9 +349,9 @@ export default function NovoClienteFactoringPage() {
 
     // Renda Mensal / Faturamento
     if (data.renda_estimada) {
-      setRendaMensal(String(Math.round(data.renda_estimada)))
+      setRendaMensal(formatBRL(data.renda_estimada))
     } else if (data.faturamento_presumido && typeof data.faturamento_presumido === 'number') {
-      setRendaMensal(String(Math.round(data.faturamento_presumido)))
+      setRendaMensal(formatBRL(data.faturamento_presumido))
     }
 
     // Estado Civil
@@ -275,14 +401,20 @@ export default function NovoClienteFactoringPage() {
       if (end.uf) setEstado(end.uf)
     }
 
-    // Referências de vínculos
+    // Referências — preenchidas a partir da rede de vínculos da Assertiva
+    // (mãe, pai, cônjuge, sócios...), priorizando quem tem mais dados de contato.
     if (data.vinculos?.length) {
-      const novosRefs = data.vinculos.slice(0, 3).map((v: any) => ({
+      const ordenados = [...data.vinculos]
+        .filter(v => v.nome)
+        .sort((a, b) => prioridadeVinculo(a.parentesco) - prioridadeVinculo(b.parentesco))
+      const novosRefs: Referencia[] = ordenados.slice(0, 3).map((v: any) => ({
         nome: v.nome ?? '',
-        parentesco: v.tipo ?? v.parentesco ?? (tipoPessoa === 'fisica' ? 'Familiar' : 'Sócio'),
-        telefone: '',
+        parentesco: v.parentesco ?? v.tipo ?? (tipoPessoa === 'fisica' ? 'Familiar' : 'Sócio'),
+        telefone: v.telefone ? formatarTelefone(v.telefone) : '',
+        endereco: formatarEnderecoVinculo(v.endereco),
+        email: v.email ?? '',
       }))
-      setReferencias([...novosRefs, ...Array(Math.max(0, 3 - novosRefs.length)).fill(emptyRef())])
+      setReferencias([...novosRefs, ...Array(Math.max(0, 3 - novosRefs.length)).fill(null).map(emptyRef)])
     }
   }, [tipoPessoa])
 
@@ -353,6 +485,7 @@ export default function NovoClienteFactoringPage() {
 
   const validarStep = (): boolean => {
     if (step === 1 && !nome.trim()) { toast.error('Nome é obrigatório'); return false }
+    if (step === 1 && documentoDuplicado) { toast.error('Este documento já está cadastrado — corrija antes de continuar'); return false }
     if (step === 2 && !telefone.trim()) { toast.error('Telefone é obrigatório'); return false }
     return true
   }
@@ -362,7 +495,68 @@ export default function NovoClienteFactoringPage() {
     setStep(s => Math.min(s + 1, 7))
   }
 
-  const voltar = () => { setStep(s => Math.max(s - 1, 0)); if (step === 1) { setCpfDuplicado(false); setClienteDuplicadoId(null); setClienteDuplicadoNome(null) } }
+  const voltar = () => { setStep(s => Math.max(s - 1, 0)); if (step === 1) { setDocumentoDuplicado(false); setClienteDuplicadoId(null); setClienteDuplicadoNome(null) } }
+
+  // Checagem de duplicata compartilhada — usada na Etapa 0 (após consultar a
+  // Assertiva) e de novo na Etapa 1 (se o usuário corrigir o CPF/CNPJ depois de
+  // avançar). Cobre CPF e CNPJ igualmente. Retorna true se já existe um cliente
+  // com esse documento nesta empresa.
+  const verificarDuplicata = useCallback(async (doc: string, tipoDoc: 'fisica' | 'juridica'): Promise<boolean> => {
+    if (!empresaAtual) return false
+    setVerificandoDuplicata(true)
+    try {
+      const coluna = tipoDoc === 'fisica' ? 'cpf' : 'cnpj'
+      const { data: existe } = await supabase
+        .from('clientes_factoring').select('id, nome')
+        .eq('empresa_id', empresaAtual.id).eq(coluna, doc).maybeSingle()
+      if (existe) {
+        setDocumentoDuplicado(true)
+        setClienteDuplicadoId(existe.id)
+        setClienteDuplicadoNome(existe.nome)
+        return true
+      }
+      setDocumentoDuplicado(false)
+      setClienteDuplicadoId(null)
+      setClienteDuplicadoNome(null)
+      return false
+    } catch {
+      return false
+    } finally {
+      setVerificandoDuplicata(false)
+    }
+  }, [empresaAtual, supabase])
+
+  // Renderizado tanto na Etapa 0 (após consultar a Assertiva) quanto na Etapa 1
+  // (se o usuário corrigir o documento depois de avançar) — mesmo aviso nos dois pontos.
+  function AvisoDocumentoDuplicado() {
+    if (!documentoDuplicado || !clienteDuplicadoId) return null
+    const rotulo = tipoPessoa === 'fisica' ? 'CPF' : 'CNPJ'
+    return (
+      <div className="rounded-2xl border border-[#F59E0B]/40 bg-[#FFFBEB] p-4 space-y-3" role="alert">
+        <div className="flex items-start gap-2">
+          <AlertCircle size={16} className="shrink-0 text-[#D97706] mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-[#92400E]">Este {rotulo} já está cadastrado</p>
+            <p className="text-xs text-[#B45309] mt-0.5">{clienteDuplicadoNome ?? 'Cliente'} já existe no sistema.</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <a
+            href={`/factoring/clientes/${clienteDuplicadoId}`}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-full border border-[#D97706]/40 bg-white text-[#92400E] text-xs font-bold hover:bg-[#FEF3C7] transition-colors"
+          >
+            Ver perfil do cliente
+          </a>
+          <a
+            href={`/factoring/emprestimos/novo?cliente=${clienteDuplicadoId}`}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-full bg-[#1A73E8] text-white text-xs font-bold hover:bg-[#1557B0] transition-colors"
+          >
+            Novo empréstimo para este cliente
+          </a>
+        </div>
+      </div>
+    )
+  }
 
   const cadastrar = async () => {
     if (!empresaAtual) return
@@ -373,13 +567,15 @@ export default function NovoClienteFactoringPage() {
         .insert({
           empresa_id: empresaAtual.id,
           nome: nome.trim(),
+          tipo_pessoa: tipoPessoa,
           cpf: tipoPessoa === 'fisica' ? (cpf.replace(/\D/g,'') || null) : null,
+          cnpj: tipoPessoa === 'juridica' ? (cnpj.replace(/\D/g,'') || null) : null,
           rg: rg || null,
           orgao_emissor: orgaoEmissor || null,
           data_nascimento: dataNascimento || null,
           estado_civil: estadoCivil || null,
           profissao: profissao || null,
-          renda_mensal: rendaMensal ? Number(rendaMensal) : null,
+          renda_mensal: rendaMensal ? parseBRL(rendaMensal) : null,
           telefone: telefone.trim(),
           telefone2: telefone2 || null,
           email: email || null,
@@ -440,6 +636,8 @@ export default function NovoClienteFactoringPage() {
             nome: r.nome.trim(),
             parentesco: r.parentesco || null,
             telefone: r.telefone.trim(),
+            endereco: r.endereco.trim() || null,
+            email: r.email.trim() || null,
           }))
         )
         if (refError) {
@@ -474,6 +672,7 @@ export default function NovoClienteFactoringPage() {
         }
       }
 
+      limparRascunho(RASCUNHO_CADASTRO_CLIENTE)
       toast.success('Cliente cadastrado com sucesso!')
       if (redirectParam) {
         router.push(`${redirectParam}?cliente_id=${clienteData.id}`)
@@ -582,7 +781,7 @@ export default function NovoClienteFactoringPage() {
                     value={cpf}
                     onChange={e => {
                       setCpf(mascaraCPF(e.target.value))
-                      setCpfDuplicado(false)
+                      setDocumentoDuplicado(false)
                       setAssertivaConsultada(false)
                       setAssertivaErro(null)
                       setDadosAssertiva(null)
@@ -590,26 +789,34 @@ export default function NovoClienteFactoringPage() {
                     }}
                     placeholder="000.000.000-00"
                     maxLength={14}
+                    aria-invalid={docLimpo.length === 11 && !docValido}
+                    aria-describedby={docLimpo.length === 11 && !docValido ? 'cpf-step0-erro' : undefined}
                     className={`h-12 text-base px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-xl transition-all ${docLimpo.length === 11 ? (docValido ? 'border-[#34A853]' : 'border-[#EA4335]') : ''}`}
                     autoFocus
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    {buscandoAssertiva && <Loader2 size={18} className="animate-spin text-[#1A73E8]" />}
+                    {buscandoAssertiva && <Loader2 size={18} className="animate-spin text-[#1A73E8]" aria-hidden="true" />}
                     {!buscandoAssertiva && docLimpo.length === 11 && (docValido
-                      ? <CheckCircle size={18} className="text-[#34A853]" />
-                      : <XCircle size={18} className="text-[#EA4335]" />
+                      ? <CheckCircle size={18} className="text-[#34A853]" aria-hidden="true" />
+                      : <XCircle size={18} className="text-[#EA4335]" aria-hidden="true" />
                     )}
                   </div>
                 </div>
+                {docLimpo.length === 11 && !docValido && (
+                  <p id="cpf-step0-erro" className="text-xs text-[#EA4335] flex items-center gap-1.5 font-medium">
+                    <AlertCircle size={12} aria-hidden="true" />
+                    CPF inválido — verifique os dígitos informados
+                  </p>
+                )}
                 {buscandoAssertiva && (
-                  <p className="text-xs text-[#1A73E8] flex items-center gap-1.5 font-medium animate-pulse">
-                    <Loader2 size={12} className="animate-spin" />
+                  <p className="text-xs text-[#1A73E8] flex items-center gap-1.5 font-medium animate-pulse" aria-live="polite">
+                    <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                     Consultando Assertiva — buscando dados completos...
                   </p>
                 )}
                 {!buscandoAssertiva && docValido && !assertivaConsultada && !dadosAssertiva && (
-                  <p className="text-xs text-amber-600 flex items-center gap-1.5 font-medium">
-                    <AlertCircle size={12} />
+                  <p className="text-xs text-amber-600 flex items-center gap-1.5 font-medium" aria-live="polite">
+                    <AlertCircle size={12} aria-hidden="true" />
                     CPF válido — clique em "Consultar Assertiva" para buscar os dados
                   </p>
                 )}
@@ -630,26 +837,34 @@ export default function NovoClienteFactoringPage() {
                     }}
                     placeholder="00.000.000/0001-00"
                     maxLength={18}
+                    aria-invalid={cnpj.replace(/\D/g,'').length === 14 && !docValido}
+                    aria-describedby={cnpj.replace(/\D/g,'').length === 14 && !docValido ? 'cnpj-step0-erro' : undefined}
                     className={`h-12 text-base px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-xl transition-all ${cnpj.replace(/\D/g,'').length === 14 ? (docValido ? 'border-[#34A853]' : 'border-[#EA4335]') : ''}`}
                     autoFocus
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    {buscandoAssertiva && <Loader2 size={18} className="animate-spin text-[#1A73E8]" />}
+                    {buscandoAssertiva && <Loader2 size={18} className="animate-spin text-[#1A73E8]" aria-hidden="true" />}
                     {!buscandoAssertiva && cnpj.replace(/\D/g,'').length === 14 && (docValido
-                      ? <CheckCircle size={18} className="text-[#34A853]" />
-                      : <XCircle size={18} className="text-[#EA4335]" />
+                      ? <CheckCircle size={18} className="text-[#34A853]" aria-hidden="true" />
+                      : <XCircle size={18} className="text-[#EA4335]" aria-hidden="true" />
                     )}
                   </div>
                 </div>
+                {cnpj.replace(/\D/g,'').length === 14 && !docValido && (
+                  <p id="cnpj-step0-erro" className="text-xs text-[#EA4335] flex items-center gap-1.5 font-medium">
+                    <AlertCircle size={12} aria-hidden="true" />
+                    CNPJ inválido — verifique a numeração
+                  </p>
+                )}
                 {buscandoAssertiva && (
-                  <p className="text-xs text-[#1A73E8] flex items-center gap-1.5 font-medium animate-pulse">
-                    <Loader2 size={12} className="animate-spin" />
+                  <p className="text-xs text-[#1A73E8] flex items-center gap-1.5 font-medium animate-pulse" aria-live="polite">
+                    <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                     Consultando Assertiva — buscando dados completos...
                   </p>
                 )}
                 {!buscandoAssertiva && docValido && !assertivaConsultada && !dadosAssertiva && (
-                  <p className="text-xs text-amber-600 flex items-center gap-1.5 font-medium">
-                    <AlertCircle size={12} />
+                  <p className="text-xs text-amber-600 flex items-center gap-1.5 font-medium" aria-live="polite">
+                    <AlertCircle size={12} aria-hidden="true" />
                     CNPJ válido — consultando Assertiva automaticamente...
                   </p>
                 )}
@@ -685,14 +900,14 @@ export default function NovoClienteFactoringPage() {
                     <div className="flex items-start gap-4">
                       {scoreVal !== null && (
                         <div className="flex flex-col items-center shrink-0">
-                          <div
-                            className="w-14 h-14 rounded-full border-4 flex items-center justify-center font-extrabold text-base"
-                            style={{ borderColor: scoreColor(scoreVal), color: scoreColor(scoreVal) }}
+                          <span
+                            className="px-3 py-1.5 rounded-full text-xs font-bold text-center leading-tight max-w-[110px]"
+                            style={{
+                              backgroundColor: `${faixaRiscoColor(r.faixa_risco, scoreVal)}1A`,
+                              color: faixaRiscoColor(r.faixa_risco, scoreVal),
+                            }}
                           >
-                            {scoreVal}
-                          </div>
-                          <span className="text-[10px] font-bold mt-0.5" style={{ color: scoreColor(scoreVal) }}>
-                            {scoreLabel(scoreVal)}
+                            {faixaRiscoLabel(r.faixa_risco, scoreVal)}
                           </span>
                         </div>
                       )}
@@ -749,32 +964,8 @@ export default function NovoClienteFactoringPage() {
               )
             })()}
 
-            {/* Aviso de CPF duplicado com ações */}
-            {cpfDuplicado && clienteDuplicadoId && (
-              <div className="rounded-2xl border border-[#F59E0B]/40 bg-[#FFFBEB] p-4 space-y-3">
-                <div className="flex items-start gap-2">
-                  <AlertCircle size={16} className="shrink-0 text-[#D97706] mt-0.5" />
-                  <div>
-                    <p className="text-sm font-bold text-[#92400E]">Este CPF já está cadastrado</p>
-                    <p className="text-xs text-[#B45309] mt-0.5">{clienteDuplicadoNome ?? 'Cliente'} já existe no sistema.</p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <a
-                    href={`/factoring/clientes/${clienteDuplicadoId}`}
-                    className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-full border border-[#D97706]/40 bg-white text-[#92400E] text-xs font-bold hover:bg-[#FEF3C7] transition-colors"
-                  >
-                    Ver perfil do cliente
-                  </a>
-                  <a
-                    href={`/factoring/emprestimos/novo?cliente=${clienteDuplicadoId}`}
-                    className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-full bg-[#1A73E8] text-white text-xs font-bold hover:bg-[#1557B0] transition-colors"
-                  >
-                    Novo empréstimo para este cliente
-                  </a>
-                </div>
-              </div>
-            )}
+            {/* Aviso de documento duplicado com ações */}
+            {AvisoDocumentoDuplicado()}
 
             {/* Erro Assertiva */}
             {assertivaErro && !buscandoAssertiva && (
@@ -815,23 +1006,12 @@ export default function NovoClienteFactoringPage() {
                 <Button
                   onClick={async () => {
                     if (!empresaAtual) return
-                    if (tipoPessoa === 'fisica' && docLimpo.length === 11) {
-                      setVerificandoDuplicata(true)
-                      try {
-                        const { data: existe } = await supabase
-                          .from('clientes_factoring').select('id, nome')
-                          .eq('empresa_id', empresaAtual.id).eq('cpf', docLimpo).maybeSingle()
-                        if (existe) { setCpfDuplicado(true); setClienteDuplicadoId(existe.id); setClienteDuplicadoNome(existe.nome); setVerificandoDuplicata(false); return }
-                      } catch { /* segue */ }
-                      setVerificandoDuplicata(false)
-                    }
-                    if (dadosAssertiva) {
-                      preencherCamposComAssertiva(dadosAssertiva)
-                    }
-                    setCpfDuplicado(false)
+                    const duplicado = await verificarDuplicata(docLimpo, tipoPessoa)
+                    if (duplicado) return
+                    preencherCamposComAssertiva(dadosAssertiva)
                     setStep(1)
                   }}
-                  disabled={verificandoDuplicata || cpfDuplicado}
+                  disabled={verificandoDuplicata || documentoDuplicado}
                   className="w-full h-12 rounded-full gap-2 bg-[#34A853] hover:bg-[#2D9249] text-white text-sm font-semibold shadow-sm"
                 >
                   {verificandoDuplicata
@@ -847,20 +1027,11 @@ export default function NovoClienteFactoringPage() {
                   type="button"
                   onClick={async () => {
                     if (!empresaAtual) return
-                    if (tipoPessoa === 'fisica' && docLimpo.length === 11) {
-                      setVerificandoDuplicata(true)
-                      try {
-                        const { data: existe } = await supabase
-                          .from('clientes_factoring').select('id, nome')
-                          .eq('empresa_id', empresaAtual.id).eq('cpf', docLimpo).maybeSingle()
-                        if (existe) { setCpfDuplicado(true); setClienteDuplicadoId(existe.id); setClienteDuplicadoNome(existe.nome); setVerificandoDuplicata(false); return }
-                      } catch { /* segue */ }
-                      setVerificandoDuplicata(false)
-                    }
-                    setCpfDuplicado(false)
+                    const duplicado = await verificarDuplicata(docLimpo, tipoPessoa)
+                    if (duplicado) return
                     setStep(1)
                   }}
-                  disabled={verificandoDuplicata || cpfDuplicado}
+                  disabled={verificandoDuplicata || documentoDuplicado}
                   className="text-xs text-muted-foreground underline hover:text-foreground text-center py-1 transition-colors disabled:opacity-50"
                 >
                   {verificandoDuplicata ? 'Verificando...' : 'Continuar sem dados da Assertiva'}
@@ -886,14 +1057,14 @@ export default function NovoClienteFactoringPage() {
 
         {/* Step indicator */}
         <div className="bg-card rounded-2xl border border-border/80 shadow-m3-1 p-5 overflow-hidden">
-          <div className="flex items-center gap-1 overflow-x-auto pb-2 scrollbar-none justify-between">
+          <div className="flex items-center gap-1 overflow-x-auto pb-2 scrollbar-none justify-between" role="list" aria-label="Etapas do cadastro">
             {STEPS.map((s, i) => {
               const num = i + 1
               const done = step > num
               const active = step === num
               const Icon = s.icon
               return (
-                <div key={s.label} className="flex items-center shrink-0 flex-1">
+                <div key={s.label} className="flex items-center shrink-0 flex-1" role="listitem" aria-current={active ? 'step' : undefined}>
                   <div className="flex flex-col items-center gap-1.5 min-w-[70px] flex-1">
                     <div
                       className="w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 relative border-2"
@@ -903,7 +1074,7 @@ export default function NovoClienteFactoringPage() {
                           ? { backgroundColor: '#E8F0FE', borderColor: '#1A73E8', color: '#1A73E8' }
                           : { backgroundColor: 'transparent', borderColor: 'var(--border)', color: 'var(--muted-foreground)' }}
                     >
-                      {done ? <CheckCircle2 size={16} /> : <Icon size={16} />}
+                      {done ? <CheckCircle2 size={16} aria-hidden="true" /> : <Icon size={16} aria-hidden="true" />}
                       {active && (
                         <span className="absolute -inset-1 rounded-full border border-[#1A73E8] animate-ping opacity-25 pointer-events-none" />
                       )}
@@ -963,39 +1134,43 @@ export default function NovoClienteFactoringPage() {
                   <div className="relative">
                     <Input
                       value={cpf}
-                      onChange={e => setCpf(mascaraCPF(e.target.value))}
+                      onChange={e => { setCpf(mascaraCPF(e.target.value)); setDocumentoDuplicado(false) }}
+                      onBlur={() => { if (cpfOk) verificarDuplicata(cpfLimpo, 'fisica') }}
                       placeholder="000.000.000-00"
                       maxLength={14}
+                      aria-invalid={cpfCompleto && !cpfOk}
+                      aria-describedby={cpfCompleto && !cpfOk ? 'cpf-step1-erro' : undefined}
                       className={`h-11 px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all ${cpfCompleto ? (cpfOk ? 'border-[#34A853] focus-visible:ring-[#34A853]' : 'border-[#EA4335] focus-visible:ring-[#EA4335]') : ''}`}
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
                       {cpfCompleto && (cpfOk
-                        ? <CheckCircle size={18} className="text-[#34A853]" />
-                        : <XCircle size={18} className="text-[#EA4335]" />
+                        ? <CheckCircle size={18} className="text-[#34A853]" aria-hidden="true" />
+                        : <XCircle size={18} className="text-[#EA4335]" aria-hidden="true" />
                       )}
                     </div>
                   </div>
                   {cpfCompleto && !cpfOk && (
-                    <p className="text-xs text-[#EA4335] flex items-center gap-1 font-medium">
-                      <AlertCircle size={13} /> CPF inválido — verifique os dígitos informados
+                    <p id="cpf-step1-erro" className="text-xs text-[#EA4335] flex items-center gap-1 font-medium">
+                      <AlertCircle size={13} aria-hidden="true" /> CPF inválido — verifique os dígitos informados
                     </p>
                   )}
-                  {cpfCompleto && cpfOk && (
+                  {cpfCompleto && cpfOk && !documentoDuplicado && (
                     <p className="text-xs text-[#34A853] flex items-center gap-1 font-medium">
-                      <CheckCircle size={13} /> CPF validado com sucesso
+                      <CheckCircle size={13} aria-hidden="true" /> CPF validado com sucesso
                     </p>
                   )}
+                  {AvisoDocumentoDuplicado()}
                   {/* Assertiva loading / resultado */}
                   {cpfCompleto && cpfOk && buscandoAssertiva && (
-                    <div className="flex items-center gap-2 text-xs text-[#1A73E8] bg-[#E8F0FE] rounded-lg px-3 py-2 mt-1">
-                      <Loader2 size={13} className="animate-spin" />
+                    <div className="flex items-center gap-2 text-xs text-[#1A73E8] bg-[#E8F0FE] rounded-lg px-3 py-2 mt-1" aria-live="polite">
+                      <Loader2 size={13} className="animate-spin" aria-hidden="true" />
                       Consultando Assertiva — buscando dados cadastrais e financeiros...
                     </div>
                   )}
                   {cpfCompleto && cpfOk && dadosAssertiva && !buscandoAssertiva && (() => {
                     const sc = dadosAssertiva.score
-                    const color = scoreColor(sc)
-                    const label = scoreLabel(sc)
+                    const color = faixaRiscoColor(dadosAssertiva.faixa_risco, sc)
+                    const label = faixaRiscoLabel(dadosAssertiva.faixa_risco, sc)
                     const temNeg = (dadosAssertiva.total_negativacoes ?? 0) > 0
                     const temProt = (dadosAssertiva.total_protestos ?? 0) > 0
                     return (
@@ -1005,7 +1180,7 @@ export default function NovoClienteFactoringPage() {
                             <CheckCircle size={13} className="text-[#34A853]" /> Assertiva — Dados carregados
                           </span>
                           <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${color}20`, color }}>
-                            Score {sc ?? '—'} · {label}
+                            {label}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-1.5 text-[10px]">
@@ -1061,15 +1236,18 @@ export default function NovoClienteFactoringPage() {
                       <div className="relative flex-1">
                         <Input
                           value={cnpj}
-                          onChange={e => { setCnpj(mascaraCNPJ(e.target.value)); setCnpjConsultado(null) }}
+                          onChange={e => { setCnpj(mascaraCNPJ(e.target.value)); setCnpjConsultado(null); setDocumentoDuplicado(false) }}
+                          onBlur={() => { if (cnpjOk) verificarDuplicata(cnpjLimpo, 'juridica') }}
                           placeholder="00.000.000/0000-00"
                           maxLength={18}
+                          aria-invalid={cnpjCompleto && !cnpjOk}
+                          aria-describedby={cnpjCompleto && !cnpjOk ? 'cnpj-step1-erro' : undefined}
                           className={`h-11 px-4 pr-10 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all ${cnpjCompleto ? (cnpjOk ? 'border-[#34A853]' : 'border-[#EA4335]') : ''}`}
                         />
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
                           {cnpjCompleto && (cnpjOk
-                            ? <CheckCircle size={18} className="text-[#34A853]" />
-                            : <XCircle size={18} className="text-[#EA4335]" />
+                            ? <CheckCircle size={18} className="text-[#34A853]" aria-hidden="true" />
+                            : <XCircle size={18} className="text-[#EA4335]" aria-hidden="true" />
                           )}
                         </div>
                       </div>
@@ -1081,17 +1259,18 @@ export default function NovoClienteFactoringPage() {
                         className="shrink-0 gap-1.5 h-11 rounded-lg border-border hover:bg-muted/50"
                       >
                         {buscandoAssertiva
-                          ? <Loader2 size={16} className="animate-spin text-[#1A73E8]" />
-                          : <ShieldCheck size={16} className="text-muted-foreground" />
+                          ? <Loader2 size={16} className="animate-spin text-[#1A73E8]" aria-hidden="true" />
+                          : <ShieldCheck size={16} className="text-muted-foreground" aria-hidden="true" />
                         }
                         Consultar Assertiva
                       </Button>
                     </div>
                     {cnpjCompleto && !cnpjOk && (
-                      <p className="text-xs text-[#EA4335] flex items-center gap-1 font-medium">
-                        <AlertCircle size={13} /> CNPJ inválido — verifique a numeração
+                      <p id="cnpj-step1-erro" className="text-xs text-[#EA4335] flex items-center gap-1 font-medium">
+                        <AlertCircle size={13} aria-hidden="true" /> CNPJ inválido — verifique a numeração
                       </p>
                     )}
+                    {AvisoDocumentoDuplicado()}
                     {dadosAssertiva && dadosAssertiva.nome && (
                       <div className="rounded-xl border border-[#34A853]/20 bg-[#E6F4EA] p-3 flex items-center gap-2 text-sm">
                         <CheckCircle size={15} className="text-[#34A853] shrink-0" />
@@ -1180,10 +1359,10 @@ export default function NovoClienteFactoringPage() {
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 text-sm font-semibold">R$</span>
                   <Input
-                    type="number"
-                    min={0}
+                    type="text"
+                    inputMode="numeric"
                     value={rendaMensal}
-                    onChange={e => setRendaMensal(e.target.value)}
+                    onChange={e => setRendaMensal(handleCurrencyChange(e.target.value))}
                     className="h-11 pl-9 pr-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     placeholder="0,00"
                   />
@@ -1441,12 +1620,33 @@ export default function NovoClienteFactoringPage() {
                       />
                     </div>
                   </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground">Telefone</Label>
+                      <Input
+                        value={ref.telefone}
+                        onChange={e => setRef(idx, 'telefone', formatarTelefone(e.target.value))}
+                        placeholder="(00) 90000-0000"
+                        className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-muted-foreground">E-mail (opcional)</Label>
+                      <Input
+                        type="email"
+                        value={ref.email}
+                        onChange={e => setRef(idx, 'email', e.target.value)}
+                        placeholder="email@exemplo.com"
+                        className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold text-muted-foreground">Telefone</Label>
+                    <Label className="text-xs font-semibold text-muted-foreground">Endereço (opcional)</Label>
                     <Input
-                      value={ref.telefone}
-                      onChange={e => setRef(idx, 'telefone', formatarTelefone(e.target.value))}
-                      placeholder="(00) 90000-0000"
+                      value={ref.endereco}
+                      onChange={e => setRef(idx, 'endereco', e.target.value)}
+                      placeholder="Rua, número - bairro - cidade/UF"
                       className="h-10 px-3 focus-visible:ring-1 focus-visible:ring-[#1A73E8] rounded-lg"
                     />
                   </div>
@@ -1556,7 +1756,7 @@ export default function NovoClienteFactoringPage() {
                   ['Estado civil', estadoCivil || '—'] as [string,string],
                 ] : []),
                 ['Profissão / Segmento', profissao || '—'],
-                ['Renda / Faturamento', rendaMensal ? `R$ ${Number(rendaMensal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '—'],
+                ['Renda / Faturamento', rendaMensal ? `R$ ${rendaMensal}` : '—'],
               ]},
               { titulo: 'Contato e Comunicação', items: [
                 ['Telefone principal', formatarTelefone(telefone)],
@@ -1592,12 +1792,19 @@ export default function NovoClienteFactoringPage() {
                 <p className="text-xs font-bold text-muted-foreground/80 uppercase tracking-wider">Contatos de Referência</p>
                 <div className="rounded-xl border border-border bg-muted/10 divide-y divide-border/40 overflow-hidden shadow-sm">
                   {referencias.filter(r => r.nome).map((r, i) => (
-                    <div key={i} className="px-4 py-3 text-sm flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-foreground">{r.nome}</span>
-                        {r.parentesco && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">({r.parentesco})</span>}
+                    <div key={i} className="px-4 py-3 text-sm space-y-0.5">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-foreground">{r.nome}</span>
+                          {r.parentesco && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">({r.parentesco})</span>}
+                        </div>
+                        {r.telefone && <span className="font-semibold text-[#1A73E8]">{formatarTelefone(r.telefone)}</span>}
                       </div>
-                      {r.telefone && <span className="font-semibold text-[#1A73E8]">{formatarTelefone(r.telefone)}</span>}
+                      {(r.endereco || r.email) && (
+                        <p className="text-xs text-muted-foreground">
+                          {[r.endereco, r.email].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

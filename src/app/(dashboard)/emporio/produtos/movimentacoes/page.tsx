@@ -188,14 +188,19 @@ export default function MovimentacoesEstoquePage() {
     if (!qtd || qtd < 1) return toast.error('Quantidade deve ser ≥ 1')
 
     setSaving(true)
-    const novoEstoque = entradaProduto.estoque + qtd
-    const { error } = await supabase
-      .from('produtos')
-      .update({ estoque: novoEstoque })
-      .eq('id', entradaProduto.id)
+    const { data: { user } } = await supabase.auth.getUser()
+    const motivo = [entradaFornecedor && `Fornecedor: ${entradaFornecedor}`, entradaNF && `NF: ${entradaNF}`, entradaMotivo]
+      .filter(Boolean)
+      .join(' | ') || null
+    const { data: novoEstoque, error } = await supabase.rpc('registrar_entrada_estoque', {
+      p_produto_id: entradaProduto.id,
+      p_quantidade: qtd,
+      p_usuario_id: user?.id ?? null,
+      p_motivo: motivo,
+    })
 
     if (error) {
-      toast.error('Erro ao registrar entrada')
+      toast.error(error.message || 'Erro ao registrar entrada')
     } else {
       toast.success(
         `Entrada registrada! Estoque de ${entradaProduto.nome}: ${entradaProduto.estoque} → ${novoEstoque} ${entradaProduto.unidade ?? ''}`
@@ -214,13 +219,16 @@ export default function MovimentacoesEstoquePage() {
     if (!ajusteMotivo.trim()) return toast.error('Motivo é obrigatório')
 
     setSaving(true)
-    const { error } = await supabase
-      .from('produtos')
-      .update({ estoque: qtdReal })
-      .eq('id', ajusteProduto.id)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.rpc('registrar_ajuste_estoque', {
+      p_produto_id: ajusteProduto.id,
+      p_quantidade_real: qtdReal,
+      p_usuario_id: user?.id ?? null,
+      p_motivo: ajusteMotivo,
+    })
 
     if (error) {
-      toast.error('Erro ao ajustar estoque')
+      toast.error(error.message || 'Erro ao ajustar estoque')
     } else {
       toast.success(`Estoque ajustado: ${ajusteProduto.estoque} → ${qtdReal}`)
       setAjusteOpen(false)
@@ -238,14 +246,16 @@ export default function MovimentacoesEstoquePage() {
     if (!perdaMotivo.trim()) return toast.error('Motivo é obrigatório')
 
     setSaving(true)
-    const novoEstoque = Math.max(0, perdaProduto.estoque - qtd)
-    const { error } = await supabase
-      .from('produtos')
-      .update({ estoque: novoEstoque })
-      .eq('id', perdaProduto.id)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: novoEstoque, error } = await supabase.rpc('registrar_perda_estoque', {
+      p_produto_id: perdaProduto.id,
+      p_quantidade: qtd,
+      p_usuario_id: user?.id ?? null,
+      p_motivo: perdaMotivo,
+    })
 
     if (error) {
-      toast.error('Erro ao registrar perda')
+      toast.error(error.message || 'Erro ao registrar perda')
     } else {
       toast.success(`Perda registrada. Estoque: ${perdaProduto.estoque} → ${novoEstoque}`)
       setPerdaOpen(false)

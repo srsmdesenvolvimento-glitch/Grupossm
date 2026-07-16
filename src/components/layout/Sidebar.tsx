@@ -10,6 +10,7 @@ import {
   Wallet, Globe, TrendingUp, TrendingDown, Calculator, CalendarDays,
   CheckCircle, AlertTriangle, AlertCircle, Tag, Boxes, List, Plus,
   MessageCircle, Armchair, UserCog, CreditCard, ShieldCheck, Link as LinkIcon,
+  LineChart,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -28,6 +29,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   ShoppingCart: <ShoppingCart size={16} />,
   Banknote: <Banknote size={16} />,
   BarChart3: <BarChart3 size={16} />,
+  LineChart: <LineChart size={16} />,
   Settings: <Settings size={16} />,
   History: <History size={16} />,
   FileText: <FileText size={16} />,

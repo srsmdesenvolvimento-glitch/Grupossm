@@ -41,17 +41,33 @@ export async function POST(request: NextRequest) {
 
     const { nome, email, senha, empresas } = parsed.data
 
-    // Verifica se o solicitante tem papel admin em alguma empresa
-    const { data: adminCheck } = await supabase
-      .from('usuario_empresa')
-      .select('papel')
-      .eq('usuario_id', user.id)
-      .eq('papel', 'admin')
-      .eq('ativo', true)
-      .limit(1)
+    // Super admins da plataforma (painel /admin/usuarios) podem vincular a
+    // qualquer empresa. Qualquer outro solicitante só pode ser admin de
+    // ALGUMA empresa — checar isso sem conferir QUAIS empresas específicas
+    // deixava um admin da Empresa A criar um usuário admin na Empresa B só
+    // sabendo o UUID dela (o corpo da requisição não é validado pela UI).
+    const { data: perfil } = await supabase
+      .from('usuarios')
+      .select('super_admin')
+      .eq('id', user.id)
+      .maybeSingle()
 
-    if (!adminCheck?.length) {
-      return NextResponse.json({ erro: 'Acesso negado. Apenas administradores podem criar usuários.' }, { status: 403 })
+    if (!perfil?.super_admin) {
+      const empresaIds = empresas.map(e => e.empresa_id)
+      const { data: adminDasEmpresas } = await supabase
+        .from('usuario_empresa')
+        .select('empresa_id')
+        .eq('usuario_id', user.id)
+        .eq('papel', 'admin')
+        .eq('ativo', true)
+        .in('empresa_id', empresaIds)
+
+      const idsAutorizados = new Set((adminDasEmpresas ?? []).map(a => a.empresa_id))
+      const todasAutorizadas = empresaIds.every(id => idsAutorizados.has(id))
+
+      if (!todasAutorizadas) {
+        return NextResponse.json({ erro: 'Acesso negado. Você só pode convidar usuários para empresas onde é administrador.' }, { status: 403 })
+      }
     }
 
     const admin = createAdminClient()

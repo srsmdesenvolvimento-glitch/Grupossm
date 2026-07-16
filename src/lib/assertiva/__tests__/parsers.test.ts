@@ -5,6 +5,15 @@ import {
   parseLocalizePj,
   parseMixPf,
   parseMixPj,
+  parseScoreCredito,
+  parseAnalise360PF,
+  parseAnalise360PJ,
+  parseConexoes,
+  parsePessoasDeReferencia,
+  mesclarVinculos,
+  parseHistoricoVeiculos,
+  mesclarVeiculos,
+  enriquecerVinculos,
   mergeData,
   calcularTotais,
   generateSandboxReport,
@@ -121,6 +130,53 @@ describe('parseLocalizePf', () => {
     }
     const result = parseLocalizePf(raw)
     expect(result.data_nascimento).toBe('1985-03-12')
+  })
+
+  it('parseia possivelHistoricoProfissional completo (não só o primeiro item)', () => {
+    const raw = {
+      resposta: {
+        dadosCadastrais: { nome: 'TESTE' },
+        enderecos: [],
+        telefones: { moveis: [], fixos: [] },
+        emails: [],
+        participacoesEmpresas: [],
+        possivelHistoricoProfissional: [
+          {
+            rendaEstimada: '1317.87',
+            setor: 'Atividades de apoio à educação',
+            dataRegistro: '01/06/2023',
+            cboDescricao: 'Secretário - executivo',
+            cnpj: '49.268.772/0001-06',
+            razaoSocial: 'DYNAMIS EDUCACAO LTDA',
+            faixaSalarial: 'Até 1 Salário Mínimo',
+          },
+          {
+            rendaEstimada: '2500',
+            setor: 'Comércio varejista',
+            dataRegistro: '01/01/2020',
+            cboDescricao: 'Vendedor',
+            cnpj: '11.222.333/0001-44',
+            razaoSocial: 'LOJA EXEMPLO LTDA',
+            faixaSalarial: '1 a 3 Salários Mínimos',
+          },
+        ],
+      },
+    }
+    const result = parseLocalizePf(raw)
+    expect(result.historico_profissional).toHaveLength(2)
+    expect(result.historico_profissional![0]).toMatchObject({
+      empresa: 'DYNAMIS EDUCACAO LTDA',
+      cnpj: '49.268.772/0001-06',
+      cargo: 'Secretário - executivo',
+      setor: 'Atividades de apoio à educação',
+      data_registro: '2023-06-01',
+      renda_estimada: 1317.87,
+      faixa_salarial: 'Até 1 Salário Mínimo',
+    })
+    expect(result.historico_profissional![1].empresa).toBe('LOJA EXEMPLO LTDA')
+    // ocupação/renda estimada seguem vindo do item mais recente (índice 0), sem regressão
+    expect(result.ocupacao).toBe('Secretário - executivo')
+    expect(result.renda_estimada).toBe(1317.87)
   })
 
   it('aceita resposta sem wrapper `resposta`', () => {
@@ -347,6 +403,241 @@ describe('parseMixPj', () => {
   })
 })
 
+// ─── parseScoreCredito ────────────────────────────────────────────────────────
+// Este é o produto REALMENTE contratado para score/dívidas (confirmado por
+// contrato + teste ao vivo em 2026-07-14) — o Mix não está no plano (403).
+// GET /score/v3/pf/credito/{cpf}?acoes=true&positivo=true  |  /pj/credito/{cnpj}?acoes=true
+
+describe('parseScoreCredito', () => {
+  it('parseia score, cadastro positivo e negativações (registrosDebitos) — formato real PF', () => {
+    const raw = {
+      resposta: {
+        score: {
+          pontos: 0,
+          classe: 'F',
+          faixa: { titulo: 'Altíssimo risco', descricao: 'Baixa chance de honrar compromissos' },
+          cadastroPositivo: {
+            suspenso: false,
+            atrasoConsumo: { descricao: 'Atraso alto', valor: 78, risco: 'ALTO' },
+          },
+        },
+        registrosDebitos: {
+          list: [{ credor: 'BANCO X', valor: 100, dataInclusao: '15/06/2026', contrato: '123', tipoDebito: 'REGISTRADO', tipoDevedor: { titulo: 'COMPRADOR' }, cidade: 'SAO PAULO', uf: 'SP' }],
+          qtdDebitos: 1,
+          valorTotal: 100,
+        },
+        protestosPublicos: { list: [], qtdProtestos: 0, valorTotal: '' },
+        rendaPresumida: { valor: 1500 },
+        cheques: {},
+        ultimasConsultas: { list: [{ consultante: 'BANCO Y', dataOcorrencia: '01/07/2026' }], qtdUltConsultas: 1 },
+      },
+      // `acoes` vem como irmão de `resposta`, não dentro dela
+      acoes: { list: [{ tipo: { titulo: 'Execução' }, data: '10/01/2026', valor: 5000, uf: 'SP' }], qtdAcoes: 1, valorTotal: 5000 },
+    }
+
+    const result = parseScoreCredito(raw, 'pf')
+
+    expect(result.score).toBe(0)
+    expect(result.faixa_risco).toBe('F — Altíssimo risco')
+    expect(result.score_detalhado?.cadastro_positivo?.atrasoConsumo?.risco).toBe('ALTO')
+    expect(result.renda_presumida).toBe(1500)
+
+    expect(result.negativacoes).toHaveLength(1)
+    expect(result.negativacoes?.[0].credor).toBe('BANCO X')
+    expect(result.total_negativacoes).toBe(1)
+    expect(result.valor_total_negativacoes).toBe(100)
+
+    expect(result.acoes_judiciais).toHaveLength(1)
+    expect(result.acoes_judiciais?.[0].tipo).toBe('Execução')
+    expect(result.total_acoes_judiciais).toBe(1)
+    expect(result.valor_total_acoes).toBe(5000)
+
+    expect(result.total_consultas_anteriores).toBe(1)
+  })
+
+  it('parseia faturamento presumido e protestos — formato real PJ', () => {
+    const raw = {
+      resposta: {
+        score: { pontos: 0, classe: 'F', faixa: { titulo: 'Altíssimo risco' } },
+        protestosPublicos: { list: [{ uf: 'GO', cidade: 'GOIANIA', valor: 6881.85, cartorio: '02' }], qtdProtestos: 1, valorTotal: 6881.85 },
+        registrosDebitos: {},
+        faturamentoEstimado: { valor: 425687780 },
+        cheques: {},
+      },
+      acoes: {},
+    }
+    const result = parseScoreCredito(raw, 'pj')
+    expect(result.faturamento_presumido).toBe(425687780)
+    expect(result.protestos).toHaveLength(1)
+    expect(result.total_protestos).toBe(1)
+    expect(result.valor_total_protestos).toBe(6881.85)
+    expect(result.total_acoes_judiciais).toBe(0)
+  })
+
+  it('retorna objeto vazio para entrada nula', () => {
+    expect(parseScoreCredito(null, 'pf')).toEqual({})
+  })
+
+  it('não quebra quando registrosDebitos/cheques vêm como objeto vazio {}', () => {
+    const raw = { resposta: { score: {}, registrosDebitos: {}, protestosPublicos: {}, cheques: {} } }
+    const result = parseScoreCredito(raw, 'pf')
+    expect(result.negativacoes).toEqual([])
+    expect(result.total_negativacoes).toBe(0)
+  })
+})
+
+// ─── parseConexoes ────────────────────────────────────────────────────────────
+// Validado em 2026-07-14 contra a API real (CPF e CNPJ reais): `resposta` é uma
+// lista PLANA de conexões — não agrupada por categoria como o swagger sugere.
+
+describe('parseConexoes', () => {
+  it('lê o formato real: resposta como lista plana', () => {
+    const raw = {
+      resposta: [
+        { nomeOuRazaoSocial: 'MARIA DA SILVA', documento: '11122233344', tipoDocumento: 'PF', tipoRelacao: 'Parentes', relacao: 'Mãe', telefone: '(62) 99999-0001', whatsapp: true },
+        { nomeOuRazaoSocial: 'EMPRESA PARCEIRA LTDA', documento: '11222333000144', tipoDocumento: 'PJ', tipoRelacao: 'Sócios', relacao: 'Sócio(a)' },
+      ],
+    }
+    const vinculos = parseConexoes(raw)
+    expect(vinculos).toHaveLength(2)
+    expect(vinculos[0].nome).toBe('MARIA DA SILVA')
+    expect(vinculos[0].parentesco).toBe('Mãe')
+    expect(vinculos[0].telefone).toBe('(62) 99999-0001')
+    expect(vinculos[0].whatsapp).toBe(true)
+    expect(vinculos[1].documento_tipo).toBe('PJ')
+  })
+
+  it('aceita o formato agrupado por categoria como fallback', () => {
+    const raw = { resposta: { parentes: { conexoes: [{ nomeOuRazaoSocial: 'JOAO PAI', documento: '99988877766', tipoDocumento: 'PF', relacao: 'Pai' }] } } }
+    const vinculos = parseConexoes(raw)
+    expect(vinculos).toHaveLength(1)
+    expect(vinculos[0].parentesco).toBe('Pai')
+  })
+
+  it('deduplica pela mesma pessoa aparecendo em mais de uma categoria', () => {
+    const raw = {
+      resposta: [
+        { nomeOuRazaoSocial: 'FULANO SOCIO', documento: '12312312312', tipoDocumento: 'PF', relacao: 'Sócio(a)' },
+        { nomeOuRazaoSocial: 'FULANO SOCIO', documento: '12312312312', tipoDocumento: 'PF', relacao: 'Decisor' },
+      ],
+    }
+    const vinculos = parseConexoes(raw)
+    expect(vinculos).toHaveLength(1)
+  })
+
+  it('retorna array vazio para entrada nula', () => {
+    expect(parseConexoes(null)).toEqual([])
+  })
+})
+
+// ─── parsePessoasDeReferencia / mesclarVinculos ──────────────────────────────
+// Fonte extra (só PF) validada ao vivo em 2026-07-14 — achou um empregador que
+// /conexoes não tinha achado pro mesmo CPF.
+
+describe('parsePessoasDeReferencia', () => {
+  it('parseia pessoas de referência incluindo empregador PJ', () => {
+    const raw = {
+      resposta: {
+        pessoasDeReferencia: [
+          { relacao: 'Mãe', nomeOuRazaoSocial: 'MARIA DA SILVA', documento: '11122233344', dataNascimentoOuAbertura: '31/12/1982' },
+          { relacao: 'Empregador', nomeOuRazaoSocial: 'EMPRESA X LTDA', documento: '49268772000106', dataNascimentoOuAbertura: '20/01/2023' },
+        ],
+      },
+    }
+    const vinculos = parsePessoasDeReferencia(raw)
+    expect(vinculos).toHaveLength(2)
+    expect(vinculos[0].parentesco).toBe('Mãe')
+    expect(vinculos[0].documento_tipo).toBe('PF')
+    expect(vinculos[1].parentesco).toBe('Empregador')
+    expect(vinculos[1].documento_tipo).toBe('PJ')
+    expect(vinculos[1].nome).toBe('EMPRESA X LTDA')
+  })
+
+  it('retorna array vazio para entrada nula', () => {
+    expect(parsePessoasDeReferencia(null)).toEqual([])
+  })
+})
+
+describe('mesclarVinculos', () => {
+  it('soma pessoas da fonte extra sem duplicar quem já veio da fonte principal', () => {
+    const principal = [{ nome: 'MARIA DA SILVA', documento: '11122233344', parentesco: 'Mãe', telefone: '(62) 99999-0000' }]
+    const extra = [
+      { nome: 'MARIA DA SILVA', documento: '11122233344', parentesco: 'Mãe' }, // duplicado, sem telefone
+      { nome: 'EMPRESA X LTDA', documento: '49268772000106', parentesco: 'Empregador' }, // novo
+    ]
+    const result = mesclarVinculos(principal, extra)
+    expect(result).toHaveLength(2)
+    expect(result[0].telefone).toBe('(62) 99999-0000') // mantém a versão mais rica (principal)
+    expect(result[1].nome).toBe('EMPRESA X LTDA')
+  })
+})
+
+// ─── enriquecerVinculos ───────────────────────────────────────────────────────
+
+describe('enriquecerVinculos', () => {
+  it('mescla endereço, email e telefone de um perfil consultado à parte', () => {
+    const vinculos = [{ nome: 'MARIA DA SILVA', documento: '11122233344', parentesco: 'Mãe' }]
+    const perfis = new Map([
+      ['11122233344', {
+        nome: 'MARIA DA SILVA',
+        enderecos: [{ logradouro: 'Rua X', municipio: 'Goiânia', uf: 'GO' }],
+        emails: [{ email: 'maria@example.com' }],
+        telefones: [{ ddd: '62', numero: '999990001' }],
+      }],
+    ])
+    const result = enriquecerVinculos(vinculos, perfis)
+    expect(result[0].endereco?.logradouro).toBe('Rua X')
+    expect(result[0].email).toBe('maria@example.com')
+    expect(result[0]._enriquecido).toBe(true)
+  })
+
+  it('não mexe em vínculos sem documento próprio', () => {
+    const vinculos = [{ nome: 'SEM DOC' }]
+    const result = enriquecerVinculos(vinculos, new Map())
+    expect(result[0]._enriquecido).toBeUndefined()
+  })
+})
+
+// ─── parseHistoricoVeiculos / mesclarVeiculos ────────────────────────────────
+// Validado em 2026-07-14 contra a API real (produto Veículos, não Localize).
+
+describe('parseHistoricoVeiculos', () => {
+  it('parseia o formato real de resposta.historicoVeiculos', () => {
+    const raw = {
+      resposta: {
+        historicoVeiculos: [
+          { placa: 'ABC1234', cidade: 'GOIANIA', uf: 'GO', renavam: '00475847520', anoFabricacao: '2012', anoModelo: '2013', procedencia: 'NACIONAL', especie: 'PASSAGEIRO', combustivel: 'ALCOOL/GASOLINA', cor: 'BRANCA', marcaModelo: 'VW/GOL 1.0' },
+        ],
+      },
+    }
+    const veiculos = parseHistoricoVeiculos(raw)
+    expect(veiculos).toHaveLength(1)
+    expect(veiculos[0].marca).toBe('VW')
+    expect(veiculos[0].modelo).toBe('GOL 1.0')
+    expect(veiculos[0].ano_fabricacao).toBe(2012)
+    expect(typeof veiculos[0].ano_fabricacao).toBe('number')
+  })
+
+  it('retorna array vazio para entrada nula', () => {
+    expect(parseHistoricoVeiculos(null)).toEqual([])
+  })
+})
+
+describe('mesclarVeiculos', () => {
+  it('histórico dedicado tem prioridade sobre o incidental do Localize na mesma placa', () => {
+    const localize = [{ placa: 'ABC1234', marca: 'DESCONHECIDA' }]
+    const historico = [{ placa: 'ABC1234', marca: 'VW', modelo: 'GOL' }]
+    const result = mesclarVeiculos(localize, historico)
+    expect(result).toHaveLength(1)
+    expect(result[0].marca).toBe('VW')
+  })
+
+  it('mantém veículos de ambas as fontes quando placas são diferentes', () => {
+    const result = mesclarVeiculos([{ placa: 'AAA1111' }], [{ placa: 'BBB2222' }])
+    expect(result).toHaveLength(2)
+  })
+})
+
 // ─── mergeData ───────────────────────────────────────────────────────────────
 
 describe('mergeData', () => {
@@ -538,5 +829,168 @@ describe('injectSandboxFallback', () => {
     const result = injectSandboxFallback('pj', parsed, true, false)
     expect(result.vinculos.length).toBeGreaterThan(0)
     expect(result.vinculos[0].tipo).toBe('Coligada')
+  })
+})
+
+// ─── parseAnalise360PJ / parseAnalise360PF ────────────────────────────────────
+// Payload do callback assíncrono de /credito/v1/pj e /credito/v1/pf. Estrutura
+// baseada no schema oficial (ResultPJ/ResultPF) — não testado ao vivo (exige
+// webhook público, indisponível em dev local), mas segue exatamente os módulos
+// documentados no swagger da Assertiva.
+
+describe('parseAnalise360PJ', () => {
+  it('parseia imóveis, score e quadro societário — único produto com imóveis', () => {
+    const raw = {
+      resposta: {
+        modulos: {
+          imoveis: {
+            quantidadeTotal: 1,
+            registros: [{ inscricao: '123', endereco: 'Rua X, 100', valorTerreno: 500000, valorImposto: 1200, usoTerreno: 'Comercial', anoConstrucao: 2010, area: 300, situacao: 'Regular' }],
+          },
+          score: { score: 650, idRange: 25 },
+          limiteCredito: { valor: 50000 },
+          quadroSocietario: { quantidadeTotal: 2 },
+        },
+      },
+    }
+    const result = parseAnalise360PJ(raw)
+    expect(result.tipo).toBe('pj')
+    expect(result.imoveis).toHaveLength(1)
+    expect(result.imoveis?.[0].endereco).toBe('Rua X, 100')
+    expect(result.quantidade_imoveis).toBe(1)
+    expect(result.score).toBe(650)
+    expect(result.faixa_risco).toBe('C — Médio risco')
+    expect(result.limite_credito_sugerido).toBe(50000)
+    expect(result.quadro_societario_qtd).toBe(2)
+  })
+
+  it('retorna imóveis vazio quando módulo não vem na resposta', () => {
+    const result = parseAnalise360PJ({ resposta: { modulos: {} } })
+    expect(result.imoveis).toEqual([])
+    expect(result.quantidade_imoveis).toBe(0)
+  })
+
+  it('parseia antifraude, reputação online, movimentações cadastrais e concorrência de segmento', () => {
+    const raw = {
+      resposta: {
+        modulos: {
+          antifraude: { score: 850 },
+          reputacoes: {
+            dados: [{
+              tipo: 'google-meu-negocio', nome: 'SRS M Factoring', nota: { valor: 4.5, maximo: 5 },
+              reputacao: 'Boa', telefone: '(62) 3245-6677', endereco: 'Rua X, 100', segmento: 'Serviços Financeiros',
+              site: 'https://srsm.com.br', linkFonte: 'https://google.com/maps/...',
+            }],
+          },
+          movimentacoes: {
+            total: 1, status: 'Ativa',
+            detalhamentos: [{
+              data: '10/01/2026', titulo: 'Alteração de endereço',
+              mudancas: [{ titulo: 'Endereço', descricao: 'Rua Antiga, 1 --> Rua Nova, 200' }],
+            }],
+          },
+          concorrencias: {
+            analiseHomonimia: 'Nenhuma homonímia relevante encontrada',
+            segmentoAtuacao: 'Factoring e fomento mercantil',
+            perfilSegmento: 'Empresas de pequeno porte',
+            tendenciaSegmento: [{ data: 'Jan/26', valor: 12.5, descricao: 'Crescimento do segmento' }],
+          },
+        },
+      },
+    }
+    const result = parseAnalise360PJ(raw)
+    expect(result.antifraude_score).toBe(850)
+
+    expect(result.reputacoes).toHaveLength(1)
+    expect(result.reputacoes?.[0].nome).toBe('SRS M Factoring')
+    expect(result.reputacoes?.[0].nota).toBe(4.5)
+    expect(result.reputacoes?.[0].nota_maxima).toBe(5)
+    expect(result.reputacoes?.[0].plataforma).toBe('google-meu-negocio')
+
+    expect(result.movimentacoes).toHaveLength(1)
+    expect(result.movimentacoes?.[0].titulo).toBe('Alteração de endereço')
+    expect(result.movimentacoes?.[0].mudancas?.[0].descricao).toBe('Rua Antiga, 1 --> Rua Nova, 200')
+
+    expect(result.concorrencia?.segmento_atuacao).toBe('Factoring e fomento mercantil')
+    expect(result.concorrencia?.tendencia_segmento).toHaveLength(1)
+    expect(result.concorrencia?.tendencia_segmento?.[0].valor).toBe(12.5)
+  })
+
+  it('deixa reputações, movimentações e concorrência undefined quando os módulos não vêm na resposta', () => {
+    const result = parseAnalise360PJ({ resposta: { modulos: {} } })
+    expect(result.reputacoes).toBeUndefined()
+    expect(result.movimentacoes).toBeUndefined()
+    expect(result.concorrencia).toBeUndefined()
+    expect(result.antifraude_score).toBeUndefined()
+  })
+})
+
+describe('parseAnalise360PF', () => {
+  it('parseia perfil socioeconômico, dívida ativa da União, IRPF, benefícios e composição domiciliar', () => {
+    const raw = {
+      resposta: {
+        modulos: {
+          perfilSocioeconomico: {
+            classeSocial: 'B', profissao: 'Engenheiro', profissaoFuncionarioPublico: true,
+            profissaoFuncionarioPublicoInfo: { cargo: 'Analista', situacao: 'Ativo' },
+            enderecoCidadeTipoImovel: 'Apartamento', enderecoCidadeTipoImportancia: 'Capital',
+            profissaoQtdeEmpresasTrabalhadas: 3, empresarioQtdeEmpresasAbertas: 1,
+            empresarioTipo: 'MEI', empresarioCNAEDescAtuacao: 'Comércio varejista',
+            enderecoMelhoriaMoradia: 'Melhoria identificada nos últimos 12 meses',
+            enderecoClasseSocialCep: 'B2',
+          },
+          antifraude: { score: 720 },
+          dividasAtivasUniao: {
+            quantidadeTotal: 1, valorTotal: 3200,
+            registros: [{ tipo: 'IPTU', numeroInscricao: 999, situacao: 'Em cobrança', uf: 'SP', entidadeResponsavel: 'PGFN', data: '10/01/2025', valor: 3200 }],
+          },
+          restituicaoIRPF: { ano: 2025, idStatus: 1 },
+          beneficios: { quantidadeTotal: 1, valorTotal: 600, registros: [{ nome: 'Bolsa Família', data: '05/06/2026', valor: 600 }] },
+          composicaoDomiciliar: { idPurchasingPower: 3, idHouseholdingSize: 5, rendaPresumida: 4000, isFamilyLeader: true },
+          limiteCredito: { valor: 8000 },
+          score: { score: 720, idRange: 2 },
+        },
+      },
+    }
+
+    const result = parseAnalise360PF(raw)
+    expect(result.tipo).toBe('pf')
+
+    expect(result.perfil_socioeconomico?.classe_social).toBe('B')
+    expect(result.perfil_socioeconomico?.funcionario_publico).toBe(true)
+    expect(result.perfil_socioeconomico?.cargo_publico).toBe('Analista')
+    expect(result.perfil_socioeconomico?.qtd_empresas_trabalhadas).toBe(3)
+    expect(result.perfil_socioeconomico?.empresario_qtd_empresas_abertas).toBe(1)
+    expect(result.perfil_socioeconomico?.empresario_tipo).toBe('MEI')
+    expect(result.perfil_socioeconomico?.empresario_cnae_atuacao).toBe('Comércio varejista')
+    expect(result.perfil_socioeconomico?.melhoria_moradia).toBe('Melhoria identificada nos últimos 12 meses')
+    expect(result.perfil_socioeconomico?.classe_social_cep).toBe('B2')
+    expect(result.antifraude_score).toBe(720)
+
+    expect(result.dividas_uniao).toHaveLength(1)
+    expect(result.dividas_uniao?.[0].tipo).toBe('IPTU')
+    expect(result.valor_total_dividas_uniao).toBe(3200)
+
+    expect(result.restituicao_irpf_ano).toBe(2025)
+    expect(result.restituicao_irpf_status).toBe('Imposto a receber por depósito em conta corrente')
+
+    expect(result.beneficios).toHaveLength(1)
+    expect(result.beneficios?.[0].nome).toBe('Bolsa Família')
+    expect(result.valor_total_beneficios).toBe(600)
+
+    expect(result.composicao_domiciliar?.poder_compra).toBe('Médio')
+    expect(result.composicao_domiciliar?.lider_familia).toBe(true)
+
+    expect(result.limite_credito_sugerido).toBe(8000)
+    expect(result.score).toBe(720)
+    expect(result.faixa_risco).toBe('B — Médio-baixo risco')
+  })
+
+  it('não quebra quando nenhum módulo vem na resposta', () => {
+    const result = parseAnalise360PF({ resposta: { modulos: {} } })
+    expect(result.tipo).toBe('pf')
+    expect(result.dividas_uniao).toEqual([])
+    expect(result.beneficios).toEqual([])
+    expect(result.perfil_socioeconomico).toBeUndefined()
   })
 })

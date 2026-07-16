@@ -137,49 +137,54 @@ function drawMarketUpHeader(
     cep?: string | null
   },
   dates: { criacao: string; emissao: string; vencimento: string },
-  startY: number
+  startY: number,
+  mostrarEndereco: boolean = true
 ): number {
   doc.setFont('helvetica', 'normal')
-  
+
   // Page Border Box
   doc.setDrawColor(0, 0, 0)
   doc.setLineWidth(0.25)
   doc.rect(10, startY, 190, 277)
-  
+
   // Header Box
   doc.rect(10, startY, 190, 28)
   // Vertical line separating brand and company details
   doc.line(95, startY, 95, startY + 28)
-  
+
   // Left side Brand
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
   doc.setTextColor(0, 0, 0)
   doc.text(company.nomeFantasia.toUpperCase(), 12, startY + 8)
-  
+
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
   doc.setTextColor(100, 100, 100)
   doc.text('EMISSOR SRS M · SISTEMA DE GESTÃO FINANCEIRA', 12, startY + 12)
-  
+
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
   doc.setTextColor(0, 0, 0)
   doc.text(title, 12, startY + 22)
-  
+
   // Right side Company Info
   doc.setFontSize(7.5)
   doc.setFont('helvetica', 'bold')
   doc.text(company.razaoSocial, 97, startY + 5)
-  
+
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
   doc.setTextColor(50, 50, 50)
   doc.text(`CNPJ: ${formatCnpj(company.cnpj)}`, 97, startY + 9)
-  doc.text(`${company.endereco}`, 97, startY + 13)
-  doc.text(`${formatCep(company.cep)} - ${company.cidade} - ${company.estado}`, 97, startY + 17)
-  doc.text(`Telefone: ${formatPhone(company.telefone)}`, 97, startY + 21)
-  
+  if (mostrarEndereco) {
+    doc.text(`${company.endereco}`, 97, startY + 13)
+    doc.text(`${formatCep(company.cep)} - ${company.cidade} - ${company.estado}`, 97, startY + 17)
+    doc.text(`Telefone: ${formatPhone(company.telefone)}`, 97, startY + 21)
+  } else {
+    doc.text(`Telefone: ${formatPhone(company.telefone)}`, 97, startY + 13)
+  }
+
   let y = startY + 28
   
   // Document Details Box
@@ -561,7 +566,8 @@ export async function gerarContratoPDF(params: ContratoParams, options?: { outpu
       emissao: new Date().toISOString().split('T')[0],
       vencimento: params.parcelas[0]?.data_vencimento || new Date().toISOString().split('T')[0]
     },
-    M
+    M,
+    false
   )
 
   const itens = [
@@ -582,7 +588,7 @@ export async function gerarContratoPDF(params: ContratoParams, options?: { outpu
   ]
 
   y = drawMarketUpItens(doc, itens, y)
-  
+
   const totais = {
     itens: params.contrato.valor_principal,
     desconto: 0,
@@ -997,7 +1003,8 @@ export async function gerarContratoComAssinaturaPDF(
       emissao: new Date().toISOString().split('T')[0],
       vencimento: params.parcelas[0]?.data_vencimento || new Date().toISOString().split('T')[0]
     },
-    M
+    M,
+    false
   )
 
   const itens = [

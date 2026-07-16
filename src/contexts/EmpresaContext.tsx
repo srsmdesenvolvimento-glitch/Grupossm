@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { EmpresaInfo } from '@/lib/types/shared'
 import type { PapelUsuario } from '@/lib/types/database'
@@ -22,6 +22,15 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<PapelUsuario | null>(null)
   const [loading, setLoading] = useState(true)
   const [rolesMap, setRolesMap] = useState<Record<string, PapelUsuario>>({})
+
+  // Guarda o id do usuário já carregado — o Supabase reemite SIGNED_IN toda
+  // vez que a aba volta a ficar visível (ele revalida o token em segundo
+  // plano), mesmo sem ter havido logout/login de verdade. Sem essa checagem,
+  // cada troca de aba disparava `loading = true` de novo, e o layout do
+  // dashboard troca a tela inteira por um spinner enquanto isso — ou seja,
+  // toda tela (cadastro, formulário de empréstimo etc.) era desmontada e
+  // remontada do zero só por causa de o usuário ter saído e voltado pra aba.
+  const usuarioCarregadoRef = useRef<string | null>(null)
 
   const carregarEmpresas = useCallback(async (userId: string) => {
     const supabase = createClient()
@@ -63,6 +72,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('srsm:empresa_id', lista[0].id)
     }
 
+    usuarioCarregadoRef.current = userId
     setLoading(false)
   }, [])
 
@@ -81,10 +91,15 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
     // React to sign-in / sign-out
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
+        // Já carregamos esse mesmo usuário — isso é só o Supabase revalidando
+        // o token ao focar a aba de novo, não um login de verdade. Ignorar
+        // evita recarregar tudo e remontar a tela atual sem necessidade.
+        if (usuarioCarregadoRef.current === session.user.id) return
         setLoading(true)
         carregarEmpresas(session.user.id)
       }
       if (event === 'SIGNED_OUT') {
+        usuarioCarregadoRef.current = null
         setEmpresas([])
         setEmpresaAtual(null)
         setRole(null)

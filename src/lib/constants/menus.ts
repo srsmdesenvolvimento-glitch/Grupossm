@@ -116,6 +116,11 @@ export const MENU_FACTORING: MenuItem[] = [
     icon: 'ShieldCheck',
   },
   {
+    label: 'Analytics da Carteira',
+    href: '/factoring/analytics',
+    icon: 'LineChart',
+  },
+  {
     label: 'Mensagens',
     href: '/mensagens',
     icon: 'MessageCircle',

@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Calculator, ArrowRight, TrendingUp, DollarSign, Percent, Search, X, UserPlus,
 } from 'lucide-react'
@@ -30,6 +30,7 @@ const defaultVenc = (() => {
 
 export default function SimuladorPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { empresaAtual } = useEmpresa()
   const supabase = createClient()
 
@@ -83,6 +84,24 @@ export default function SimuladorPage() {
     supabase.from('config_factoring').select('taxa_juros_padrao').eq('empresa_id', empresaAtual.id).single()
       .then(({ data }) => { if (data?.taxa_juros_padrao) setTaxa(Number(data.taxa_juros_padrao)) })
   }, [empresaAtual, supabase])
+
+  // Pré-seleciona cliente quando vindo de clientes/novo via ?cliente_id= — evita
+  // o usuário ter que buscar de novo o cliente que acabou de cadastrar.
+  useEffect(() => {
+    const clienteId = searchParams.get('cliente_id')
+    if (!clienteId || !empresaAtual || cliente) return
+    supabase
+      .from('clientes_factoring')
+      .select('id, nome, cpf, telefone, score_interno')
+      .eq('id', clienteId)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setCliente(data as ClienteSumario)
+          setBusca(data.nome)
+        }
+      })
+  }, [searchParams, empresaAtual]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const resultado = useMemo(() => {
     if (!valor || !parcelas || !taxa) return null
@@ -199,21 +218,25 @@ export default function SimuladorPage() {
                 </div>
 
                 <div ref={wrapperRef} className="relative border-t border-border/40 pt-4">
-                  <Search className="absolute left-4.5 top-[calc(50%+8px)] -translate-y-1/2 text-muted-foreground/60" size={17} />
-                  <input
-                    value={busca}
-                    onChange={e => { setBusca(e.target.value); if (!e.target.value) setCliente(null) }}
-                    placeholder="Buscar por nome, CPF ou telefone..."
-                    className="w-full pl-11 pr-10 py-3 border border-border/60 rounded-full text-sm bg-card focus:outline-none focus:border-[var(--gt-blue)] focus:ring-1 focus:ring-[var(--gt-blue)]/20 transition-all duration-200"
-                  />
-                  {buscando && (
-                    <div className="absolute right-4.5 top-[calc(50%+8px)] -translate-y-1/2 w-4.5 h-4.5 border-2 border-t-transparent rounded-full animate-spin border-[var(--gt-blue)]" />
-                  )}
-                  {cliente && !buscando && (
-                    <button type="button" className="absolute right-4.5 top-[calc(50%+8px)] -translate-y-1/2 text-muted-foreground/60 hover:text-foreground p-0.5 rounded-full hover:bg-muted" onClick={() => { setCliente(null); setBusca('') }}>
-                      <X size={15} />
-                    </button>
-                  )}
+                  {/* Input isolado num wrapper próprio — dropdown/hint abaixo não
+                      pode influenciar a altura desse bloco nem o cálculo do top-1/2 */}
+                  <div className="relative">
+                    <Search className="absolute left-4.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" size={17} />
+                    <input
+                      value={busca}
+                      onChange={e => { setBusca(e.target.value); if (!e.target.value) setCliente(null) }}
+                      placeholder="Buscar por nome, CPF ou telefone..."
+                      className="w-full pl-11 pr-10 py-3 border border-border/60 rounded-full text-sm bg-card focus:outline-none focus:border-[var(--gt-blue)] focus:ring-1 focus:ring-[var(--gt-blue)]/20 transition-all duration-200"
+                    />
+                    {buscando && (
+                      <div className="absolute right-4.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 border-2 border-t-transparent rounded-full animate-spin border-[var(--gt-blue)]" />
+                    )}
+                    {cliente && !buscando && (
+                      <button type="button" className="absolute right-4.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground p-0.5 rounded-full hover:bg-muted" onClick={() => { setCliente(null); setBusca('') }}>
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
                   {showDropdown && resultados.length > 0 && (
                     <div className="absolute z-50 top-full mt-2.5 w-full bg-card border border-border/50 rounded-2xl shadow-m3-3 overflow-hidden">
                       {resultados.map(c => (
@@ -240,7 +263,11 @@ export default function SimuladorPage() {
                       <span className="text-xs font-semibold">Nenhum cliente ativo encontrado</span>
                       <button
                         type="button"
-                        onClick={() => router.push('/factoring/clientes/novo?redirect=/factoring/emprestimos/simulador')}
+                        onClick={() => {
+                          const docLimpo = busca.replace(/\D/g, '')
+                          const doc = docLimpo.length === 11 || docLimpo.length === 14 ? `&documento=${docLimpo}` : ''
+                          router.push(`/factoring/clientes/novo?redirect=/factoring/emprestimos/simulador${doc}`)
+                        }}
                         className="flex items-center gap-1 text-xs font-bold text-[var(--gt-blue)] hover:underline"
                       >
                         <UserPlus size={13} /> Cadastrar Novo

@@ -11,10 +11,21 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { toast } from 'sonner'
 import { formatarData, formatarMoeda } from '@/lib/utils/formatters'
+import { calcularStatusPagamento, calcularValorPagoAcumulado, calcularSaldoRestante } from '@/lib/utils/pagamentos'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import {
   ChevronLeft,
   Printer,
@@ -68,7 +79,7 @@ interface ParcelaReceber {
   data_vencimento: string
   data_pagamento: string | null
   tipo_pagamento: string | null
-  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado'
+  status: 'pendente' | 'pago' | 'atrasado' | 'cancelado' | 'parcial'
   observacoes: string | null
 }
 
@@ -87,6 +98,7 @@ const STATUS_PARCELA_ICONS = {
   pendente: Clock,
   atrasado: AlertTriangle,
   cancelado: X,
+  parcial: Clock,
 }
 
 export default function VendaDetalhePage() {
@@ -102,7 +114,8 @@ export default function VendaDetalhePage() {
   const [loading, setLoading] = useState(true)
   const [cancelarDialog, setCancelarDialog] = useState(false)
   const [cancelando, setCancelando] = useState(false)
-  const [receberParcelaId, setReceberParcelaId] = useState<string | null>(null)
+  const [receberParcela, setReceberParcela] = useState<ParcelaReceber | null>(null)
+  const [valorRecebido, setValorRecebido] = useState(0)
   const [marcandoPago, setMarcandoPago] = useState(false)
 
   const carregarDados = useCallback(async () => {
@@ -169,22 +182,30 @@ export default function VendaDetalhePage() {
     }
   }
 
-  const marcarParcelaPaga = async (parcelaId: string) => {
+  const marcarParcelaPaga = async () => {
+    if (!receberParcela) return
+    if (!valorRecebido || valorRecebido <= 0) {
+      toast.error('Informe um valor válido')
+      return
+    }
     setMarcandoPago(true)
     try {
+      const valorPagoAcumulado = calcularValorPagoAcumulado(receberParcela.valor_pago, valorRecebido)
+      const novoStatus = calcularStatusPagamento(receberParcela.valor, valorPagoAcumulado)
+
       const { error } = await supabase
         .from('parcelas_receber')
         .update({
-          status: 'pago',
+          status: novoStatus,
           data_pagamento: new Date().toISOString().split('T')[0],
-          valor_pago: parcelas.find((p) => p.id === parcelaId)?.valor ?? 0,
+          valor_pago: valorPagoAcumulado,
         })
-        .eq('id', parcelaId)
+        .eq('id', receberParcela.id)
 
       if (error) throw error
 
-      toast.success('Parcela marcada como paga')
-      setReceberParcelaId(null)
+      toast.success(novoStatus === 'pago' ? 'Parcela marcada como paga' : 'Pagamento parcial registrado')
+      setReceberParcela(null)
       carregarDados()
     } catch (e) {
       toast.error('Erro ao registrar pagamento')
@@ -216,8 +237,8 @@ export default function VendaDetalhePage() {
 
   const totalParcelasValor = parcelas.reduce((s, p) => s + Number(p.valor), 0)
   const totalRecebido = parcelas
-    .filter((p) => p.status === 'pago')
-    .reduce((s, p) => s + Number(p.valor_pago ?? p.valor), 0)
+    .filter((p) => p.status === 'pago' || p.status === 'parcial')
+    .reduce((s, p) => s + Number(p.valor_pago ?? 0), 0)
 
   return (
     <AppShell empresa="emporio" titulo={`Venda #${venda.numero_venda}`}>
@@ -462,7 +483,7 @@ export default function VendaDetalhePage() {
                     const Icon = STATUS_PARCELA_ICONS[parcela.status] ?? Clock
                     const isAtrasada =
                       parcela.status === 'atrasado' ||
-                      (parcela.status === 'pendente' &&
+                      ((parcela.status === 'pendente' || parcela.status === 'parcial') &&
                         parcela.data_vencimento < new Date().toISOString().split('T')[0])
 
                     return (
@@ -480,6 +501,11 @@ export default function VendaDetalhePage() {
                         </td>
                         <td className="px-3 py-3 text-right">
                           <MoneyDisplay valor={Number(parcela.valor)} tamanho="sm" />
+                          {parcela.status === 'parcial' && (
+                            <p className="text-xs text-amber-600 mt-0.5">
+                              falta {formatarMoeda(calcularSaldoRestante(parcela.valor, parcela.valor_pago))}
+                            </p>
+                          )}
                         </td>
                         <td className="px-3 py-3 text-center">
                           <span className={cn(
@@ -498,12 +524,15 @@ export default function VendaDetalhePage() {
                           <StatusBadge status={parcela.status} />
                         </td>
                         <td className="px-5 py-3 text-right">
-                          {(parcela.status === 'pendente' || parcela.status === 'atrasado') && (
+                          {(parcela.status === 'pendente' || parcela.status === 'atrasado' || parcela.status === 'parcial') && (
                             <Button
                               size="sm"
                               variant="outline"
                               className="h-7 text-xs border-[#D4A528] text-[#D4A528] hover:bg-[#FEF9E7]"
-                              onClick={() => setReceberParcelaId(parcela.id)}
+                              onClick={() => {
+                                setReceberParcela(parcela)
+                                setValorRecebido(calcularSaldoRestante(parcela.valor, parcela.valor_pago))
+                              }}
                             >
                               Receber
                             </Button>
@@ -532,15 +561,56 @@ export default function VendaDetalhePage() {
       />
 
       {/* Receive Parcela Dialog */}
-      <ConfirmDialog
-        open={!!receberParcelaId}
-        onOpenChange={(open) => !marcandoPago && !open && setReceberParcelaId(null)}
-        titulo="Confirmar Recebimento"
-        descricao="Confirma o recebimento desta parcela? A parcela será marcada como paga com a data de hoje."
-        labelConfirmar="Confirmar Recebimento"
-        onConfirmar={() => { if (receberParcelaId) marcarParcelaPaga(receberParcelaId) }}
-        carregando={marcandoPago}
-      />
+      <Dialog open={!!receberParcela} onOpenChange={(open) => !marcandoPago && !open && setReceberParcela(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Recebimento</DialogTitle>
+            <DialogDescription>
+              {receberParcela && (
+                <>
+                  Parcela {receberParcela.numero_parcela}/{receberParcela.total_parcelas} —{' '}
+                  <strong>{formatarMoeda(receberParcela.valor)}</strong>
+                  {receberParcela.status === 'parcial' && (
+                    <> · já recebido {formatarMoeda(receberParcela.valor_pago ?? 0)}, falta{' '}
+                    {formatarMoeda(calcularSaldoRestante(receberParcela.valor, receberParcela.valor_pago))}</>
+                  )}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-1.5 py-2">
+            <Label htmlFor="v-valor-recebido">Valor Recebido (R$)</Label>
+            <Input
+              id="v-valor-recebido"
+              type="number"
+              step="0.01"
+              min="0"
+              value={valorRecebido}
+              onChange={(e) => setValorRecebido(Number(e.target.value))}
+            />
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={marcandoPago}
+              onClick={() => setReceberParcela(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={marcarParcelaPaga}
+              disabled={marcandoPago}
+              className="text-white"
+              style={{ backgroundColor: '#D4A528' }}
+            >
+              Confirmar Recebimento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   )
 }

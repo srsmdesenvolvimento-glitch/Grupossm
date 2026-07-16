@@ -106,11 +106,19 @@ function Clock({ time }: { time: string }) {
   )
 }
 
+// Só aceita caminhos internos relativos ("/algo") — "//evil.com" ou
+// "https://evil.com" são tratados pelo navegador como URLs de outro site
+// (redirecionamento aberto/phishing), então caem no fallback.
+function redirectSeguro(valor: string | null): string {
+  if (valor && valor.startsWith('/') && !valor.startsWith('//')) return valor
+  return '/selecionar-empresa'
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 function LoginForm() {
   const router       = useRouter()
   const searchParams = useSearchParams()
-  const redirectTo   = searchParams.get('redirect') ?? '/selecionar-empresa'
+  const redirectTo   = redirectSeguro(searchParams.get('redirect'))
   const [verSenha, setVerSenha] = useState(false)
   const [focused,  setFocused]  = useState<'email' | 'senha' | null>(null)
   const greeting = useGreeting()

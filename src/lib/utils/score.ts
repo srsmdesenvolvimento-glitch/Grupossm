@@ -104,3 +104,25 @@ export async function recalcularScoreCliente(
     return 50
   }
 }
+
+/**
+ * Recalcula o score_interno de todos os clientes de uma empresa — usado
+ * depois que o admin muda peso/faixa no motor de score, pra que a mudança
+ * se reflita imediatamente em todo mundo (sem isso, cada cliente só
+ * recalcularia no próximo pagamento ou empréstimo dele).
+ */
+export async function recalcularScoreClienteEmLote(
+  empresaId: string,
+  supabase: SupabaseClient,
+): Promise<number> {
+  const { data: clientes } = await supabase
+    .from('clientes_factoring')
+    .select('id')
+    .eq('empresa_id', empresaId)
+
+  const ids = clientes ?? []
+  for (const { id } of ids) {
+    await recalcularScoreCliente(id, empresaId, supabase)
+  }
+  return ids.length
+}

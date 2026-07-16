@@ -9,14 +9,14 @@ import {
   AlertTriangle, Clock, MessageSquare, Trash2, Check, X,
   User, Users, MapPin, Banknote, Download, ChevronDown, FileText,
   History, TrendingUp, CheckCircle, ArrowUpRight, Camera, Home,
-  Paperclip, Eye, Upload, Search, Loader2,
+  Paperclip, Eye, Upload, Search, Loader2, Bell, BellRing, ImagePlus,
 } from 'lucide-react'
 
 import { gerarContratoPDF } from '@/lib/utils/documentos'
 import { buscarEnderecoPorCep } from '@/lib/utils/cep'
 import {
-  CATEGORIAS_DOCUMENTO, uploadDocumentoCliente, deletarDocumentoCliente,
-  formatarTamanho, ehImagem, type DocumentoMeta,
+  CATEGORIAS_DOCUMENTO, CATEGORIA_ANEXO_CONVERSA, uploadDocumentoCliente, deletarDocumentoCliente,
+  obterUrlAssinada, formatarTamanho, ehImagem, type DocumentoMeta,
 } from '@/lib/utils/storage'
 
 import { createClient } from '@/lib/supabase/client'
@@ -40,11 +40,12 @@ import {
   formatarMoeda, formatarData, formatarCPF, formatarTelefone, iniciais,
 } from '@/lib/utils/formatters'
 import { useEmpresa } from '@/contexts/EmpresaContext'
+import { recalcularScoreCliente } from '@/lib/utils/score'
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogFooter,
+  DialogFooter, DialogDescription,
 } from '@/components/ui/dialog'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
@@ -57,8 +58,8 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
-import { buscarRelatorioAssertiva, scoreLabel, scoreColor } from '@/lib/assertiva/client'
-import type { RelatorioCompleto } from '@/lib/assertiva/types'
+import { buscarRelatorioAssertiva, faixaRiscoLabel, faixaRiscoColor } from '@/lib/assertiva/client'
+import type { RelatorioCompleto, Analise360ResultadoPJ, Analise360ResultadoPF } from '@/lib/assertiva/types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -66,7 +67,9 @@ interface ClienteFactoring {
   id: string
   empresa_id: string
   nome: string
+  tipo_pessoa: 'fisica' | 'juridica'
   cpf: string | null
+  cnpj: string | null
   rg: string | null
   orgao_emissor: string | null
   data_nascimento: string | null
@@ -173,6 +176,8 @@ interface ReferenciaCliente {
   nome: string
   parentesco: string | null
   telefone: string | null
+  endereco: string | null
+  email: string | null
   observacoes: string | null
 }
 
@@ -186,6 +191,19 @@ interface Anotacao {
   referencia_tipo: string | null
   referencia_id: string | null
   status: string | null
+  created_at: string
+}
+
+interface Lembrete {
+  id: string
+  empresa_id: string
+  cliente_id: string
+  usuario_id: string | null
+  titulo: string
+  descricao: string | null
+  data_lembrete: string
+  concluido: boolean
+  concluido_em: string | null
   created_at: string
 }
 
@@ -206,6 +224,9 @@ function anotacaoIcon(assunto: string | null) {
     case 'visita': return '🏠'
     case 'negociacao': return '🤝'
     case 'alerta': return '⚠️'
+    case 'whatsapp': return '💬'
+    case 'promessa_pagamento': return '🤝'
+    case 'nao_atendeu': return '📵'
     default: return '💬'
   }
 }
@@ -217,6 +238,9 @@ function anotacaoBorderColor(assunto: string | null) {
     case 'visita': return 'border-l-[#A142F4]'
     case 'negociacao': return 'border-l-[#FA903E]'
     case 'alerta': return 'border-l-[#EA4335]'
+    case 'whatsapp': return 'border-l-[#34A853]'
+    case 'promessa_pagamento': return 'border-l-[#FA903E]'
+    case 'nao_atendeu': return 'border-l-[#94a3b8]'
     default: return 'border-l-slate-400'
   }
 }
@@ -247,9 +271,10 @@ function AssertivaTab({
   onAtualizar,
 }: {
   cliente: ClienteFactoring
-  onAtualizar: (rel: RelatorioCompleto) => void
+  onAtualizar: (rel: RelatorioCompleto, novoScoreInterno?: number) => void
 }) {
   const supabase = createClient()
+  const { empresaAtual } = useEmpresa()
   const [relatorio, setRelatorio] = useState<RelatorioCompleto | null>(
     cliente.dados_assertiva ?? null
   )
@@ -257,7 +282,8 @@ function AssertivaTab({
   const [erro, setErro] = useState<string | null>(null)
 
   async function consultar() {
-    const doc = (cliente.cpf ?? '').replace(/\D/g, '')
+    const docBruto = cliente.tipo_pessoa === 'juridica' ? cliente.cnpj : cliente.cpf
+    const doc = (docBruto ?? '').replace(/\D/g, '')
     if (!doc || (doc.length !== 11 && doc.length !== 14)) {
       setErro('Cliente não possui CPF/CNPJ cadastrado.')
       return
@@ -273,7 +299,6 @@ function AssertivaTab({
     if (!data) return
 
     setRelatorio(data)
-    onAtualizar(data)
 
     await supabase.from('clientes_factoring').update({
       dados_assertiva: data,
@@ -295,6 +320,16 @@ function AssertivaTab({
       situacao_documento_assertiva: data.tipo === 'pf' ? (data.situacao_cpf ?? null) : (data.situacao_cnpj ?? null),
       faturamento_presumido_assertiva: data.faturamento_presumido ? (typeof data.faturamento_presumido === 'number' ? data.faturamento_presumido : parseFloat(data.faturamento_presumido as string)) : null,
     }).eq('id', cliente.id)
+
+    // O score interno depende dos dados do bureau (negativações, score externo
+    // etc.) — sem isso, o score_interno persistido fica desatualizado até o
+    // próximo pagamento ou empréstimo (que são os únicos outros gatilhos de
+    // recálculo), mesmo já mostrando os dados novos da Assertiva na tela.
+    const novoScore = empresaAtual
+      ? await recalcularScoreCliente(cliente.id, empresaAtual.id, supabase).catch(() => undefined)
+      : undefined
+
+    onAtualizar(data, novoScore ?? undefined)
   }
 
   const consultadoEm = cliente.assertiva_consultado_em
@@ -316,7 +351,7 @@ function AssertivaTab({
             <p className="text-xs text-muted-foreground mt-0.5">
               Última consulta: <span className="font-medium">{consultadoEm.toLocaleString('pt-BR')}</span>
               {relatorio?.score != null && (
-                <> · Score: <span className="font-bold" style={{ color: scoreColor(relatorio.score) }}>{relatorio.score}</span> ({scoreLabel(relatorio.score)})</>
+                <> · Score: <span className="font-bold" style={{ color: faixaRiscoColor(relatorio.faixa_risco, relatorio.score) }}>{relatorio.score}</span> ({faixaRiscoLabel(relatorio.faixa_risco, relatorio.score)})</>
               )}
               {bloqueadoPorTempo && (
                 <span className="ml-1 text-amber-600 font-semibold"> · atualização disponível em {horasRestantes}h</span>
@@ -366,6 +401,240 @@ function AssertivaTab({
           </div>
         </div>
       )}
+
+    </div>
+  )
+}
+
+// ─── Análise 360 (bens/patrimônio PJ ou perfil financeiro estendido PF) ──────
+// Componentes mantidos prontos (não renderizados no perfil por enquanto) —
+// integração de UI tentada e desfeita (não seguiu para esta versão). Rotas,
+// parser e tabela de jobs continuam intactos; reintroduzir o estado/polling
+// e estas seções na tela de perfil quando for retomar o recurso.
+
+function PerfilFinanceiroPF({ resultado }: { resultado: Analise360ResultadoPF }) {
+  const resumo = [
+    resultado.score != null && `Score comportamental: ${resultado.score}${resultado.faixa_risco ? ` (${resultado.faixa_risco})` : ''}`,
+    resultado.limite_credito_sugerido != null && `Limite sugerido: ${formatarMoeda(resultado.limite_credito_sugerido)}`,
+    resultado.antifraude_score != null && `Score antifraude: ${resultado.antifraude_score}`,
+  ].filter(Boolean)
+
+  const perfil = resultado.perfil_socioeconomico
+  const composicao = resultado.composicao_domiciliar
+  const temDividaUniao = (resultado.dividas_uniao?.length ?? 0) > 0
+  const temBeneficios = (resultado.beneficios?.length ?? 0) > 0
+
+  return (
+    <div className="space-y-4">
+      {resumo.length > 0 && <p className="text-xs text-muted-foreground">{resumo.join(' · ')}</p>}
+
+      {perfil && (
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs space-y-1">
+          <p className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Perfil Socioeconômico</p>
+          <p className="text-foreground">
+            {[perfil.classe_social && `Classe ${perfil.classe_social}`, perfil.profissao, perfil.faixa_etaria].filter(Boolean).join(' · ') || '—'}
+          </p>
+          {perfil.funcionario_publico && (
+            <p className="text-muted-foreground">
+              Funcionário público{perfil.cargo_publico ? ` — ${perfil.cargo_publico}` : ''}{perfil.situacao_cargo_publico ? ` (${perfil.situacao_cargo_publico})` : ''}
+            </p>
+          )}
+          {(perfil.tipo_imovel || perfil.tipo_cidade) && (
+            <p className="text-muted-foreground">{[perfil.tipo_imovel, perfil.tipo_cidade].filter(Boolean).join(' · ')}</p>
+          )}
+          {(perfil.melhoria_moradia || perfil.classe_social_cep) && (
+            <p className="text-muted-foreground">
+              {[perfil.melhoria_moradia, perfil.classe_social_cep && `Classe social do CEP: ${perfil.classe_social_cep}`].filter(Boolean).join(' · ')}
+            </p>
+          )}
+          {perfil.qtd_empresas_trabalhadas != null && (
+            <p className="text-muted-foreground">Já trabalhou em {perfil.qtd_empresas_trabalhadas} empresa(s)</p>
+          )}
+          {(perfil.empresario_qtd_empresas_abertas != null || perfil.empresario_tipo || perfil.empresario_cnae_atuacao) && (
+            <p className="text-muted-foreground">
+              {[
+                perfil.empresario_qtd_empresas_abertas != null && `Abriu ${perfil.empresario_qtd_empresas_abertas} empresa(s) como empresário`,
+                perfil.empresario_tipo,
+                perfil.empresario_cnae_atuacao,
+              ].filter(Boolean).join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+
+      {composicao && (
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs space-y-1">
+          <p className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Composição Domiciliar</p>
+          <p className="text-foreground">{composicao.composicao ?? '—'}</p>
+          <p className="text-muted-foreground">
+            {[
+              composicao.poder_compra && `Poder de compra: ${composicao.poder_compra}`,
+              composicao.renda_presumida != null && `Renda familiar presumida: ${formatarMoeda(composicao.renda_presumida)}`,
+              composicao.lider_familia && 'Líder da família',
+            ].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+      )}
+
+      {resultado.restituicao_irpf_status && (
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs">
+          <p className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Restituição IRPF {resultado.restituicao_irpf_ano ?? ''}</p>
+          <p className="text-foreground mt-1">{resultado.restituicao_irpf_status}</p>
+        </div>
+      )}
+
+      <div>
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+          Dívida Ativa da União {temDividaUniao ? `(${resultado.quantidade_dividas_uniao ?? resultado.dividas_uniao!.length})` : ''}
+        </p>
+        {!temDividaUniao ? (
+          <p className="text-sm text-muted-foreground">Nenhuma dívida ativa da União encontrada.</p>
+        ) : (
+          <div className="space-y-2">
+            {resultado.dividas_uniao!.map((d, i) => (
+              <div key={i} className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs space-y-1">
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-foreground">{d.tipo ?? 'Dívida'}</span>
+                  {d.valor != null && <span className="font-bold text-red-600">{formatarMoeda(d.valor)}</span>}
+                </div>
+                <p className="text-muted-foreground">{[d.entidade_responsavel, d.situacao, d.uf].filter(Boolean).join(' · ')}</p>
+              </div>
+            ))}
+            {resultado.valor_total_dividas_uniao != null && (
+              <p className="text-xs font-bold text-red-600">Total: {formatarMoeda(resultado.valor_total_dividas_uniao)}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {temBeneficios && (
+        <div>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Benefícios Recebidos</p>
+          <div className="space-y-1">
+            {resultado.beneficios!.map((b, i) => (
+              <div key={i} className="flex justify-between text-xs py-1 border-b border-border/30 last:border-0">
+                <span>{b.nome}</span>
+                <span className="text-muted-foreground">{b.valor != null ? formatarMoeda(b.valor) : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BensPatrimonioPJ({ resultado }: { resultado: Analise360ResultadoPJ }) {
+  const resumo = [
+    resultado.score != null && `Score: ${resultado.score}${resultado.faixa_risco ? ` (${resultado.faixa_risco})` : ''}`,
+    resultado.limite_credito_sugerido != null && `Limite sugerido: ${formatarMoeda(resultado.limite_credito_sugerido)}`,
+    resultado.quadro_societario_qtd != null && `${resultado.quadro_societario_qtd} sócio(s)`,
+    resultado.antifraude_score != null && `Score antifraude: ${resultado.antifraude_score}`,
+  ].filter(Boolean)
+
+  const concorrencia = resultado.concorrencia
+  const temTendencia = (concorrencia?.tendencia_segmento?.length ?? 0) > 0
+
+  return (
+    <div className="space-y-3">
+      {resumo.length > 0 && (
+        <p className="text-xs text-muted-foreground">{resumo.join(' · ')}</p>
+      )}
+
+      {(resultado.imoveis?.length ?? 0) === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhum imóvel encontrado no nome da empresa.</p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            {resultado.quantidade_imoveis ?? resultado.imoveis!.length} imóve(l/is) encontrado(s)
+          </p>
+          {resultado.imoveis!.map((im, i) => (
+            <div key={i} className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs space-y-1">
+              <div className="flex justify-between gap-2">
+                <span className="font-semibold text-foreground">{im.endereco ?? 'Endereço não informado'}</span>
+                {im.situacao && <Badge variant="outline" className="text-[10px] shrink-0">{im.situacao}</Badge>}
+              </div>
+              <p className="text-muted-foreground">
+                {[
+                  im.uso_terreno,
+                  im.area != null && `${im.area} m²`,
+                  im.ano_construcao && `construído em ${im.ano_construcao}`,
+                ].filter(Boolean).join(' · ')}
+              </p>
+              {(im.valor_terreno != null || im.valor_imposto != null) && (
+                <p className="text-muted-foreground">
+                  {im.valor_terreno != null && `Valor do terreno: ${formatarMoeda(im.valor_terreno)}`}
+                  {im.valor_terreno != null && im.valor_imposto != null && ' · '}
+                  {im.valor_imposto != null && `Imposto: ${formatarMoeda(im.valor_imposto)}`}
+                </p>
+              )}
+              {im.inscricao && <p className="text-muted-foreground font-mono text-[10px]">Inscrição {im.inscricao}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {concorrencia && (concorrencia.segmento_atuacao || concorrencia.perfil_segmento || temTendencia) && (
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs space-y-1">
+          <p className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Concorrência &amp; Segmento</p>
+          {(concorrencia.segmento_atuacao || concorrencia.perfil_segmento) && (
+            <p className="text-foreground">{[concorrencia.segmento_atuacao, concorrencia.perfil_segmento].filter(Boolean).join(' · ')}</p>
+          )}
+          {concorrencia.analise_homonimia && <p className="text-muted-foreground">{concorrencia.analise_homonimia}</p>}
+          {temTendencia && (
+            <p className="text-muted-foreground">
+              {concorrencia.tendencia_segmento!.map(t => `${t.data ?? ''}: ${t.descricao ?? (t.valor != null ? `${t.valor}%` : '')}`).join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+
+      {(resultado.reputacoes?.length ?? 0) > 0 && (
+        <div>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Reputação Online</p>
+          <div className="space-y-2">
+            {resultado.reputacoes!.map((r, i) => (
+              <div key={i} className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs space-y-1">
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-foreground">{r.nome ?? r.plataforma ?? 'Plataforma'}</span>
+                  {r.nota != null && (
+                    <span className="text-muted-foreground shrink-0">
+                      {r.nota}{r.nota_maxima != null ? `/${r.nota_maxima}` : ''}
+                    </span>
+                  )}
+                </div>
+                <p className="text-muted-foreground">
+                  {[r.plataforma, r.segmento, r.reputacao].filter(Boolean).join(' · ')}
+                </p>
+                {(r.telefone || r.endereco) && (
+                  <p className="text-muted-foreground">{[r.telefone, r.endereco].filter(Boolean).join(' · ')}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(resultado.movimentacoes?.length ?? 0) > 0 && (
+        <div>
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Movimentações Cadastrais</p>
+          <div className="space-y-1">
+            {resultado.movimentacoes!.map((m, i) => (
+              <div key={i} className="text-xs py-1.5 border-b border-border/30 last:border-0">
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold text-foreground">{m.titulo ?? 'Alteração cadastral'}</span>
+                  {m.data && <span className="text-muted-foreground shrink-0">{formatarData(m.data)}</span>}
+                </div>
+                {(m.mudancas?.length ?? 0) > 0 && (
+                  <p className="text-muted-foreground text-[11px] mt-0.5">
+                    {m.mudancas!.map(x => x.descricao ?? x.titulo).filter(Boolean).join(' · ')}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -384,6 +653,7 @@ export default function ClientePerfilPage() {
   const [pagamentos, setPagamentos] = useState<Movimentacao[]>([])
   const [referencias, setReferencias] = useState<ReferenciaCliente[]>([])
   const [anotacoes, setAnotacoes] = useState<Anotacao[]>([])
+  const [lembretes, setLembretes] = useState<Lembrete[]>([])
   const [regrasScore, setRegrasScore] = useState<RegraScore[] | null>(null)
   const [faixasRisco, setFaixasRisco] = useState<FaixaRisco[] | null>(null)
 
@@ -427,6 +697,42 @@ export default function ClientePerfilPage() {
   const [deletandoDocId, setDeletandoDocId] = useState<string | null>(null)
   const [deletandoRefId, setDeletandoRefId] = useState<string | null>(null)
 
+  // Anexos de conversa (prints)
+  const [anexoDialogOpen, setAnexoDialogOpen] = useState(false)
+  const [anexoArquivo, setAnexoArquivo] = useState<File | null>(null)
+  const [anexoPreview, setAnexoPreview] = useState<string | null>(null)
+  const [anexoComentario, setAnexoComentario] = useState('')
+  const [enviandoAnexo, setEnviandoAnexo] = useState(false)
+  const [visualizandoAnexo, setVisualizandoAnexo] = useState<DocumentoMeta | null>(null)
+
+  // Lembretes
+  const [lembreteDialogOpen, setLembreteDialogOpen] = useState(false)
+  const [lembreteForm, setLembreteForm] = useState({ titulo: '', descricao: '', data_lembrete: '' })
+  const [salvandoLembrete, setSalvandoLembrete] = useState(false)
+  const [concluindoLembreteId, setConcluindoLembreteId] = useState<string | null>(null)
+  const [popupLembretesFechado, setPopupLembretesFechado] = useState(false)
+
+  // Bucket de documentos é privado — cada documento precisa de uma URL
+  // assinada de curta duração pra ser exibido/baixado. Busca em lote sempre
+  // que a lista de documentos muda (upload, remoção, carregamento inicial).
+  const [urlsAssinadas, setUrlsAssinadas] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let cancelado = false
+    Promise.all(
+      documentos.map(async d => {
+        try { return [d.path, await obterUrlAssinada(d.path)] as const }
+        catch { return [d.path, null] as const }
+      })
+    ).then(pares => {
+      if (cancelado) return
+      const mapa: Record<string, string> = {}
+      for (const [path, url] of pares) if (url) mapa[path] = url
+      setUrlsAssinadas(mapa)
+    })
+    return () => { cancelado = true }
+  }, [documentos])
+
   // ─── Load data ────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -443,6 +749,7 @@ export default function ClientePerfilPage() {
         { data: referenciasData },
         { data: anotacoesData },
         { data: configData },
+        { data: lembretesData },
       ] = await Promise.all([
         supabase
           .from('clientes_factoring')
@@ -478,6 +785,12 @@ export default function ClientePerfilPage() {
           .select('regras_score, faixas_risco')
           .eq('empresa_id', empresaAtual.id)
           .maybeSingle(),
+        supabase
+          .from('lembretes_cliente_factoring')
+          .select('*')
+          .eq('cliente_id', id)
+          .eq('empresa_id', empresaAtual.id)
+          .order('data_lembrete', { ascending: true }),
       ])
 
       if (clienteErr || !clienteData) {
@@ -491,7 +804,8 @@ export default function ClientePerfilPage() {
       setParcelas((parcelasData ?? []) as Parcela[])
       setReferencias((referenciasData ?? []) as ReferenciaCliente[])
       setAnotacoes((anotacoesData ?? []) as Anotacao[])
-      
+      setLembretes((lembretesData ?? []) as Lembrete[])
+
       if (configData) {
         if (configData.regras_score) setRegrasScore(configData.regras_score)
         if (configData.faixas_risco) setFaixasRisco(configData.faixas_risco)
@@ -536,6 +850,11 @@ export default function ClientePerfilPage() {
   const emAtraso = parcelas
     .filter(p => p.status === 'atrasado')
     .reduce((s, p) => s + ((p.valor ?? 0) + (p.juros_mora ?? 0) + (p.multa ?? 0) - (p.valor_pago ?? 0)), 0)
+
+  const hojeISO = new Date().toISOString().split('T')[0]
+  const lembretesPendentes = lembretes.filter(l => !l.concluido)
+  const lembretesVencidos = lembretesPendentes.filter(l => l.data_lembrete <= hojeISO)
+  const anexosConversa = documentos.filter(d => d.categoria === CATEGORIA_ANEXO_CONVERSA)
 
   // ─── Score calculation ────────────────────────────────────────────────────
 
@@ -781,6 +1100,126 @@ export default function ClientePerfilPage() {
     }
   }
 
+  // ─── Anexos de conversa (prints) ──────────────────────────────────────────
+  // Categoria à parte da grade fixa de Documentos — aqui vale ter vários
+  // (print de hoje, de semana passada...), cada um com seu comentário, então
+  // ao contrário de fazerUploadDocumento() isto NUNCA substitui o anterior.
+
+  function abrirDialogAnexo() {
+    setAnexoArquivo(null)
+    setAnexoPreview(null)
+    setAnexoComentario('')
+    setAnexoDialogOpen(true)
+  }
+
+  function selecionarArquivoAnexo(file: File) {
+    setAnexoArquivo(file)
+    const reader = new FileReader()
+    reader.onload = () => setAnexoPreview(reader.result as string)
+    reader.readAsDataURL(file)
+  }
+
+  async function salvarAnexoConversa() {
+    if (!anexoArquivo || !cliente || !empresaAtual) return
+    setEnviandoAnexo(true)
+    const supabase = createClient()
+    try {
+      const meta = await uploadDocumentoCliente(
+        supabase, empresaAtual.id, cliente.id, CATEGORIA_ANEXO_CONVERSA, anexoArquivo, anexoComentario.trim(),
+      )
+      const novos = [...documentos, meta]
+      const { error: updateError } = await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+      if (updateError) throw updateError
+      setDocumentos(novos)
+      toast.success('Anexo salvo com sucesso!')
+      setAnexoDialogOpen(false)
+    } catch (err) {
+      logError('salvarAnexoConversa', err)
+      toast.error(parseSupabaseError(err, 'Erro ao enviar anexo'))
+    } finally {
+      setEnviandoAnexo(false)
+    }
+  }
+
+  async function excluirAnexoConversa(doc: DocumentoMeta) {
+    if (!cliente || !empresaAtual) return
+    setDeletandoDocId(doc.id)
+    const supabase = createClient()
+    try {
+      await deletarDocumentoCliente(supabase, doc.path)
+      const novos = documentos.filter(d => d.id !== doc.id)
+      const { error: updateError } = await supabase.from('clientes_factoring').update({ documentos: novos }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+      if (updateError) throw updateError
+      setDocumentos(novos)
+      setVisualizandoAnexo(null)
+      toast.success('Anexo removido.')
+    } catch (err) {
+      logError('excluirAnexoConversa', err)
+      toast.error('Erro ao remover anexo')
+    } finally {
+      setDeletandoDocId(null)
+    }
+  }
+
+  // ─── Lembretes ─────────────────────────────────────────────────────────────
+
+  async function criarLembrete() {
+    if (!lembreteForm.titulo.trim() || !lembreteForm.data_lembrete || !cliente || !empresaAtual?.id) return
+    setSalvandoLembrete(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase
+      .from('lembretes_cliente_factoring')
+      .insert({
+        empresa_id: empresaAtual.id,
+        cliente_id: cliente.id,
+        usuario_id: user?.id ?? null,
+        titulo: lembreteForm.titulo.trim(),
+        descricao: lembreteForm.descricao.trim() || null,
+        data_lembrete: lembreteForm.data_lembrete,
+      })
+      .select('*')
+      .single()
+
+    if (error || !data) {
+      toast.error('Erro ao criar lembrete.')
+    } else {
+      toast.success('Lembrete criado.')
+      setLembretes(prev => [...prev, data as Lembrete].sort((a, b) => a.data_lembrete.localeCompare(b.data_lembrete)))
+      setLembreteForm({ titulo: '', descricao: '', data_lembrete: '' })
+      setLembreteDialogOpen(false)
+    }
+    setSalvandoLembrete(false)
+  }
+
+  async function concluirLembrete(lembreteId: string) {
+    setConcluindoLembreteId(lembreteId)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('lembretes_cliente_factoring')
+      .update({ concluido: true, concluido_em: new Date().toISOString() })
+      .eq('id', lembreteId)
+
+    if (error) {
+      toast.error('Erro ao concluir lembrete.')
+    } else {
+      setLembretes(prev => prev.map(l => l.id === lembreteId ? { ...l, concluido: true, concluido_em: new Date().toISOString() } : l))
+      toast.success('Lembrete concluído!')
+    }
+    setConcluindoLembreteId(null)
+  }
+
+  async function excluirLembrete(lembreteId: string) {
+    const supabase = createClient()
+    const { error } = await supabase.from('lembretes_cliente_factoring').delete().eq('id', lembreteId)
+    if (error) {
+      toast.error('Erro ao excluir lembrete.')
+    } else {
+      setLembretes(prev => prev.filter(l => l.id !== lembreteId))
+      toast.success('Lembrete excluído.')
+    }
+  }
+
   function toggleExpanded(empId: string) {
     setExpandedIds(prev => {
       const next = new Set(prev)
@@ -935,22 +1374,6 @@ export default function ClientePerfilPage() {
                 <ScoreGauge score={cliente.score_interno ?? 0} size="sm" />
                 <span className="text-[10px] text-muted-foreground/80 font-bold uppercase tracking-wider">Score Interno</span>
               </div>
-
-              {/* Score Assertiva */}
-              {cliente.score_assertiva !== null && (
-                <div className="flex flex-col items-center justify-center gap-1.5 bg-muted/20 border border-border/40 rounded-2xl p-4 shadow-sm min-w-[130px]">
-                  <div
-                    className="flex h-14 w-14 items-center justify-center rounded-full border-4 font-extrabold text-base"
-                    style={{ borderColor: scoreColor(cliente.score_assertiva), color: scoreColor(cliente.score_assertiva) }}
-                  >
-                    {cliente.score_assertiva}
-                  </div>
-                  <span className="text-[10px] font-bold" style={{ color: scoreColor(cliente.score_assertiva) }}>
-                    {scoreLabel(cliente.score_assertiva)}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground/80 font-bold uppercase tracking-wider">Score Assertiva</span>
-                </div>
-              )}
 
               {/* Resumo Restrições e Patrimônio */}
               {cliente.dados_assertiva && (
@@ -1853,7 +2276,57 @@ export default function ClientePerfilPage() {
           </TabsContent>
 
           {/* TAB 6 — Anotações */}
-          <TabsContent value="anotacoes" className="outline-none">
+          <TabsContent value="anotacoes" className="outline-none space-y-4">
+            {/* Anexos de conversa (prints) */}
+            <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
+              <div className="flex items-center justify-between mb-5 pb-2 border-b border-border/60">
+                <div className="flex items-center gap-2">
+                  <ImagePlus size={18} className="text-[#1A73E8]" />
+                  <h3 className="font-bold text-foreground text-sm">Anexos de Conversa</h3>
+                  <Badge variant="outline" className="text-xs ml-1 bg-muted/60 rounded-full font-bold">{anexosConversa.length}</Badge>
+                </div>
+                <Button
+                  size="sm"
+                  className="gap-1.5 rounded-full text-white bg-[#1A73E8] hover:bg-[#1557B0] font-semibold shadow-sm"
+                  onClick={abrirDialogAnexo}
+                >
+                  <ImagePlus size={14} />
+                  Anexar Print
+                </Button>
+              </div>
+
+              {anexosConversa.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground/60 font-semibold">
+                  <ImagePlus size={36} className="mx-auto mb-3 opacity-30" />
+                  <p>Nenhum print anexado ainda.</p>
+                  <p className="text-xs font-medium text-muted-foreground/50 mt-1">Salve prints de conversas do WhatsApp com um comentário pra não perder o contexto.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                  {anexosConversa.map(doc => (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => setVisualizandoAnexo(doc)}
+                      className="group relative aspect-square rounded-xl border border-border overflow-hidden bg-muted/20 hover:border-[#1A73E8]/50 transition-all"
+                    >
+                      {urlsAssinadas[doc.path] ? (
+                        <img src={urlsAssinadas[doc.path]} alt={doc.comentario ?? 'Anexo'} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Loader2 size={18} className="animate-spin text-muted-foreground/40" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-end p-1.5 opacity-0 group-hover:opacity-100">
+                        <span className="text-[9px] text-white font-bold truncate">{new Date(doc.criado_em).toLocaleDateString('pt-BR')}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="bg-card rounded-2xl border border-border shadow-m3-1 p-6 relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-1 bg-[#1A73E8]" />
               <div className="flex items-center justify-between mb-6 pb-2 border-b border-border/60">
@@ -1933,6 +2406,7 @@ export default function ClientePerfilPage() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {CATEGORIAS_DOCUMENTO.map(cat => {
                   const doc = documentos.find(d => d.categoria === cat.id)
+                  const urlDoc = doc ? urlsAssinadas[doc.path] : undefined
                   const isUploading = uploadingDoc === cat.id
                   const isDeletando = doc ? deletandoDocId === doc.id : false
                   const inputId = `perfil-doc-${cat.id}`
@@ -1962,9 +2436,9 @@ export default function ClientePerfilPage() {
                           </button>
 
                           {/* Preview ou ícone */}
-                          {ehImagem(doc.tipo_mime) ? (
+                          {ehImagem(doc.tipo_mime) && urlDoc ? (
                             <img
-                              src={doc.url}
+                              src={urlDoc}
                               alt={doc.label}
                               className="w-16 h-16 object-cover rounded-lg shadow-sm border border-white"
                             />
@@ -1980,17 +2454,19 @@ export default function ClientePerfilPage() {
                           {/* Ações */}
                           <div className="flex gap-1.5 mt-auto w-full">
                             <a
-                              href={doc.url}
+                              href={urlDoc ?? '#'}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex-1 flex items-center justify-center gap-1 text-[9px] font-bold text-[#137333] bg-[#E6F4EA] hover:bg-[#34A853]/15 rounded-md py-1.5 transition-colors border border-[#34A853]/10"
+                              aria-disabled={!urlDoc}
+                              className={`flex-1 flex items-center justify-center gap-1 text-[9px] font-bold text-[#137333] bg-[#E6F4EA] hover:bg-[#34A853]/15 rounded-md py-1.5 transition-colors border border-[#34A853]/10 ${!urlDoc ? 'opacity-50 pointer-events-none' : ''}`}
                             >
                               <Eye size={9} /> Ver
                             </a>
                             <a
-                              href={doc.url}
+                              href={urlDoc ?? '#'}
                               download={doc.nome_original}
-                              className="flex-1 flex items-center justify-center gap-1 text-[9px] font-bold text-muted-foreground bg-muted hover:bg-muted/80 rounded-md py-1.5 transition-colors border border-border/60"
+                              aria-disabled={!urlDoc}
+                              className={`flex-1 flex items-center justify-center gap-1 text-[9px] font-bold text-muted-foreground bg-muted hover:bg-muted/80 rounded-md py-1.5 transition-colors border border-border/60 ${!urlDoc ? 'opacity-50 pointer-events-none' : ''}`}
                             >
                               <Download size={9} /> Baixar
                             </a>
@@ -2037,7 +2513,9 @@ export default function ClientePerfilPage() {
                     Contratos e Documentos Adicionais
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {documentos.filter(d => !CATEGORIAS_DOCUMENTO.some(c => c.id === d.categoria) || d.categoria === 'outro').map(doc => (
+                    {documentos.filter(d => !CATEGORIAS_DOCUMENTO.some(c => c.id === d.categoria) || d.categoria === 'outro').map(doc => {
+                      const urlDoc = urlsAssinadas[doc.path]
+                      return (
                       <div key={doc.id} className="flex items-center justify-between p-3 rounded-xl border border-border/80 bg-card hover:bg-muted/5 transition-all">
                         <div className="flex items-center gap-3 overflow-hidden mr-4">
                           <div className="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0 border border-indigo-500/10">
@@ -2052,17 +2530,19 @@ export default function ClientePerfilPage() {
                         </div>
                         <div className="flex gap-1.5 shrink-0">
                           <a
-                            href={doc.url}
+                            href={urlDoc ?? '#'}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-500/10 hover:bg-indigo-500/15 rounded-md px-2.5 py-1.5 transition-colors border border-indigo-500/10"
+                            aria-disabled={!urlDoc}
+                            className={`flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-500/10 hover:bg-indigo-500/15 rounded-md px-2.5 py-1.5 transition-colors border border-indigo-500/10 ${!urlDoc ? 'opacity-50 pointer-events-none' : ''}`}
                           >
                             <Eye size={10} /> Ver
                           </a>
                           <a
-                            href={doc.url}
+                            href={urlDoc ?? '#'}
                             download={doc.nome_original}
-                            className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1.5 transition-colors border border-border/60"
+                            aria-disabled={!urlDoc}
+                            className={`flex items-center gap-1 text-[10px] font-bold text-muted-foreground bg-muted hover:bg-muted/80 rounded-md px-2.5 py-1.5 transition-colors border border-border/60 ${!urlDoc ? 'opacity-50 pointer-events-none' : ''}`}
                           >
                             <Download size={10} /> Baixar
                           </a>
@@ -2077,7 +2557,7 @@ export default function ClientePerfilPage() {
                           )}
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               )}
@@ -2251,9 +2731,78 @@ export default function ClientePerfilPage() {
 
       {/* Right Column: Permanent Credit Risk Sidebar */}
       <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-6 h-fit max-h-[85vh] overflow-y-auto bg-card border border-border p-5 rounded-2xl shadow-m3-1">
+        {/* Lembretes */}
+        <div className="rounded-2xl border border-border/60 bg-muted/10 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Bell size={16} className="text-[#FA903E]" />
+              <h3 className="font-bold text-foreground text-sm">Lembretes</h3>
+              {lembretesPendentes.length > 0 && (
+                <Badge variant="outline" className="text-[10px] font-bold rounded-full py-0 h-4.5 bg-[#FEF0E1] text-[#B06000] border-[#FA903E]/20">
+                  {lembretesPendentes.length}
+                </Badge>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 gap-1 text-xs font-semibold text-[#1A73E8] hover:bg-[#E8F0FE] rounded-full px-2.5"
+              onClick={() => setLembreteDialogOpen(true)}
+            >
+              <Plus size={13} /> Novo
+            </Button>
+          </div>
+
+          {lembretesPendentes.length === 0 ? (
+            <p className="text-xs text-muted-foreground/70 font-medium text-center py-3">
+              Nenhum lembrete pendente para este cliente.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {lembretesPendentes.map(l => {
+                const venceu = l.data_lembrete <= hojeISO
+                return (
+                  <div
+                    key={l.id}
+                    className={cn(
+                      'rounded-xl border px-3 py-2.5 flex items-start gap-2.5',
+                      venceu ? 'border-[#EA4335]/25 bg-[#FCE8E6]/40' : 'border-border/50 bg-card',
+                    )}
+                  >
+                    <button
+                      type="button"
+                      title="Marcar como concluído"
+                      disabled={concluindoLembreteId === l.id}
+                      onClick={() => concluirLembrete(l.id)}
+                      className="mt-0.5 shrink-0 w-4.5 h-4.5 rounded-full border-2 border-muted-foreground/30 hover:border-[#34A853] hover:bg-[#34A853]/10 transition-colors flex items-center justify-center disabled:opacity-50"
+                    >
+                      {concluindoLembreteId === l.id && <Loader2 size={10} className="animate-spin" />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-foreground leading-snug">{l.titulo}</p>
+                      {l.descricao && <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{l.descricao}</p>}
+                      <p className={cn('text-[10px] font-bold mt-1', venceu ? 'text-[#C5221F]' : 'text-muted-foreground/70')}>
+                        {venceu ? 'Venceu em ' : 'Para '}{new Date(l.data_lembrete + 'T12:00:00').toLocaleDateString('pt-BR')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      title="Excluir lembrete"
+                      onClick={() => excluirLembrete(l.id)}
+                      className="shrink-0 text-muted-foreground/40 hover:text-[#EA4335] transition-colors"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
         <AssertivaTab
           cliente={cliente}
-          onAtualizar={(rel) =>
+          onAtualizar={(rel, novoScoreInterno) =>
             setCliente((c) =>
               c
                 ? {
@@ -2276,6 +2825,7 @@ export default function ClientePerfilPage() {
                     indicador_obito_assertiva: rel.indicador_obito ?? false,
                     situacao_documento_assertiva: rel.tipo === 'pf' ? (rel.situacao_cpf ?? null) : (rel.situacao_cnpj ?? null),
                     faturamento_presumido_assertiva: rel.faturamento_presumido ? (typeof rel.faturamento_presumido === 'number' ? rel.faturamento_presumido : parseFloat(rel.faturamento_presumido as string)) : null,
+                    score_interno: novoScoreInterno ?? c.score_interno,
                   }
                 : c
             )
@@ -2362,6 +2912,204 @@ export default function ClientePerfilPage() {
               className="text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-semibold"
             >
               {salvandoAnotacao ? 'Salvando...' : 'Salvar Anotação'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Popup automático — lembretes vencidos ao abrir o perfil */}
+      <Dialog
+        open={lembretesVencidos.length > 0 && !popupLembretesFechado}
+        onOpenChange={(open) => !open && setPopupLembretesFechado(true)}
+      >
+        <DialogContent className="sm:max-w-md rounded-2xl border-border">
+          <DialogHeader>
+            <DialogTitle className="font-extrabold text-foreground tracking-tight flex items-center gap-2">
+              <BellRing size={20} className="text-[#FA903E]" />
+              {lembretesVencidos.length === 1 ? 'Você tem um lembrete' : `Você tem ${lembretesVencidos.length} lembretes`}
+            </DialogTitle>
+            <DialogDescription>Sobre {cliente?.nome}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2.5 py-1 max-h-80 overflow-y-auto">
+            {lembretesVencidos.map(l => (
+              <div key={l.id} className="rounded-xl border border-[#EA4335]/25 bg-[#FCE8E6]/40 px-3.5 py-3">
+                <p className="text-sm font-bold text-foreground leading-snug">{l.titulo}</p>
+                {l.descricao && <p className="text-xs text-muted-foreground mt-1 leading-snug">{l.descricao}</p>}
+                <p className="text-[11px] font-bold text-[#C5221F] mt-1.5">
+                  Venceu em {new Date(l.data_lembrete + 'T12:00:00').toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setPopupLembretesFechado(true)}
+              className="w-full text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-semibold"
+            >
+              Ok, entendi
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Novo Lembrete */}
+      <Dialog open={lembreteDialogOpen} onOpenChange={setLembreteDialogOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl border-border">
+          <DialogHeader>
+            <DialogTitle className="font-extrabold text-foreground tracking-tight flex items-center gap-2">
+              <Bell size={18} className="text-[#FA903E]" />
+              Novo Lembrete
+            </DialogTitle>
+            <DialogDescription>Sobre {cliente?.nome}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <FormField label="Título *">
+              <Input
+                value={lembreteForm.titulo}
+                onChange={e => setLembreteForm(f => ({ ...f, titulo: e.target.value }))}
+                placeholder="Ex: Ligar cobrando parcela atrasada"
+                maxLength={255}
+                className="h-11 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8]"
+              />
+            </FormField>
+            <FormField label="Descrição">
+              <Textarea
+                value={lembreteForm.descricao}
+                onChange={e => setLembreteForm(f => ({ ...f, descricao: e.target.value }))}
+                placeholder="Detalhes opcionais..."
+                rows={3}
+                className="resize-none focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg"
+              />
+            </FormField>
+            <FormField label="Data do lembrete *">
+              <Input
+                type="date"
+                value={lembreteForm.data_lembrete}
+                onChange={e => setLembreteForm(f => ({ ...f, data_lembrete: e.target.value }))}
+                className="h-11 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8]"
+              />
+            </FormField>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setLembreteDialogOpen(false)}
+              disabled={salvandoLembrete}
+              className="rounded-full font-semibold border-border"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={criarLembrete}
+              disabled={salvandoLembrete || !lembreteForm.titulo.trim() || !lembreteForm.data_lembrete}
+              className="text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-semibold"
+            >
+              {salvandoLembrete ? 'Salvando...' : 'Criar Lembrete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Novo Anexo de conversa */}
+      <Dialog open={anexoDialogOpen} onOpenChange={(open) => { if (!enviandoAnexo) setAnexoDialogOpen(open) }}>
+        <DialogContent className="sm:max-w-md rounded-2xl border-border">
+          <DialogHeader>
+            <DialogTitle className="font-extrabold text-foreground tracking-tight flex items-center gap-2">
+              <ImagePlus size={18} className="text-[#1A73E8]" />
+              Anexar Print / Imagem
+            </DialogTitle>
+            <DialogDescription>Salve prints de conversa (WhatsApp etc.) com um comentário.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {anexoPreview ? (
+              <div className="relative rounded-xl border border-border overflow-hidden bg-muted/20">
+                <img src={anexoPreview} alt="Prévia" className="w-full max-h-64 object-contain" />
+                <button
+                  type="button"
+                  onClick={() => { setAnexoArquivo(null); setAnexoPreview(null) }}
+                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors"
+                >
+                  <X size={14} className="text-white" />
+                </button>
+              </div>
+            ) : (
+              <label
+                htmlFor="anexo-conversa-input"
+                className="cursor-pointer rounded-xl border-2 border-dashed border-border hover:border-[#1A73E8]/50 hover:bg-[#E8F0FE]/10 p-8 flex flex-col items-center gap-2.5 transition-all duration-300"
+              >
+                <ImagePlus size={28} className="text-muted-foreground/40" />
+                <p className="text-xs font-bold text-muted-foreground">Clique para escolher uma imagem</p>
+                <input
+                  id="anexo-conversa-input"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0]
+                    if (f) selecionarArquivoAnexo(f)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            )}
+            <FormField label="Comentário">
+              <Textarea
+                value={anexoComentario}
+                onChange={e => setAnexoComentario(e.target.value)}
+                placeholder="O que é esse print? (opcional)"
+                rows={2}
+                className="resize-none focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg"
+              />
+            </FormField>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setAnexoDialogOpen(false)}
+              disabled={enviandoAnexo}
+              className="rounded-full font-semibold border-border"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={salvarAnexoConversa}
+              disabled={enviandoAnexo || !anexoArquivo}
+              className="text-white rounded-full bg-[#1A73E8] hover:bg-[#1557B0] font-semibold"
+            >
+              {enviandoAnexo ? 'Enviando...' : 'Salvar Anexo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Visualizar Anexo */}
+      <Dialog open={!!visualizandoAnexo} onOpenChange={(open) => !open && setVisualizandoAnexo(null)}>
+        <DialogContent className="sm:max-w-lg rounded-2xl border-border">
+          <DialogHeader>
+            <DialogTitle className="font-extrabold text-foreground tracking-tight">
+              {visualizandoAnexo ? new Date(visualizandoAnexo.criado_em).toLocaleString('pt-BR') : ''}
+            </DialogTitle>
+          </DialogHeader>
+          {visualizandoAnexo && (
+            <div className="space-y-3">
+              <img
+                src={urlsAssinadas[visualizandoAnexo.path]}
+                alt={visualizandoAnexo.comentario ?? 'Anexo'}
+                className="w-full max-h-96 object-contain rounded-xl border border-border bg-muted/20"
+              />
+              {visualizandoAnexo.comentario && (
+                <p className="text-sm text-foreground bg-muted/20 rounded-xl p-3 leading-relaxed">{visualizandoAnexo.comentario}</p>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              disabled={!!deletandoDocId}
+              onClick={() => visualizandoAnexo && excluirAnexoConversa(visualizandoAnexo)}
+              className="rounded-full font-semibold border-[#EA4335]/30 text-[#EA4335] hover:bg-[#FCE8E6]"
+            >
+              {deletandoDocId ? 'Removendo...' : 'Excluir Anexo'}
             </Button>
           </DialogFooter>
         </DialogContent>

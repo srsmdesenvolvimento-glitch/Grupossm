@@ -4,9 +4,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ChevronLeft, CreditCard, User, ArrowUpCircle, ArrowDownCircle,
+  ChevronLeft, CreditCard, User, ArrowUpCircle, ArrowDownCircle, ArrowRightCircle,
   Loader2, FileText, Upload, DollarSign, CheckCircle2, X, Download,
-  QrCode, ArrowLeftRight, Receipt, MessageCircle, BadgeCheck,
+  QrCode, ArrowLeftRight, Receipt, MessageCircle, BadgeCheck, RefreshCw, Percent,
 } from 'lucide-react'
 import { gerarContratoPDF, gerarReciboParcela, gerarQuitacaoPDF, type ReciboParcela, type QuitacaoParams } from '@/lib/utils/documentos'
 import { recalcularScoreCliente } from '@/lib/utils/score'
@@ -22,12 +22,13 @@ import { ScoreGauge } from '@/components/factoring/ScoreGauge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { formatarMoeda, formatarData, formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
-import { taxaMensalParaAnual } from '@/lib/utils/calculos'
+import { taxaMensalParaAnual, calcularJurosCompostos } from '@/lib/utils/calculos'
 import type { Emprestimo, ParcelaEmprestimo, ClienteFactoring, MovimentacaoCaixa, TipoPagamento } from '@/lib/types/database'
 
 const FORMAS_PAG: { key: TipoPagamento; label: string; icon: React.ReactNode }[] = [
@@ -64,6 +65,20 @@ export default function EmprestimoDetalhePage() {
   const [quitarDialog, setQuitarDialog] = useState(false)
   const [cancelarDialog, setCancelarDialog] = useState(false)
   const [processando, setProcessando] = useState(false)
+
+  // Renegociação
+  const [renegociarDialog, setRenegociarDialog] = useState(false)
+  const [renegociarTipo, setRenegociarTipo] = useState<'nova_tabela' | 'desconto_quitacao' | 'diluir_atraso'>('nova_tabela')
+  const [renegNovoPrazo, setRenegNovoPrazo] = useState('12')
+  const [renegNovaTaxa, setRenegNovaTaxa] = useState('')
+  const [renegDataInicio, setRenegDataInicio] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() + 1)
+    return d.toISOString().split('T')[0]
+  })
+  const [renegValorQuitacao, setRenegValorQuitacao] = useState('')
+  const [renegJurosDiluir, setRenegJurosDiluir] = useState('')
+  const [renegMotivo, setRenegMotivo] = useState('')
+  const [processandoRenegociacao, setProcessandoRenegociacao] = useState(false)
   const [gerandoPDF, setGerandoPDF] = useState(false)
   const [enviandoWhatsApp, setEnviandoWhatsApp] = useState(false)
   const [enviandoRecibo, setEnviandoRecibo] = useState<string | null>(null)
@@ -863,6 +878,244 @@ export default function EmprestimoDetalhePage() {
     }
   }
 
+  // Saldo em aberto (parcelas pendentes/atrasadas + encargos), base pra
+  // qualquer renegociação — mesma fórmula usada no resto da tela.
+  function saldoParaRenegociar(): number {
+    return parcelas
+      .filter(p => ['pendente', 'atrasado'].includes(p.status))
+      .reduce((s, p) => s + (p.valor ?? 0) + (p.juros_mora ?? 0) + (p.multa ?? 0) - (p.valor_pago ?? 0), 0)
+  }
+
+  async function confirmarRenegociacao() {
+    if (!emprestimo || !empresaAtual || !cliente) return
+    const saldoAnterior = Math.round(saldoParaRenegociar() * 100) / 100
+    if (saldoAnterior <= 0) {
+      toast.error('Não há saldo em aberto para renegociar.')
+      return
+    }
+
+    const parcelasAntigas = parcelas.filter(p => ['pendente', 'atrasado'].includes(p.status))
+    setProcessandoRenegociacao(true)
+    const supabase = createClient()
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const hoje = new Date().toISOString().split('T')[0]
+
+      if (renegociarTipo === 'desconto_quitacao') {
+        const valorFinal = Math.round(Number(renegValorQuitacao.replace(',', '.')) * 100) / 100
+        if (!valorFinal || valorFinal <= 0 || valorFinal >= saldoAnterior) {
+          toast.error('Informe um valor de quitação menor que o saldo em aberto.')
+          return
+        }
+        const desconto = Math.round((saldoAnterior - valorFinal) * 100) / 100
+
+        // Cancela as parcelas antigas em aberto (substituídas pelo acordo)
+        const { error: cancelError } = await supabase
+          .from('parcelas_emprestimo')
+          .update({ status: 'renegociado' })
+          .eq('emprestimo_id', emprestimo.id)
+          .in('status', ['pendente', 'atrasado'])
+        if (cancelError) throw cancelError
+
+        // Uma única parcela nova, quitada agora, com o valor acordado
+        const { error: novaParcelaError } = await supabase.from('parcelas_emprestimo').insert({
+          empresa_id: empresaAtual.id,
+          emprestimo_id: emprestimo.id,
+          cliente_id: cliente.id,
+          numero_parcela: 1,
+          total_parcelas: 1,
+          valor: valorFinal,
+          valor_principal: valorFinal,
+          valor_juros: 0,
+          saldo_devedor_antes: saldoAnterior,
+          saldo_devedor_apos: 0,
+          valor_pago: valorFinal,
+          data_vencimento: hoje,
+          data_pagamento: hoje,
+          tipo_pagamento: 'dinheiro',
+          status: 'pago',
+        })
+        if (novaParcelaError) throw novaParcelaError
+
+        const { error: empError } = await supabase
+          .from('emprestimos')
+          .update({ status: 'quitado', saldo_devedor: 0, data_quitacao: hoje })
+          .eq('id', emprestimo.id)
+        if (empError) throw empError
+
+        await supabase.from('movimentacoes_caixa').insert({
+          empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'quitacao_renegociada',
+          descricao: `Quitação renegociada ${emprestimo.numero_contrato} (desconto de ${formatarMoeda(desconto)})`,
+          valor: valorFinal, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
+        })
+
+        await supabase.from('historico_status_emprestimo').insert({
+          emprestimo_id: emprestimo.id, usuario_id: user?.id ?? null,
+          status_anterior: emprestimo.status, status_novo: 'quitado',
+          motivo: `Renegociação — quitação com desconto de ${formatarMoeda(desconto)}. ${renegMotivo.trim()}`,
+        })
+
+        await supabase.from('renegociacoes_emprestimo').insert({
+          empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, usuario_id: user?.id ?? null,
+          tipo: 'desconto_quitacao', saldo_anterior: saldoAnterior, saldo_novo: 0,
+          desconto_valor: desconto, parcelas_antigas_qtd: parcelasAntigas.length, parcelas_novas_qtd: 1,
+          motivo: renegMotivo.trim() || null,
+        })
+
+        await supabase.from('notificacoes_log').insert({
+          empresa_id: empresaAtual.id, canal: 'sistema', destinatario: cliente.nome, assunto: 'negociacao',
+          mensagem: `Renegociação: quitação à vista de ${formatarMoeda(valorFinal)} (desconto de ${formatarMoeda(desconto)} sobre o saldo de ${formatarMoeda(saldoAnterior)}). ${renegMotivo.trim()}`,
+          referencia_tipo: 'cliente', referencia_id: cliente.id, status: 'enviado',
+        })
+
+        toast.success('Contrato quitado via renegociação!')
+      } else if (renegociarTipo === 'nova_tabela') {
+        const novoPrazo = parseInt(renegNovoPrazo)
+        const novaTaxa = renegNovaTaxa ? Number(renegNovaTaxa.replace(',', '.')) : emprestimo.taxa_juros
+        if (!novoPrazo || novoPrazo < 1) {
+          toast.error('Informe um novo prazo válido.')
+          return
+        }
+
+        const resultado = calcularJurosCompostos(saldoAnterior, novaTaxa, novoPrazo, new Date(renegDataInicio + 'T12:00:00'))
+        if (resultado.tabela.length === 0) {
+          toast.error('Não foi possível calcular a nova tabela — confira os valores.')
+          return
+        }
+
+        const { error: cancelError } = await supabase
+          .from('parcelas_emprestimo')
+          .update({ status: 'renegociado' })
+          .eq('emprestimo_id', emprestimo.id)
+          .in('status', ['pendente', 'atrasado'])
+        if (cancelError) throw cancelError
+
+        const novasParcelas = resultado.tabela.map(p => ({
+          empresa_id: empresaAtual.id,
+          emprestimo_id: emprestimo.id,
+          cliente_id: cliente.id,
+          numero_parcela: p.numero_parcela,
+          total_parcelas: resultado.tabela.length,
+          valor: p.valor_parcela,
+          valor_principal: p.valor_principal,
+          valor_juros: p.valor_juros,
+          saldo_devedor_antes: p.saldo_devedor + p.valor_principal,
+          saldo_devedor_apos: p.saldo_devedor,
+          data_vencimento: p.data_vencimento,
+          status: 'pendente' as const,
+        }))
+        const { error: novasError } = await supabase.from('parcelas_emprestimo').insert(novasParcelas)
+        if (novasError) throw novasError
+
+        // total_pagar precisa refletir o que já foi pago (histórico) + o
+        // saldo de entrada + a nova tabela — senão o trigger que recalcula
+        // saldo_devedor a cada pagamento usa a referência antiga e erra.
+        const valorJaPago = parcelas.filter(p => p.status === 'pago').reduce((s, p) => s + (p.valor_pago ?? 0), 0)
+        const novoTotalPagar = Math.round((valorJaPago + (emprestimo.valor_entrada ?? 0) + resultado.total_pagar) * 100) / 100
+
+        const { error: empError } = await supabase
+          .from('emprestimos')
+          .update({
+            taxa_juros: novaTaxa,
+            prazo_meses: parcelas.filter(p => p.status === 'pago').length + novoPrazo,
+            valor_parcela: resultado.valor_parcela,
+            total_pagar: novoTotalPagar,
+            total_juros: Math.round((emprestimo.total_juros + resultado.total_juros) * 100) / 100,
+            saldo_devedor: resultado.total_pagar,
+            status: 'ativo',
+          })
+          .eq('id', emprestimo.id)
+        if (empError) throw empError
+
+        await supabase.from('renegociacoes_emprestimo').insert({
+          empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, usuario_id: user?.id ?? null,
+          tipo: 'nova_tabela', saldo_anterior: saldoAnterior, saldo_novo: resultado.total_pagar,
+          parcelas_antigas_qtd: parcelasAntigas.length, parcelas_novas_qtd: resultado.tabela.length,
+          taxa_juros_usada: novaTaxa, motivo: renegMotivo.trim() || null,
+        })
+
+        await supabase.from('notificacoes_log').insert({
+          empresa_id: empresaAtual.id, canal: 'sistema', destinatario: cliente.nome, assunto: 'negociacao',
+          mensagem: `Renegociação: saldo de ${formatarMoeda(saldoAnterior)} recalculado em ${resultado.tabela.length}x de ${formatarMoeda(resultado.valor_parcela)} (taxa ${novaTaxa}% a.m.). ${renegMotivo.trim()}`,
+          referencia_tipo: 'cliente', referencia_id: cliente.id, status: 'enviado',
+        })
+
+        toast.success('Empréstimo renegociado com sucesso!')
+      } else {
+        // Diluir Atraso: em vez de recalcular o contrato inteiro, pega só as
+        // parcelas ATRASADAS, aplica um juro opcional sobre elas e espalha o
+        // total entre as parcelas ainda pendentes — mesma lógica que já existe
+        // no pagamento parcial ("diluir"), aqui usada sem precisar receber
+        // nada agora, pra tirar o cliente do atraso hoje.
+        const parcelasAtrasadasAtual = parcelas.filter(p => p.status === 'atrasado')
+        if (parcelasAtrasadasAtual.length === 0) {
+          toast.error('Não há parcelas atrasadas para diluir.')
+          return
+        }
+        const jurosPct = renegJurosDiluir ? Number(renegJurosDiluir.replace(',', '.')) : 0
+        const totalAtrasadoBruto = parcelasAtrasadasAtual.reduce((s, p) => s + (p.valor ?? 0) + (p.juros_mora ?? 0) + (p.multa ?? 0) - (p.valor_pago ?? 0), 0)
+        const totalComJuros = Math.round(totalAtrasadoBruto * (1 + jurosPct / 100) * 100) / 100
+
+        const idsAtrasadas = parcelasAtrasadasAtual.map(p => p.id)
+        const { error: marcarError } = await supabase
+          .from('parcelas_emprestimo')
+          .update({ status: 'renegociado' })
+          .in('id', idsAtrasadas)
+        if (marcarError) throw marcarError
+
+        const pendentes = parcelas.filter(p => p.status === 'pendente')
+        if (pendentes.length > 0) {
+          const valorPorParcela = Math.round((totalComJuros / pendentes.length) * 100) / 100
+          for (const p of pendentes) {
+            const { error: diluirError } = await supabase
+              .from('parcelas_emprestimo')
+              .update({ valor: Math.round((p.valor + valorPorParcela) * 100) / 100 })
+              .eq('id', p.id)
+            if (diluirError) throw diluirError
+          }
+        } else {
+          const maxNum = Math.max(...parcelas.map(p => p.numero_parcela))
+          const venc = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().split('T')[0] })()
+          const { error: novaError } = await supabase.from('parcelas_emprestimo').insert({
+            empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, cliente_id: cliente.id,
+            numero_parcela: maxNum + 1, total_parcelas: maxNum + 1,
+            valor: totalComJuros, valor_principal: totalComJuros, valor_juros: 0,
+            saldo_devedor_antes: totalComJuros, saldo_devedor_apos: 0,
+            data_vencimento: venc, status: 'pendente',
+          })
+          if (novaError) throw novaError
+        }
+
+        await supabase.from('renegociacoes_emprestimo').insert({
+          empresa_id: empresaAtual.id, emprestimo_id: emprestimo.id, usuario_id: user?.id ?? null,
+          tipo: 'diluir_atraso', saldo_anterior: totalAtrasadoBruto, saldo_novo: totalComJuros,
+          parcelas_antigas_qtd: parcelasAtrasadasAtual.length, parcelas_novas_qtd: pendentes.length || 1,
+          taxa_juros_usada: jurosPct || null, motivo: renegMotivo.trim() || null,
+        })
+
+        await supabase.from('notificacoes_log').insert({
+          empresa_id: empresaAtual.id, canal: 'sistema', destinatario: cliente.nome, assunto: 'negociacao',
+          mensagem: `Renegociação: saldo em atraso de ${formatarMoeda(totalAtrasadoBruto)}${jurosPct > 0 ? ` + ${jurosPct}% juros = ${formatarMoeda(totalComJuros)}` : ''} diluído em ${pendentes.length || 1} parcela(s). ${renegMotivo.trim()}`,
+          referencia_tipo: 'cliente', referencia_id: cliente.id, status: 'enviado',
+        })
+
+        toast.success('Saldo em atraso diluído com sucesso!')
+      }
+
+      setRenegociarDialog(false)
+      setRenegMotivo('')
+      setRenegValorQuitacao('')
+      setRenegJurosDiluir('')
+      if (empresaAtual?.id) recalcularScoreCliente(cliente.id, empresaAtual.id, supabase).catch(() => {})
+      carregarDados()
+    } catch (err) {
+      logError('confirmarRenegociacao', err)
+      toast.error(parseSupabaseError(err, 'Erro ao renegociar empréstimo'))
+    } finally {
+      setProcessandoRenegociacao(false)
+    }
+  }
+
   async function cancelarContrato() {
     if (!emprestimo || !empresaAtual) return
     setProcessando(true)
@@ -996,6 +1249,21 @@ export default function EmprestimoDetalhePage() {
               ) : null
             })()}
             {['ativo', 'inadimplente'].includes(emprestimo.status) && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-[#FA903E] border-[#FA903E]/25 hover:bg-[#FEF0E1] rounded-full font-semibold h-9 px-4 text-xs"
+                onClick={() => {
+                  setRenegociarTipo('nova_tabela')
+                  setRenegNovaTaxa(String(emprestimo.taxa_juros))
+                  setRenegociarDialog(true)
+                }}
+              >
+                <RefreshCw size={14} />
+                Renegociar
+              </Button>
+            )}
+            {['ativo', 'inadimplente'].includes(emprestimo.status) && (
               <Button size="sm" variant="outline" className="gap-1.5 rounded-full font-semibold h-9 px-4 border-border hover:bg-muted/50 text-xs" onClick={() => setQuitarDialog(true)}>
                 <CheckCircle2 size={14} className="text-muted-foreground" />
                 Quitar Contrato
@@ -1017,8 +1285,8 @@ export default function EmprestimoDetalhePage() {
           
           if (isAssinado || ['quitado', 'cancelado'].includes(emprestimo.status)) return null
           
-          const linkAssinatura = typeof window !== 'undefined' 
-            ? `${window.location.origin}/assinar/${emprestimo.id}` 
+          const linkAssinatura = typeof window !== 'undefined'
+            ? `${window.location.origin}/assinar/${emprestimo.id}?token=${emprestimo.assinatura_token}`
             : ''
             
           const handleCopiarLink = () => {
@@ -1803,6 +2071,217 @@ export default function EmprestimoDetalhePage() {
           </Dialog>
         )
       })()}
+
+      {/* Renegociação */}
+      <Dialog open={renegociarDialog} onOpenChange={(open) => { if (!processandoRenegociacao) setRenegociarDialog(open) }}>
+        <DialogContent className="sm:max-w-lg rounded-2xl border-border max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-extrabold text-foreground tracking-tight flex items-center gap-2">
+              <RefreshCw size={18} className="text-[#FA903E]" />
+              Renegociar Empréstimo
+            </DialogTitle>
+            <DialogDescription>
+              Saldo em aberto: <strong className="text-foreground">{formatarMoeda(saldoParaRenegociar())}</strong> — contrato {emprestimo.numero_contrato}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Tipo de renegociação */}
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setRenegociarTipo('diluir_atraso')}
+                className={cn(
+                  'rounded-xl border-2 p-3 text-left transition-all',
+                  renegociarTipo === 'diluir_atraso' ? 'border-[#FA903E] bg-[#FEF0E1]/40' : 'border-border/60 hover:border-border',
+                )}
+              >
+                <ArrowRightCircle size={16} className={renegociarTipo === 'diluir_atraso' ? 'text-[#FA903E]' : 'text-muted-foreground'} />
+                <p className="text-xs font-bold text-foreground mt-1.5">Diluir atraso</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">Some o atrasado nas próximas parcelas</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenegociarTipo('nova_tabela')}
+                className={cn(
+                  'rounded-xl border-2 p-3 text-left transition-all',
+                  renegociarTipo === 'nova_tabela' ? 'border-[#1A73E8] bg-[#E8F0FE]/40' : 'border-border/60 hover:border-border',
+                )}
+              >
+                <RefreshCw size={16} className={renegociarTipo === 'nova_tabela' ? 'text-[#1A73E8]' : 'text-muted-foreground'} />
+                <p className="text-xs font-bold text-foreground mt-1.5">Nova tabela</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">Esticar prazo ou quebrar em mais parcelas</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenegociarTipo('desconto_quitacao')}
+                className={cn(
+                  'rounded-xl border-2 p-3 text-left transition-all',
+                  renegociarTipo === 'desconto_quitacao' ? 'border-[#34A853] bg-[#E6F4EA]/40' : 'border-border/60 hover:border-border',
+                )}
+              >
+                <Percent size={16} className={renegociarTipo === 'desconto_quitacao' ? 'text-[#34A853]' : 'text-muted-foreground'} />
+                <p className="text-xs font-bold text-foreground mt-1.5">Desconto de quitação</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">Encerra o contrato hoje com desconto</p>
+              </button>
+            </div>
+
+            {renegociarTipo === 'diluir_atraso' ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Juros sobre o valor atrasado (% opcional)</Label>
+                  <Input type="number" step="0.01" min={0} value={renegJurosDiluir} onChange={e => setRenegJurosDiluir(e.target.value)} placeholder="0" className="h-10" />
+                </div>
+                {(() => {
+                  const atrasadas = parcelas.filter(p => p.status === 'atrasado')
+                  if (atrasadas.length === 0) {
+                    return (
+                      <div className="rounded-xl border border-border/60 bg-muted/20 p-3.5">
+                        <p className="text-xs text-muted-foreground">Este contrato não tem parcelas atrasadas no momento.</p>
+                      </div>
+                    )
+                  }
+                  const totalAtrasado = atrasadas.reduce((s, p) => s + (p.valor ?? 0) + (p.juros_mora ?? 0) + (p.multa ?? 0) - (p.valor_pago ?? 0), 0)
+                  const jurosPct = renegJurosDiluir ? Number(renegJurosDiluir.replace(',', '.')) : 0
+                  const totalComJuros = Math.round(totalAtrasado * (1 + jurosPct / 100) * 100) / 100
+                  const pendentes = parcelas.filter(p => p.status === 'pendente')
+                  const porParcela = pendentes.length > 0 ? totalComJuros / pendentes.length : totalComJuros
+                  return (
+                    <div className="rounded-xl border border-[#FA903E]/20 bg-[#FEF0E1]/30 p-3.5 space-y-1.5">
+                      <p className="text-[10px] font-bold text-[#B06400] uppercase tracking-wider">Prévia da diluição</p>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">{atrasadas.length} parcela(s) atrasada(s)</span>
+                        <span className="font-bold text-foreground">{formatarMoeda(totalAtrasado)}</span>
+                      </div>
+                      {jurosPct > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Com {jurosPct}% de juros</span>
+                          <span className="font-bold text-foreground">{formatarMoeda(totalComJuros)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">
+                          {pendentes.length > 0 ? `Somado em ${pendentes.length} parcela(s) pendente(s)` : 'Nova parcela extra (não há pendentes)'}
+                        </span>
+                        <span className="font-bold text-[#B06400]">+{formatarMoeda(porParcela)}{pendentes.length > 0 ? ' cada' : ''}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </>
+            ) : renegociarTipo === 'nova_tabela' ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Novo prazo (meses)</Label>
+                    <Input type="number" min={1} value={renegNovoPrazo} onChange={e => setRenegNovoPrazo(e.target.value)} className="h-10" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Taxa de juros (% a.m.)</Label>
+                    <Input type="number" step="0.01" value={renegNovaTaxa} onChange={e => setRenegNovaTaxa(e.target.value)} className="h-10" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">1ª parcela nova em</Label>
+                  <Input type="date" value={renegDataInicio} onChange={e => setRenegDataInicio(e.target.value)} className="h-10" />
+                </div>
+
+                {(() => {
+                  const saldo = saldoParaRenegociar()
+                  const prazo = parseInt(renegNovoPrazo)
+                  const taxa = renegNovaTaxa ? Number(renegNovaTaxa.replace(',', '.')) : emprestimo.taxa_juros
+                  if (!prazo || prazo < 1 || saldo <= 0) return null
+                  const preview = calcularJurosCompostos(saldo, taxa, prazo, new Date(renegDataInicio + 'T12:00:00'))
+                  if (preview.tabela.length === 0) return null
+                  return (
+                    <div className="rounded-xl border border-[#1A73E8]/20 bg-[#E8F0FE]/30 p-3.5 space-y-1.5">
+                      <p className="text-[10px] font-bold text-[#1A73E8] uppercase tracking-wider">Prévia da nova tabela</p>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Nova parcela</span>
+                        <span className="font-bold text-foreground">{prazo}x de {formatarMoeda(preview.valor_parcela)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Total a pagar</span>
+                        <span className="font-bold text-foreground">{formatarMoeda(preview.total_pagar)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Juros no novo prazo</span>
+                        <span className="font-semibold text-[#B06000]">{formatarMoeda(preview.total_juros)}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Valor da quitação (R$)</Label>
+                  <Input
+                    type="number" step="0.01" min={0}
+                    value={renegValorQuitacao}
+                    onChange={e => setRenegValorQuitacao(e.target.value)}
+                    placeholder="0,00"
+                    className="h-10"
+                  />
+                </div>
+                {(() => {
+                  const saldo = saldoParaRenegociar()
+                  const valor = Number(renegValorQuitacao.replace(',', '.'))
+                  if (!valor || valor <= 0 || saldo <= 0) return null
+                  const desconto = saldo - valor
+                  const pct = saldo > 0 ? (desconto / saldo) * 100 : 0
+                  return (
+                    <div className={cn(
+                      'rounded-xl border p-3.5 space-y-1.5',
+                      desconto >= 0 ? 'border-[#34A853]/20 bg-[#E6F4EA]/30' : 'border-[#EA4335]/20 bg-[#FCE8E6]/30',
+                    )}>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Saldo em aberto</span>
+                        <span className="font-bold text-foreground">{formatarMoeda(saldo)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Desconto concedido</span>
+                        <span className={cn('font-bold', desconto >= 0 ? 'text-[#137333]' : 'text-[#C5221F]')}>
+                          {formatarMoeda(desconto)} ({pct.toFixed(1)}%)
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </>
+            )}
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Motivo / observação</Label>
+              <Textarea
+                value={renegMotivo}
+                onChange={e => setRenegMotivo(e.target.value)}
+                placeholder="Ex: Cliente perdeu o emprego, acordado novo prazo..."
+                rows={2}
+                className="resize-none"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setRenegociarDialog(false)}
+              disabled={processandoRenegociacao}
+              className="rounded-full font-semibold border-border"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={confirmarRenegociacao}
+              disabled={processandoRenegociacao}
+              className="text-white rounded-full bg-[#FA903E] hover:bg-[#E07E2E] font-semibold"
+            >
+              {processandoRenegociacao ? 'Processando...' : 'Confirmar Renegociação'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Quitar antecipadamente */}
       <ConfirmDialog

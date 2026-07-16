@@ -84,7 +84,10 @@ export default function AnaliseCreditoPage() {
   }
 
   function formatarDocRecente(chave: string) {
-    const [tipo, doc] = chave.split(':')
+    // Chave tem o formato `tipo:vN:documento` (versionada) ou `tipo:documento` (legado)
+    const partes = chave.split(':')
+    const tipo = partes[0]
+    const doc = partes[partes.length - 1]
     if (!doc) return chave
     return tipo === 'pf' ? formatCpf(doc) : formatCnpj(doc)
   }
@@ -160,7 +163,7 @@ export default function AnaliseCreditoPage() {
                   return (
                     <button
                       key={r.chave}
-                      onClick={() => analisar(r.chave.split(':')[1])}
+                      onClick={() => analisar(r.chave.split(':').pop()!)}
                       className="w-full px-5 py-3.5 flex items-center gap-3 hover:bg-muted/40 transition-colors text-left"
                     >
                       <div className="w-8 h-8 rounded-full bg-muted/60 border border-border/40 flex items-center justify-center shrink-0">

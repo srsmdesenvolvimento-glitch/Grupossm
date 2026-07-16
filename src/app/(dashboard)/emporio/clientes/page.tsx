@@ -29,6 +29,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { toast } from 'sonner'
+import { linkWhatsApp } from '@/lib/utils/validators'
 import { formatarCPF, formatarTelefone, iniciais } from '@/lib/utils/formatters'
 import { buscarRelatorioAssertiva } from '@/lib/assertiva/client'
 import type { RelatorioCompleto } from '@/lib/assertiva/types'
@@ -168,10 +169,27 @@ export default function ClientesPage() {
       toast.error('Informe um CPF ou CNPJ válido de 11 ou 14 dígitos')
       return
     }
+
+    // Cada consulta na Assertiva é cobrada, e esta tela não tem um cliente
+    // salvo ainda pra guardar a data da última consulta no banco (como
+    // clientes/[id] faz). O cooldown de 6h aqui é por sessionStorage,
+    // chaveado pelo documento, pra não deixar clicar "Consultar API" várias
+    // vezes seguidas pro mesmo CPF/CNPJ e gerar cobranças duplicadas.
+    const chaveCooldown = `assertiva_consulta_${doc}`
+    const ultimaConsulta = Number(sessionStorage.getItem(chaveCooldown) ?? 0)
+    const decorridoMs = Date.now() - ultimaConsulta
+    const COOLDOWN_MS = 6 * 60 * 60 * 1000
+    if (ultimaConsulta && decorridoMs < COOLDOWN_MS) {
+      const horasRestantes = Math.ceil((COOLDOWN_MS - decorridoMs) / (60 * 60 * 1000))
+      toast.error(`Este documento já foi consultado recentemente. Tente novamente em ${horasRestantes}h.`)
+      return
+    }
+
     setBuscandoAssertiva(true)
     try {
       const tipo = doc.length === 11 ? 'pf' : 'pj'
       const { data, erro } = await buscarRelatorioAssertiva(doc, tipo)
+      sessionStorage.setItem(chaveCooldown, String(Date.now()))
       if (erro || !data) {
         toast.error(erro ?? 'Nenhum dado retornado da Assertiva')
         return
@@ -311,7 +329,7 @@ export default function ClientesPage() {
     setDadosAssertiva((cliente as any).dados_assertiva ?? null)
     reset({
       nome: cliente.nome,
-      cpf: cliente.cpf ? maskCPF(cliente.cpf) : '',
+      cpf: cliente.cpf ? (cliente.cpf.replace(/\D/g, '').length > 11 ? maskCNPJ(cliente.cpf) : maskCPF(cliente.cpf)) : '',
       rg: cliente.rg ?? '',
       data_nascimento: cliente.data_nascimento ?? '',
       telefone: cliente.telefone ? maskPhone(cliente.telefone) : '',
@@ -406,13 +424,18 @@ export default function ClientesPage() {
   const now = new Date()
   const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1)
 
-  const filtrados = clientes.filter(
-    (c) =>
-      busca === '' ||
-      [c.nome, c.cpf ?? '', c.telefone].some((v) =>
-        v.toLowerCase().includes(busca.toLowerCase()),
-      ),
-  )
+  // CPF e telefone são guardados só com dígitos no banco. Comparar direto
+  // com o texto digitado (que pode ter pontos/traço/parênteses, ex: cole de
+  // outro lugar) nunca batia — o cliente existia mas a busca não achava, e
+  // a pessoa acabava cadastrando de novo. Aqui a busca por dígitos ignora
+  // a formatação dos dois lados.
+  const buscaDigits = busca.replace(/\D/g, '')
+  const filtrados = clientes.filter((c) => {
+    if (busca === '') return true
+    if (c.nome.toLowerCase().includes(busca.toLowerCase())) return true
+    if (buscaDigits && ((c.cpf ?? '').includes(buscaDigits) || c.telefone.includes(buscaDigits))) return true
+    return false
+  })
 
   const totalClientes = clientes.length
   const novosMes = clientes.filter((c) => new Date(c.created_at) >= inicioMes).length
@@ -496,7 +519,9 @@ export default function ClientesPage() {
             className="h-7 w-7 p-0 text-green-600 hover:text-green-700"
             onClick={(e) => {
               e.stopPropagation()
-              window.open(`https://wa.me/55${row.telefone.replace(/\D/g, '')}`, '_blank')
+              const url = linkWhatsApp(row.telefone)
+              if (!url) { toast.error('Telefone inválido ou não cadastrado'); return }
+              window.open(url, '_blank')
             }}
             title="WhatsApp"
           >

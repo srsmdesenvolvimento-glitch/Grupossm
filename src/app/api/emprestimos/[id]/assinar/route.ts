@@ -10,7 +10,7 @@ export async function POST(
   try {
     const { id } = await params
     const body = await request.json()
-    const { selfie, documento, assinatura, geolocation } = body
+    const { token, selfie, documento, assinatura, geolocation } = body
 
     if (!selfie || !documento || !assinatura) {
       return NextResponse.json(
@@ -33,6 +33,15 @@ export async function POST(
     if (empError || !emprestimo) {
       return NextResponse.json({ erro: 'Contrato não localizado.' }, { status: 404 })
     }
+
+    // Sem isso, qualquer pessoa com o UUID do empréstimo (não é segredo —
+    // aparece em URLs internas do sistema) conseguiria assinar o contrato no
+    // lugar do cliente de verdade, enviando selfie/documento/assinatura
+    // forjados. O token só é conhecido por quem recebeu o link de assinatura.
+    if (!token || token !== emprestimo.assinatura_token) {
+      return NextResponse.json({ erro: 'Link de assinatura inválido ou expirado.' }, { status: 403 })
+    }
+
     if (parcError || !parcelas) {
       return NextResponse.json({ erro: 'Parcelas do contrato não localizadas.' }, { status: 500 })
     }

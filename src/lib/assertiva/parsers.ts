@@ -4,7 +4,55 @@ import type {
   RelatorioTelefone, RelatorioEmail, RelatorioParticipacao,
   RelatorioSocio, RelatorioConsultaAnterior, RelatorioScoreDetalhado,
   RelatorioVeiculo, RelatorioVinculo,
+  RelatorioRedeSocial, RelatorioRegistroProfissional, RelatorioSegmentoConsulta,
+  RelatorioHistoricoProfissional,
+  Analise360ResultadoPJ, Analise360ResultadoPF, Analise360Imovel,
+  Analise360Reputacao, Analise360Movimentacao, Analise360Concorrencia,
 } from './types'
+
+// Telefones/endereços/emails "adicionados" vêm de um mecanismo à parte da Assertiva
+// (anotados via /meu-portal, não localizados automaticamente) — hoje sempre vazios
+// pra nós porque nunca usamos aqueles endpoints, mas são contatos válidos assim que
+// passarmos a preencher o Meu Portal, então já mesclamos por precaução.
+function extrairTelefones(rawTels: any, rawAdicionados: any): RelatorioTelefone[] {
+  const tels: RelatorioTelefone[] = []
+  for (const t of (rawTels?.moveis ?? [])) {
+    tels.push({ ddd: t.ddd ?? '', numero: t.numero ?? '', tipo: 'Celular', whatsapp: t.aplicativos?.whatsApp ?? false, operadora: t.operadora })
+  }
+  for (const t of (rawTels?.fixos ?? [])) {
+    tels.push({ ddd: t.ddd ?? '', numero: t.numero ?? '', tipo: 'Fixo', whatsapp: t.aplicativos?.whatsAppBusiness ?? false, operadora: t.operadora })
+  }
+  for (const t of (rawAdicionados?.moveis ?? [])) {
+    tels.push({ numero: t.numero ?? '', tipo: 'Celular (adicionado)', whatsapp: t.aplicativos?.whatsApp ?? false })
+  }
+  for (const t of (rawAdicionados?.fixos ?? [])) {
+    tels.push({ numero: t.numero ?? '', tipo: 'Fixo (adicionado)', whatsapp: false })
+  }
+  return tels
+}
+
+function extrairRedesSociais(raw: any): RelatorioRedeSocial[] {
+  return (raw ?? []).map((r: any) => ({ nome: r.nome, url: r.url }))
+}
+
+function extrairRegistrosProfissionais(raw: any): RelatorioRegistroProfissional[] {
+  return (raw ?? []).map((r: any) => ({
+    profissao: r.profissao,
+    sigla: r.sigla,
+    situacao: r.situacao,
+    uf: r.uf,
+    numero_inscricao: r.numeroInscricao,
+    data_inscricao: formatarDataParaIso(r.dataInscricao),
+    faixa_salarial: r.faixaSalarial,
+  }))
+}
+
+function extrairSegmentosConsulta(historico: any): { total?: number; segmentos: RelatorioSegmentoConsulta[] } {
+  return {
+    total: historico?.quantidadeTotal,
+    segmentos: (historico?.segmentos ?? []).map((s: any) => ({ segmento: s.segmento, quantidade: s.quantidade })),
+  }
+}
 
 export function formatarDataParaIso(dataStr?: string): string | undefined {
   if (!dataStr) return undefined
@@ -24,28 +72,9 @@ export function parseLocalizePf(raw: any) {
   const resp = raw.resposta ?? raw
   const cad  = resp.dadosCadastrais ?? resp.cadastro ?? resp
 
-  const tels: RelatorioTelefone[] = []
-  const rawTels = resp.telefones ?? cad.telefones
-  if (rawTels) {
-    for (const t of (rawTels.moveis ?? [])) {
-      tels.push({
-        ddd: t.ddd ?? '', numero: t.numero ?? '',
-        tipo: 'Celular',
-        whatsapp: t.aplicativos?.whatsApp ?? false,
-        operadora: t.operadora,
-      })
-    }
-    for (const t of (rawTels.fixos ?? [])) {
-      tels.push({
-        ddd: t.ddd ?? '', numero: t.numero ?? '',
-        tipo: 'Fixo',
-        whatsapp: t.aplicativos?.whatsAppBusiness ?? false,
-        operadora: t.operadora,
-      })
-    }
-  }
+  const tels = extrairTelefones(resp.telefones ?? cad.telefones, resp.telefonesAdicionados)
 
-  const ends: RelatorioEndereco[] = (resp.enderecos ?? []).map((e: any) => ({
+  const ends: RelatorioEndereco[] = [...(resp.enderecos ?? []), ...(resp.enderecosAdicionados ?? [])].map((e: any) => ({
     logradouro: [e.tipoLogradouro, e.logradouro].filter(Boolean).join(' '),
     numero: e.numero?.toString(),
     complemento: e.complemento,
@@ -57,7 +86,7 @@ export function parseLocalizePf(raw: any) {
     data_inclusao: formatarDataParaIso(e.dataInclusao ?? e.dataAtualizacao),
   }))
 
-  const emails: RelatorioEmail[] = (resp.emails ?? []).map((e: any) => ({
+  const emails: RelatorioEmail[] = [...(resp.emails ?? []), ...(resp.emailsAdicionados ?? [])].map((e: any) => ({
     email: e.email,
     tipo: e.tipo,
     score: e.score,
@@ -72,6 +101,15 @@ export function parseLocalizePf(raw: any) {
     situacao: p.situacao,
   }))
 
+  const historicoProfissional: RelatorioHistoricoProfissional[] = (resp.possivelHistoricoProfissional ?? []).map((h: any) => ({
+    empresa: h.razaoSocial,
+    cnpj: h.cnpj,
+    cargo: h.cboDescricao,
+    setor: h.setor,
+    data_registro: formatarDataParaIso(h.dataRegistro),
+    renda_estimada: h.rendaEstimada ? parseFloat(h.rendaEstimada) : undefined,
+    faixa_salarial: h.faixaSalarial,
+  }))
   const histProf = resp.possivelHistoricoProfissional?.[0] ?? {}
   const ocupacao = cad.ocupacao ?? cad.profissao ?? histProf.cboDescricao
   const rendaEstimada = histProf.rendaEstimada ? parseFloat(histProf.rendaEstimada) : undefined
@@ -91,18 +129,13 @@ export function parseLocalizePf(raw: any) {
     uf: v.uf,
   }))
 
-  const vinculos: RelatorioVinculo[] = (resp.vinculos ?? resp.possiveisParentes ?? resp.parentes ?? []).map((v: any) => ({
-    nome: v.nome,
-    cpf: v.cpf,
-    tipo: v.tipo ?? v.parentesco,
-    parentesco: v.parentesco,
-    data: v.data,
-  }))
+  const segmentos = extrairSegmentosConsulta(resp.historicoConsultasPorSegmento)
 
   return {
     nome: cad.nome,
     nome_mae: cad.maeNome ?? cad.mae ?? cad.nomeMae,
-    nome_pai: cad.paiNome ?? cad.pai ?? cad.nomePai,
+    mae_cpf: cad.maeCpf,
+    mae_data_nascimento: formatarDataParaIso(cad.maeDataNascimento),
     data_nascimento: formatarDataParaIso(cad.dataNascimento),
     sexo: cad.sexo,
     situacao_cpf: cad.situacaoCadastral,
@@ -119,9 +152,13 @@ export function parseLocalizePf(raw: any) {
     enderecos: ends,
     telefones: tels,
     emails,
+    redes_sociais: extrairRedesSociais(resp.redesSociais),
+    registros_profissionais: extrairRegistrosProfissionais(resp.registrosProfissionais),
+    historico_profissional: historicoProfissional,
+    total_consultas_mercado: segmentos.total,
+    segmentos_consulta: segmentos.segmentos,
     participacoes_societarias: parts,
     veiculos,
-    vinculos,
   }
 }
 
@@ -131,26 +168,9 @@ export function parseLocalizePj(raw: any) {
   const resp = raw.resposta ?? raw
   const cad  = resp.dadosCadastrais ?? resp.cadastro ?? resp
 
-  const tels: RelatorioTelefone[] = []
-  const rawTels = resp.telefones ?? cad.telefones
-  if (rawTels) {
-    for (const t of (rawTels.moveis ?? [])) {
-      tels.push({
-        ddd: t.ddd ?? '', numero: t.numero ?? '',
-        tipo: 'Celular',
-        whatsapp: t.aplicativos?.whatsApp ?? false,
-      })
-    }
-    for (const t of (rawTels.fixos ?? [])) {
-      tels.push({
-        ddd: t.ddd ?? '', numero: t.numero ?? '',
-        tipo: 'Fixo',
-        whatsapp: t.aplicativos?.whatsAppBusiness ?? false,
-      })
-    }
-  }
+  const tels = extrairTelefones(resp.telefones ?? cad.telefones, resp.telefonesAdicionados)
 
-  const ends: RelatorioEndereco[] = (resp.enderecos ?? []).map((e: any) => ({
+  const ends: RelatorioEndereco[] = [...(resp.enderecos ?? []), ...(resp.enderecosAdicionados ?? [])].map((e: any) => ({
     logradouro: [e.tipoLogradouro, e.logradouro].filter(Boolean).join(' '),
     numero: e.numero?.toString(),
     complemento: e.complemento,
@@ -162,15 +182,15 @@ export function parseLocalizePj(raw: any) {
     data_inclusao: formatarDataParaIso(e.dataInclusao ?? e.dataAtualizacao),
   }))
 
-  const emails: RelatorioEmail[] = (resp.emails ?? []).map((e: any) => ({
+  const emails: RelatorioEmail[] = [...(resp.emails ?? []), ...(resp.emailsAdicionados ?? [])].map((e: any) => ({
     email: e.email,
     tipo: e.tipo,
     score: e.score,
   }))
 
   const socios: RelatorioSocio[] = (resp.socios ?? resp.participacoesEmpresas ?? []).map((s: any) => ({
-    nome: s.nome ?? s.razaoSocial,
-    documento: s.cpf ?? s.cnpj,
+    nome: s.nome ?? s.razaoSocial ?? s.nomeOuRazaoSocial,
+    documento: s.documento ?? s.cpf ?? s.cnpj,
     participacao: s.participacao,
     cargo: s.cargo ?? s.qualificacao,
     data_entrada: s.dataEntrada,
@@ -192,13 +212,7 @@ export function parseLocalizePj(raw: any) {
     uf: v.uf,
   }))
 
-  const vinculos: RelatorioVinculo[] = (resp.vinculos ?? resp.possiveisParentes ?? resp.parentes ?? []).map((v: any) => ({
-    nome: v.nome,
-    cpf: v.cpf,
-    tipo: v.tipo ?? v.parentesco,
-    parentesco: v.parentesco,
-    data: v.data,
-  }))
+  const segmentos = extrairSegmentosConsulta(resp.historicoConsultasPorSegmento)
 
   return {
     razao_social: cad.razaoSocial,
@@ -217,9 +231,291 @@ export function parseLocalizePj(raw: any) {
     enderecos: ends,
     telefones: tels,
     emails,
+    redes_sociais: extrairRedesSociais(resp.redesSociais),
+    total_consultas_mercado: segmentos.total,
+    segmentos_consulta: segmentos.segmentos,
     veiculos,
-    vinculos,
   }
+}
+
+// ─── Parser: Score/Crédito (Análise 360) → score, negativações, protestos, ──
+// ações, cheques, renda/faturamento presumido. Confirmado por contrato + teste
+// ao vivo em 2026-07-14: este é o produto REALMENTE contratado para dados
+// financeiros — NÃO é o Mix (que retorna 403, fora do plano). Endpoints:
+// GET /score/v3/pf/credito/{cpf}?acoes=true&positivo=true&idFinalidade=2
+// GET /score/v3/pj/credito/{cnpj}?acoes=true&idFinalidade=2
+function extrairListaComTotais(bloco: any): { list: any[]; qtd?: number; valorTotal?: number } {
+  if (!bloco || Array.isArray(bloco)) return { list: Array.isArray(bloco) ? bloco : [] }
+  return {
+    list: bloco.list ?? [],
+    qtd: bloco.qtdDebitos ?? bloco.qtdProtestos ?? bloco.qtdAcoes ?? bloco.qtdCheques ?? bloco.list?.length,
+    valorTotal: typeof bloco.valorTotal === 'number' ? bloco.valorTotal : undefined,
+  }
+}
+
+export function parseScoreCredito(raw: any, tipo: 'pf' | 'pj'): Partial<RelatorioCompleto> {
+  if (!raw) return {}
+  const resp = raw.resposta ?? {}
+  const scoreRaw = resp.score ?? {}
+
+  const scoreDetalhado: RelatorioScoreDetalhado = {
+    pontos: scoreRaw.pontos,
+    classe: scoreRaw.classe,
+    faixa_titulo: scoreRaw.faixa?.titulo,
+    faixa_descricao: scoreRaw.faixa?.descricao,
+    cadastro_positivo: scoreRaw.cadastroPositivo ? {
+      suspenso: scoreRaw.cadastroPositivo.suspenso,
+      atrasoConsumo: scoreRaw.cadastroPositivo.atrasoConsumo,
+      atrasoRecente: scoreRaw.cadastroPositivo.atrasoRecente,
+      relacionamentoCC: scoreRaw.cadastroPositivo.relacionamentoCC,
+      comprometimentoRenda: scoreRaw.cadastroPositivo.comprometimentoRenda,
+    } : undefined,
+  }
+
+  const debitos = extrairListaComTotais(resp.registrosDebitos)
+  const negativacoes: RelatorioNegativacao[] = debitos.list.map((d: any) => ({
+    credor: d.credor,
+    valor: d.valor,
+    data: formatarDataParaIso(d.dataInclusao ?? d.dataVencimento),
+    contrato: d.contrato?.toString(),
+    tipo: d.tipoDebito,
+    origem: d.tipoDevedor?.titulo,
+    cidade: d.cidade,
+    uf: d.uf,
+  }))
+
+  const protestosRaw = extrairListaComTotais(resp.protestosPublicos)
+  const protestos: RelatorioProtesto[] = protestosRaw.list.map((p: any) => ({
+    cartorio: p.cartorio?.toString(),
+    valor: p.valor,
+    data: formatarDataParaIso(p.data),
+    municipio: p.cidade,
+    uf: p.uf,
+  }))
+
+  // `acoes` vem como irmão de `resposta` (não dentro dela) quando acoes=true é passado
+  const acoesRaw = extrairListaComTotais(raw.acoes)
+  const acoesJudiciais: RelatorioAcaoJudicial[] = acoesRaw.list.map((a: any) => ({
+    tipo: a.tipo?.titulo ?? a.tipo,
+    descricao: a.tipo?.descricao,
+    valor: a.valor,
+    data: formatarDataParaIso(a.data),
+    vara: a.vara?.toString(),
+    tribunal: a.forum,
+    cidade: a.cidade,
+    uf: a.uf,
+  }))
+
+  const chequesRaw = extrairListaComTotais(resp.cheques)
+  const ccf: RelatorioCcf[] = chequesRaw.list.map((c: any) => ({
+    banco: c.banco,
+    nome_banco: c.nomeBanco,
+    agencia: c.agencia,
+    numero_cheque: c.numeroCheque,
+    data: formatarDataParaIso(c.data),
+    motivo: c.motivoDescricao ?? c.motivo,
+    valor: c.valor,
+  }))
+
+  const consultasRaw = extrairListaComTotais(resp.ultimasConsultas)
+  const consultas: RelatorioConsultaAnterior[] = consultasRaw.list.map((c: any) => ({
+    consultante: c.consultante,
+    data: formatarDataParaIso(c.dataOcorrencia),
+  }))
+
+  const rendaOuFaturamento = tipo === 'pf' ? resp.rendaPresumida?.valor : resp.faturamentoEstimado?.valor
+
+  return {
+    score: scoreDetalhado.pontos,
+    score_detalhado: scoreDetalhado,
+    faixa_risco: scoreDetalhado.classe ? `${scoreDetalhado.classe} — ${scoreDetalhado.faixa_titulo ?? ''}` : scoreDetalhado.faixa_titulo,
+    renda_estimada: tipo === 'pf' ? rendaOuFaturamento : undefined,
+    renda_presumida: tipo === 'pf' ? rendaOuFaturamento : undefined,
+    faturamento_presumido: tipo === 'pj' ? rendaOuFaturamento : undefined,
+
+    negativacoes,
+    total_negativacoes: debitos.qtd ?? negativacoes.length,
+    valor_total_negativacoes: debitos.valorTotal ?? 0,
+
+    protestos,
+    total_protestos: protestosRaw.qtd ?? protestos.length,
+    valor_total_protestos: (typeof protestosRaw.valorTotal === 'number' ? protestosRaw.valorTotal : 0),
+
+    acoes_judiciais: acoesJudiciais,
+    total_acoes_judiciais: acoesRaw.qtd ?? acoesJudiciais.length,
+    valor_total_acoes: acoesRaw.valorTotal ?? 0,
+
+    ccf,
+    total_ccf: chequesRaw.qtd ?? ccf.length,
+
+    consultas_anteriores: consultas,
+    total_consultas_anteriores: consultasRaw.qtd ?? consultas.length,
+  }
+}
+
+// ─── Parser: Histórico de Veículos (produto Veículos) → bens do titular ──────
+// Endpoint /veiculos/v3/historico-veiculos?documento=CPF|CNPJ — fonte dedicada e
+// confiável de veículos no nome da pessoa/empresa (diferente do array incidental
+// `possiveisVeiculos` do Localize, que é apenas uma inferência).
+function limparSufixo(s?: string): string | undefined {
+  if (!s) return undefined
+  return s.replace(/[,\s]+$/, '').trim() || undefined
+}
+
+export function parseHistoricoVeiculos(raw: any): RelatorioVeiculo[] {
+  if (!raw) return []
+  const resp = raw.resposta ?? raw
+  const lista = resp.historicoVeiculos ?? []
+  return lista.map((v: any): RelatorioVeiculo => {
+    const marcaModelo = limparSufixo(v.marcaModelo) ?? ''
+    const [marca, ...resto] = marcaModelo.split('/')
+    return {
+      placa: limparSufixo(v.placa),
+      marca: marca?.trim() || undefined,
+      modelo: resto.join('/').trim() || undefined,
+      ano_fabricacao: v.anoFabricacao != null ? parseInt(v.anoFabricacao, 10) : undefined,
+      ano_modelo: v.anoModelo != null ? parseInt(v.anoModelo, 10) : undefined,
+      cor: limparSufixo(v.cor),
+      tipo: limparSufixo(v.especie),
+      renavam: v.renavam?.toString(),
+      combustivel: limparSufixo(v.combustivel),
+      municipio: limparSufixo(v.cidade),
+      uf: limparSufixo(v.uf),
+    }
+  })
+}
+
+// ─── Mescla veículos do histórico dedicado com os incidentais do Localize ────
+export function mesclarVeiculos(localizeVeiculos: RelatorioVeiculo[] = [], historico: RelatorioVeiculo[] = []): RelatorioVeiculo[] {
+  const porPlaca = new Map<string, RelatorioVeiculo>()
+  for (const v of localizeVeiculos) {
+    const chave = v.placa || JSON.stringify(v)
+    porPlaca.set(chave, v)
+  }
+  for (const v of historico) {
+    const chave = v.placa || JSON.stringify(v)
+    porPlaca.set(chave, { ...porPlaca.get(chave), ...v })
+  }
+  return Array.from(porPlaca.values())
+}
+
+// ─── Parser: Conexões (base-cadastral) → rede de relacionamento ──────────────
+// Endpoint /localize-api/v1/base-cadastral/conexoes. Diferente de /cpf e /cnpj,
+// que NÃO retornam parentes/sócios — essa é a única fonte real de "vínculos"
+// (mãe, pai, cônjuge, irmãos, sócios, empregadores, empresas, convívio familiar).
+// A doc oficial (swagger) sugere resposta agrupada por categoria com um array
+// `conexoes` em cada uma — mas a API real devolve `resposta` como uma LISTA PLANA
+// de conexões (confirmado em teste ao vivo em 2026-07-14). Mantemos as duas formas
+// por segurança, priorizando a real.
+const CATEGORIAS_CONEXOES = [
+  'parentes', 'convivioFamiliar', 'socios', 'empregadores', 'empresas',
+  'decisores', 'socio', 'empresasParticipacao',
+] as const
+
+function mapearConexao(c: any, categoria?: string): RelatorioVinculo {
+  const doc = (c.documento ?? c.cpf ?? c.cnpj ?? '').toString().replace(/\D/g, '')
+  return {
+    nome: c.nomeOuRazaoSocial ?? c.nome,
+    cpf: c.tipoDocumento === 'PF' ? doc : undefined,
+    documento: doc || undefined,
+    documento_tipo: c.tipoDocumento === 'PJ' ? 'PJ' : 'PF',
+    tipo: c.tipoRelacao ?? categoria,
+    parentesco: c.relacao ?? c.cargo,
+    data: c.dataEntrada ?? c.dataAbertura,
+    data_nascimento: formatarDataParaIso(c.dataNascimento),
+    telefone: c.telefone,
+    whatsapp: c.whatsapp,
+  }
+}
+
+export function parseConexoes(raw: any): RelatorioVinculo[] {
+  if (!raw) return []
+  const resp = raw.resposta ?? raw
+  const vinculos: RelatorioVinculo[] = []
+
+  if (Array.isArray(resp)) {
+    for (const c of resp) vinculos.push(mapearConexao(c))
+  } else {
+    for (const categoria of CATEGORIAS_CONEXOES) {
+      const bloco = resp[categoria]
+      const lista = Array.isArray(bloco) ? bloco : (bloco?.conexoes ?? [])
+      for (const c of lista) vinculos.push(mapearConexao(c, categoria))
+    }
+  }
+
+  // Dedup por documento (mesma pessoa pode aparecer em mais de uma categoria)
+  const vistos = new Set<string>()
+  return vinculos.filter(v => {
+    const chave = v.documento || v.nome
+    if (!chave) return true
+    if (vistos.has(chave)) return false
+    vistos.add(chave)
+    return true
+  })
+}
+
+// ─── Parser: Pessoas de Referência (só PF) → fonte extra de vínculos ─────────
+// Endpoint /localize/v3/pessoas-de-referencia — algoritmo diferente do de
+// conexões, então pode achar gente que o outro não achou (ex: empregador).
+// Não traz telefone, só nome/documento/relação/data — por isso é somado ao que
+// já veio de conexões, não substitui.
+export function parsePessoasDeReferencia(raw: any): RelatorioVinculo[] {
+  if (!raw) return []
+  const lista = raw?.resposta?.pessoasDeReferencia ?? []
+  return lista.map((p: any): RelatorioVinculo => {
+    const doc = (p.documento ?? '').toString().replace(/\D/g, '')
+    const ehPj = doc.length === 14
+    return {
+      nome: p.nomeOuRazaoSocial,
+      cpf: ehPj ? undefined : (doc || undefined),
+      documento: doc || undefined,
+      documento_tipo: ehPj ? 'PJ' : 'PF',
+      tipo: p.relacao,
+      parentesco: p.relacao,
+      data_nascimento: ehPj ? undefined : formatarDataParaIso(p.dataNascimentoOuAbertura),
+      data: ehPj ? p.dataNascimentoOuAbertura : undefined,
+    }
+  })
+}
+
+// ─── Mescla vínculos de conexões (fonte principal, mais rica) com os de ─────
+// pessoas-de-referência (fonte extra) — mesma pessoa não aparece duas vezes.
+export function mesclarVinculos(principal: RelatorioVinculo[] = [], extra: RelatorioVinculo[] = []): RelatorioVinculo[] {
+  const vistos = new Set(principal.map(v => v.documento || v.nome).filter(Boolean))
+  const adicionais = extra.filter(v => {
+    const chave = v.documento || v.nome
+    if (!chave || vistos.has(chave)) return false
+    vistos.add(chave)
+    return true
+  })
+  return [...principal, ...adicionais]
+}
+
+// ─── Enriquece vínculos com endereço/email de uma consulta secundária ────────
+// perfis: mapa documento (só dígitos) → dados já parseados (parseLocalizePf/Pj)
+export function enriquecerVinculos(
+  vinculos: RelatorioVinculo[],
+  perfis: Map<string, Record<string, any>>,
+): RelatorioVinculo[] {
+  return vinculos.map(v => {
+    if (!v.documento) return v
+    const perfil = perfis.get(v.documento)
+    if (!perfil) return v
+    return {
+      ...v,
+      nome: v.nome || perfil.nome,
+      telefone: v.telefone || formatarTelefoneVinculo(perfil.telefones?.[0]),
+      email: perfil.emails?.[0]?.email,
+      endereco: perfil.enderecos?.[0],
+      data_nascimento: v.data_nascimento || perfil.data_nascimento,
+      _enriquecido: true,
+    }
+  })
+}
+
+function formatarTelefoneVinculo(t?: { ddd?: string; numero?: string }): string | undefined {
+  if (!t?.numero) return undefined
+  return `${t.ddd ?? ''}${t.numero}`
 }
 
 // ─── Parser: Crédito Mix PF → campos financeiros ─────────────────────────────
@@ -713,4 +1009,171 @@ export function injectSandboxFallback(
   }
 
   return result
+}
+
+// ─── Parser: Análise Comportamental / Análise 360 PJ (webhook, só CNPJ) ──────
+// Payload recebido no callback de /credito/v1/pj. Único produto da Assertiva
+// com dados de imóveis — e apenas para pessoa jurídica.
+const RISCO_POR_ID_RANGE: Record<number, string> = {
+  23: 'A — Baixo risco', 24: 'B — Médio-baixo risco', 25: 'C — Médio risco',
+  26: 'D — Médio-alto risco', 27: 'E — Alto risco', 28: 'F — Altíssimo risco',
+}
+
+export function parseAnalise360PJ(raw: any): Analise360ResultadoPJ {
+  const modulos = raw?.resposta?.modulos ?? {}
+  const im = modulos.imoveis ?? {}
+
+  const imoveis: Analise360Imovel[] = (im.registros ?? []).map((r: any) => ({
+    inscricao: r.inscricao,
+    endereco: r.endereco,
+    valor_terreno: r.valorTerreno,
+    valor_imposto: r.valorImposto,
+    uso_terreno: r.usoTerreno,
+    ano_construcao: r.anoConstrucao,
+    area: r.area,
+    situacao: r.situacao,
+  }))
+
+  const scoreModulo = modulos.score ?? {}
+  const socios = modulos.quadroSocietario?.socios
+  const qtdSocios = modulos.quadroSocietario?.quantidadeTotal ?? (Array.isArray(socios) ? socios.length : undefined)
+
+  const reputacoes: Analise360Reputacao[] = (modulos.reputacoes?.dados ?? []).map((r: any) => ({
+    plataforma: r.tipo,
+    nome: r.nome,
+    nota: r.nota?.valor,
+    nota_maxima: r.nota?.maximo,
+    reputacao: r.reputacao,
+    telefone: r.telefone,
+    endereco: r.endereco,
+    segmento: r.segmento,
+    site: r.site,
+    link_fonte: r.linkFonte,
+  }))
+
+  const movimentacoes: Analise360Movimentacao[] = (modulos.movimentacoes?.detalhamentos ?? []).map((d: any) => ({
+    data: formatarDataParaIso(d.data),
+    titulo: d.titulo,
+    mudancas: (d.mudancas ?? []).map((m: any) => ({ titulo: m.titulo, descricao: m.descricao })),
+  }))
+
+  const concorrenciaModulo = modulos.concorrencias
+  const concorrencia: Analise360Concorrencia | undefined = concorrenciaModulo ? {
+    analise_homonimia: concorrenciaModulo.analiseHomonimia,
+    segmento_atuacao: concorrenciaModulo.segmentoAtuacao,
+    perfil_segmento: concorrenciaModulo.perfilSegmento,
+    tendencia_segmento: (concorrenciaModulo.tendenciaSegmento ?? []).map((t: any) => ({
+      data: t.data, valor: t.valor, descricao: t.descricao,
+    })),
+  } : undefined
+
+  return {
+    tipo: 'pj',
+    quantidade_imoveis: im.quantidadeTotal ?? imoveis.length,
+    imoveis,
+    score: scoreModulo.score,
+    faixa_risco: scoreModulo.idRange ? RISCO_POR_ID_RANGE[scoreModulo.idRange] : undefined,
+    limite_credito_sugerido: modulos.limiteCredito?.valor,
+    quadro_societario_qtd: qtdSocios,
+    antifraude_score: modulos.antifraude?.score,
+    reputacoes: reputacoes.length > 0 ? reputacoes : undefined,
+    movimentacoes: movimentacoes.length > 0 ? movimentacoes : undefined,
+    concorrencia,
+    _raw: raw,
+  }
+}
+
+// ─── Parser: Análise Comportamental / Análise 360 PF (webhook) ───────────────
+// Payload recebido no callback de /credito/v1/pf. Não traz imóveis (só PJ tem),
+// mas traz perfil socioeconômico, dívidas ativas da União, restituição de IRPF,
+// benefícios (INSS etc.), composição domiciliar e limite de crédito sugerido —
+// dados que o Score/Crédito síncrono não tem.
+const RISCO_POR_ID_RANGE_PF: Record<number, string> = {
+  1: 'A — Baixo risco', 2: 'B — Médio-baixo risco', 3: 'C — Médio risco',
+  4: 'D — Médio-alto risco', 5: 'E — Alto risco', 6: 'F — Altíssimo risco',
+}
+
+const STATUS_IRPF: Record<number, string> = {
+  1: 'Imposto a receber por depósito em conta corrente',
+  2: 'Imposto a pagar sem débito automático',
+  3: 'Saldo inexistente — sem imposto a pagar ou restituir',
+  4: 'Imposto a pagar com débito automático',
+}
+
+const PODER_COMPRA: Record<number, string> = {
+  1: 'Baixíssimo', 2: 'Baixo', 3: 'Médio', 4: 'Alto', 5: 'Altíssimo',
+}
+
+const COMPOSICAO_DOMICILIAR: Record<number, string> = {
+  1: 'Residência inclui pais e filhos',
+  2: 'Residência compartilhada por uma grande família',
+  3: 'Residência compartilhada entre adultos',
+  4: 'Residência inclui pais, filhos e avós',
+  5: 'Residência não compartilhada com outras pessoas',
+  6: 'Núcleo domiciliar reduzido',
+}
+
+export function parseAnalise360PF(raw: any): Analise360ResultadoPF {
+  const modulos = raw?.resposta?.modulos ?? {}
+  const perfil = modulos.perfilSocioeconomico
+  const dividasU = modulos.dividasAtivasUniao ?? {}
+  const beneficiosM = modulos.beneficios ?? {}
+  const composicao = modulos.composicaoDomiciliar
+  const restituicao = modulos.restituicaoIRPF
+  const scoreModulo = modulos.score ?? {}
+
+  return {
+    tipo: 'pf',
+    perfil_socioeconomico: perfil ? {
+      classe_social: perfil.classeSocial,
+      faixa_etaria: perfil.faixaEtaria,
+      profissao: perfil.profissao,
+      funcionario_publico: perfil.profissaoFuncionarioPublico,
+      cargo_publico: perfil.profissaoFuncionarioPublicoInfo?.cargo,
+      situacao_cargo_publico: perfil.profissaoFuncionarioPublicoInfo?.situacao,
+      tipo_imovel: perfil.enderecoCidadeTipoImovel,
+      tipo_cidade: perfil.enderecoCidadeTipoImportancia,
+      qtd_empresas_trabalhadas: perfil.profissaoQtdeEmpresasTrabalhadas,
+      empresario_qtd_empresas_abertas: perfil.empresarioQtdeEmpresasAbertas,
+      empresario_tipo: perfil.empresarioTipo,
+      empresario_cnae_atuacao: perfil.empresarioCNAEDescAtuacao,
+      melhoria_moradia: perfil.enderecoMelhoriaMoradia,
+      classe_social_cep: perfil.enderecoClasseSocialCep,
+    } : undefined,
+
+    dividas_uniao: (dividasU.registros ?? []).map((d: any) => ({
+      tipo: d.tipo,
+      numero_inscricao: d.numeroInscricao?.toString(),
+      situacao: d.situacao,
+      uf: d.uf,
+      entidade_responsavel: d.entidadeResponsavel,
+      data: formatarDataParaIso(d.data),
+      valor: d.valor,
+    })),
+    quantidade_dividas_uniao: dividasU.quantidadeTotal,
+    valor_total_dividas_uniao: dividasU.valorTotal,
+
+    limite_credito_sugerido: modulos.limiteCredito?.valor,
+
+    restituicao_irpf_ano: restituicao?.ano,
+    restituicao_irpf_status: restituicao?.idStatus != null ? STATUS_IRPF[restituicao.idStatus] : undefined,
+
+    beneficios: (beneficiosM.registros ?? []).map((b: any) => ({
+      nome: b.nome, data: formatarDataParaIso(b.data), valor: b.valor,
+    })),
+    valor_total_beneficios: beneficiosM.valorTotal,
+
+    composicao_domiciliar: composicao ? {
+      poder_compra: composicao.idPurchasingPower != null ? PODER_COMPRA[composicao.idPurchasingPower] : undefined,
+      composicao: composicao.idHouseholdingSize != null ? COMPOSICAO_DOMICILIAR[composicao.idHouseholdingSize] : undefined,
+      renda_presumida: composicao.rendaPresumida,
+      lider_familia: composicao.isFamilyLeader,
+    } : undefined,
+
+    score: scoreModulo.score,
+    faixa_risco: scoreModulo.idRange != null ? RISCO_POR_ID_RANGE_PF[scoreModulo.idRange] : undefined,
+    antifraude_score: modulos.antifraude?.score,
+
+    _raw: raw,
+  }
 }

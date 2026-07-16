@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useId } from 'react'
 import {
   AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronRight,
   MapPin, Phone, Mail, Car, Building2, Users, Scale, CreditCard,
@@ -9,24 +9,25 @@ import {
   Receipt, FileWarning, Landmark, BadgeAlert, History as HistoryIcon,
 } from 'lucide-react'
 import { SectionCard } from '@/components/shared/SectionCard'
-import { ScoreGauge } from './ScoreGauge'
 import type { RelatorioCompleto, RelatorioEndereco, RelatorioTelefone } from '@/lib/assertiva/types'
-import { formatCpf, formatCnpj, formatTel } from '@/lib/assertiva/client'
+import { formatCpf, formatCnpj, formatTel, faixaRiscoLabel, faixaRiscoColor } from '@/lib/assertiva/client'
 import { formatarMoeda, formatarData } from '@/lib/utils/formatters'
 
 // ─── Section wrapper ─────────────────────────────────────────────────────────
 
 function Section({
-  title, icon: Icon, count, severity, defaultOpen = false, children,
+  title, icon: Icon, count, severity, defaultOpen = true, id, children,
 }: {
   title: string
   icon: React.ElementType
   count?: number
   severity?: 'ok' | 'warn' | 'danger' | 'info'
   defaultOpen?: boolean
+  id?: string
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const panelId = useId()
   const colors = {
     ok:     'text-emerald-600 bg-emerald-500/8 border-emerald-500/25',
     warn:   'text-yellow-600 bg-yellow-500/8 border-yellow-500/25',
@@ -35,22 +36,24 @@ function Section({
   }
   const cls = severity ? colors[severity] : 'text-muted-foreground bg-muted/50 border-border'
   return (
-    <div className={`rounded-xl border ${cls} overflow-hidden`}>
+    <div id={id} className={`rounded-xl border ${cls} overflow-hidden scroll-mt-4`}>
       <button
         onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
         className="w-full flex items-center justify-between px-4 py-3 text-left hover:opacity-80 transition-opacity"
       >
         <div className="flex items-center gap-2.5">
-          <Icon size={15} />
+          <Icon size={15} aria-hidden="true" />
           <span className="text-sm font-semibold">{title}</span>
           {count !== undefined && (
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-current/10">{count}</span>
           )}
         </div>
-        {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        {open ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronRight size={15} aria-hidden="true" />}
       </button>
       {open && (
-        <div className="px-4 pb-4 pt-2 space-y-1.5 border-t border-current/10">{children}</div>
+        <div id={panelId} role="region" aria-label={title} className="px-4 pb-4 pt-2 space-y-1.5 border-t border-current/10">{children}</div>
       )}
     </div>
   )
@@ -85,25 +88,19 @@ function Chip({ children, color }: { children: React.ReactNode; color: string })
   )
 }
 
-// ─── Parecer de Crédito ─────────────────────────────────────────────────────
-
-function parecerCredito(score?: number, totalDividas?: number, pep?: boolean, indicadorObito?: boolean): {
-  label: string
-  desc: string
-  color: string
-  bg: string
-  border: string
-  icon: 'check' | 'warn' | 'x'
-} {
-  if (indicadorObito) return { label: 'Recusar', desc: 'Indicador de óbito registrado.', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-300', icon: 'x' }
-  if (pep) return { label: 'Atenção — PEP', desc: 'Pessoa Politicamente Exposta. Análise especial obrigatória.', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-300', icon: 'warn' }
-  if (score == null) return { label: 'Sem Score', desc: 'Score não disponível. Analise manualmente os dados cadastrais.', color: 'text-gray-600', bg: 'bg-gray-50', border: 'border-gray-200', icon: 'warn' }
-  const dividas = totalDividas ?? 0
-  if (score >= 800 && dividas === 0) return { label: 'Perfil Excelente', desc: 'Score muito alto e sem restrições. Crédito recomendado.', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-300', icon: 'check' }
-  if (score >= 600 && dividas <= 1) return { label: 'Aprovável', desc: 'Perfil com bom score. Avaliar valor e prazo com cautela.', color: 'text-emerald-600', bg: 'bg-emerald-50/70', border: 'border-emerald-200', icon: 'check' }
-  if (score >= 400 && dividas <= 3) return { label: 'Analisar', desc: 'Risco moderado. Exija garantias ou avalista.', color: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-300', icon: 'warn' }
-  if (score >= 300) return { label: 'Alto Risco', desc: 'Score baixo com múltiplas restrições. Garantias sólidas necessárias.', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-300', icon: 'warn' }
-  return { label: 'Recusar', desc: 'Score muito baixo ou muitas restrições. Crédito não recomendado.', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-300', icon: 'x' }
+// Chip clicável — leva direto pro detalhe da pendência (evita ter que rolar a
+// tela procurando a seção certa).
+function ChipButton({ children, color, targetId }: { children: React.ReactNode; color: string; targetId: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full transition-transform hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/40 ${color}`}
+    >
+      {children}
+      <ChevronRight size={11} className="opacity-60" />
+    </button>
+  )
 }
 
 // ─── Main Component ────────────────────────────────────────────────────────
@@ -111,7 +108,6 @@ function parecerCredito(score?: number, totalDividas?: number, pep?: boolean, in
 export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
   const isPf  = relatorio.tipo === 'pf'
   const doc   = isPf ? formatCpf(relatorio.documento) : formatCnpj(relatorio.documento)
-  const mix403 = (relatorio as any)._mix_403 === true
 
   const temNeg   = (relatorio.total_negativacoes ?? 0) > 0
   const temProt  = (relatorio.total_protestos ?? 0) > 0
@@ -119,45 +115,36 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
   const temCcf   = (relatorio.total_ccf ?? 0) > 0
   const limpo    = !temNeg && !temProt && !temAcoes && !temCcf
 
-  const parecer = parecerCredito(relatorio.score, relatorio.total_dividas, relatorio.pep, relatorio.indicador_obito)
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 @container">
 
-
-      {/* ── Parecer de Crédito ────────────────────────────────────────────── */}
-      {!mix403 && (
-        <div className={`flex items-start gap-3 px-4 py-3.5 rounded-xl border ${parecer.bg} ${parecer.border}`}>
-          <div className="shrink-0 mt-0.5">
-            {parecer.icon === 'check' && <CheckCircle size={16} className={parecer.color} />}
-            {parecer.icon === 'warn' && <AlertTriangle size={16} className={parecer.color} />}
-            {parecer.icon === 'x' && <XCircle size={16} className={parecer.color} />}
-          </div>
-          <div>
-            <p className={`text-sm font-bold ${parecer.color}`}>Parecer: {parecer.label}</p>
-            <p className={`text-xs mt-0.5 ${parecer.color} opacity-80`}>{parecer.desc}</p>
-          </div>
-          {relatorio.score != null && (
-            <div className="ml-auto shrink-0 text-right">
-              <p className={`text-xl font-black font-mono ${parecer.color}`}>{relatorio.score}</p>
-              <p className={`text-[10px] font-semibold ${parecer.color} opacity-70`}>Score Assertiva</p>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ── Score Header ──────────────────────────────────────────────────── */}
+      {/* Breakpoints por container (@...), não por viewport — esse componente
+          também é embutido numa sidebar estreita (perfil do cliente), onde
+          sm:/md: do Tailwind disparavam mesmo sem espaço real disponível. */}
       <SectionCard>
-        <div className="flex flex-col sm:flex-row items-center gap-6">
-          {relatorio.score != null && (
-            <div className="shrink-0">
-              <ScoreGauge score={relatorio.score} size={150} />
-            </div>
-          )}
+        <div className="flex flex-col @md:flex-row items-center gap-6">
+          {relatorio.score != null && (() => {
+            const cor = faixaRiscoColor(relatorio.faixa_risco, relatorio.score)
+            return (
+              <div
+                className="shrink-0 w-full @md:w-auto flex items-center justify-center rounded-2xl border px-6 py-5 @md:min-w-[160px]"
+                style={{ backgroundColor: `${cor}0D`, borderColor: `${cor}30` }}
+              >
+                <span
+                  className="px-3.5 py-1.5 rounded-full text-sm font-bold text-center leading-tight max-w-[200px]"
+                  style={{ backgroundColor: `${cor}1A`, color: cor }}
+                >
+                  {faixaRiscoLabel(relatorio.faixa_risco, relatorio.score)}
+                </span>
+              </div>
+            )
+          })()}
 
-          <div className="flex-1 space-y-3 w-full">
+          <div className="flex-1 space-y-3 w-full min-w-0">
             <div>
-              <h2 className="text-lg font-bold leading-tight">
+              <h2 className="text-lg font-bold leading-tight break-words">
                 {relatorio.nome ?? relatorio.razao_social ?? 'Nome não encontrado'}
               </h2>
               {relatorio.nome_fantasia && (
@@ -188,7 +175,7 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
             </div>
 
             {/* Métricas financeiras */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 @sm:grid-cols-2 @lg:grid-cols-3 gap-2">
               {relatorio.renda_estimada != null && (
                 <div className="bg-emerald-500/8 rounded-xl p-3">
                   <p className="text-[10px] text-muted-foreground">Renda Estimada</p>
@@ -216,7 +203,7 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
               {(relatorio.total_dividas ?? 0) > 0 && (
                 <div className="bg-red-500/8 rounded-xl p-3">
                   <p className="text-[10px] text-muted-foreground">Total Dívidas</p>
-                  <p className="text-sm font-bold text-red-600">{formatarMoeda(relatorio.total_dividas!)}</p>
+                  <p className="text-sm font-bold text-red-600">{relatorio.total_dividas} ocorrência{relatorio.total_dividas === 1 ? '' : 's'}</p>
                 </div>
               )}
               {relatorio.valor_total_dividas != null && relatorio.valor_total_dividas > 0 && (
@@ -241,10 +228,10 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
               </div>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {temNeg   && <Chip color="bg-red-500/10 text-red-600"><XCircle size={11} />{relatorio.total_negativacoes} negativações</Chip>}
-                {temProt  && <Chip color="bg-orange-500/10 text-orange-600"><AlertTriangle size={11} />{relatorio.total_protestos} protestos</Chip>}
-                {temAcoes && <Chip color="bg-red-600/10 text-red-700"><Scale size={11} />{relatorio.total_acoes_judiciais} ações jud.</Chip>}
-                {temCcf   && <Chip color="bg-yellow-500/10 text-yellow-600"><CreditCard size={11} />{relatorio.total_ccf} CCF</Chip>}
+                {temNeg   && <ChipButton color="bg-red-500/10 text-red-600" targetId="rel-negativacoes"><XCircle size={11} />{relatorio.total_negativacoes} negativações</ChipButton>}
+                {temProt  && <ChipButton color="bg-orange-500/10 text-orange-600" targetId="rel-protestos"><AlertTriangle size={11} />{relatorio.total_protestos} protestos</ChipButton>}
+                {temAcoes && <ChipButton color="bg-red-600/10 text-red-700" targetId="rel-acoes"><Scale size={11} />{relatorio.total_acoes_judiciais} ações jud.</ChipButton>}
+                {temCcf   && <ChipButton color="bg-yellow-500/10 text-yellow-600" targetId="rel-ccf"><CreditCard size={11} />{relatorio.total_ccf} CCF</ChipButton>}
               </div>
             )}
           </div>
@@ -349,7 +336,7 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
 
         {/* Negativações */}
         {temNeg && (
-          <Section title="Negativações" icon={TrendingDown} count={relatorio.total_negativacoes} severity="danger" defaultOpen>
+          <Section id="rel-negativacoes" title="Negativações" icon={TrendingDown} count={relatorio.total_negativacoes} severity="danger" defaultOpen>
             {(relatorio.valor_total_negativacoes ?? 0) > 0 && (
               <div className="bg-red-500/10 rounded-lg px-3 py-2 mb-2">
                 <span className="text-xs font-bold text-red-600">Total: {formatarMoeda(relatorio.valor_total_negativacoes!)}</span>
@@ -373,7 +360,7 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
 
         {/* Protestos */}
         {temProt && (
-          <Section title="Protestos Cartoriais" icon={AlertTriangle} count={relatorio.total_protestos} severity="warn" defaultOpen>
+          <Section id="rel-protestos" title="Protestos Cartoriais" icon={AlertTriangle} count={relatorio.total_protestos} severity="warn" defaultOpen>
             {(relatorio.valor_total_protestos ?? 0) > 0 && (
               <div className="bg-orange-500/10 rounded-lg px-3 py-2 mb-2">
                 <span className="text-xs font-bold text-orange-600">Total: {formatarMoeda(relatorio.valor_total_protestos!)}</span>
@@ -395,7 +382,7 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
 
         {/* Ações Judiciais */}
         {temAcoes && (
-          <Section title="Ações Judiciais" icon={Scale} count={relatorio.total_acoes_judiciais} severity="danger" defaultOpen>
+          <Section id="rel-acoes" title="Ações Judiciais" icon={Scale} count={relatorio.total_acoes_judiciais} severity="danger" defaultOpen>
             {(relatorio.valor_total_acoes ?? 0) > 0 && (
               <div className="bg-red-500/10 rounded-lg px-3 py-2 mb-2">
                 <span className="text-xs font-bold text-red-600">Total: {formatarMoeda(relatorio.valor_total_acoes!)}</span>
@@ -408,8 +395,9 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
                   <span className="font-bold text-red-700 shrink-0">{a.valor != null ? formatarMoeda(a.valor) : '—'}</span>
                 </div>
                 <p className="text-muted-foreground mt-0.5">
-                  {[a.tribunal, a.vara, a.uf, formatarData(a.data)].filter(Boolean).join(' · ')}
+                  {[a.tribunal, a.vara, a.cidade, a.uf, formatarData(a.data)].filter(Boolean).join(' · ')}
                 </p>
+                {a.descricao && <p className="text-muted-foreground text-[10px] mt-0.5">{a.descricao}</p>}
                 {a.numero && <p className="text-muted-foreground text-[10px] font-mono">Processo: {a.numero}</p>}
                 {(a.polo_ativo || a.polo_passivo) && (
                   <p className="text-muted-foreground text-[10px]">
@@ -424,7 +412,7 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
 
         {/* CCF */}
         {temCcf && (
-          <Section title="CCF — Cheques sem Fundo" icon={FileWarning} count={relatorio.total_ccf} severity="warn">
+          <Section id="rel-ccf" title="CCF — Cheques sem Fundo" icon={FileWarning} count={relatorio.total_ccf} severity="warn" defaultOpen>
             {relatorio.ccf!.map((c: any, i: number) => (
               <div key={i} className="text-xs py-2 border-b border-border/30 last:border-0">
                 <Row label="Banco" value={c.banco ?? c.nome_banco} />
@@ -478,16 +466,75 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
         {/* Vínculos */}
         {(relatorio.vinculos?.length ?? 0) > 0 && (
           <Section title="Vínculos e Relacionamentos" icon={Heart} count={relatorio.vinculos!.length} severity="ok">
-            {relatorio.vinculos!.map((v: any, i: number) => (
-              <div key={i} className="text-xs py-1.5 border-b border-border/30 last:border-0">
-                <div className="flex justify-between items-start gap-2">
-                  <div className="min-w-0">
-                    <span className="font-medium">{v.nome}</span>
-                    {v.cpf && <span className="text-muted-foreground font-mono text-[10px] ml-2">{formatCpf(v.cpf)}</span>}
+            {relatorio.vinculos!.map((v: any, i: number) => {
+              const end = v.endereco
+              const enderecoStr = end
+                ? [[end.logradouro, end.numero].filter(Boolean).join(', '), end.bairro, end.municipio && end.uf ? `${end.municipio}/${end.uf}` : end.municipio].filter(Boolean).join(' - ')
+                : null
+              return (
+                <div key={i} className="text-xs py-1.5 border-b border-border/30 last:border-0">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="min-w-0">
+                      <span className="font-medium">{v.nome}</span>
+                      {(v.documento ?? v.cpf) && <span className="text-muted-foreground font-mono text-[10px] ml-2">{formatCpf(v.documento ?? v.cpf)}</span>}
+                    </div>
+                    <span className="text-muted-foreground shrink-0 ml-2">{v.parentesco ?? v.tipo}</span>
                   </div>
-                  <span className="text-muted-foreground shrink-0 ml-2">{v.tipo ?? v.parentesco}</span>
+                  {v.telefone && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {formatTel(v.telefone)}{v.whatsapp ? ' · WhatsApp' : ''}
+                    </p>
+                  )}
+                  {v.email && <p className="text-[10px] text-muted-foreground">{v.email}</p>}
+                  {enderecoStr && <p className="text-[10px] text-muted-foreground">{enderecoStr}</p>}
+                  {v.data && <p className="text-[10px] text-muted-foreground mt-0.5">Desde {formatarData(v.data)}</p>}
                 </div>
-                {v.data && <p className="text-[10px] text-muted-foreground mt-0.5">Desde {formatarData(v.data)}</p>}
+              )
+            })}
+          </Section>
+        )}
+
+        {/* Redes Sociais */}
+        {(relatorio.redes_sociais?.length ?? 0) > 0 && (
+          <Section title="Redes Sociais" icon={Globe} count={relatorio.redes_sociais!.length} severity="ok">
+            {relatorio.redes_sociais!.map((r, i) => (
+              <div key={i} className="flex justify-between items-center text-xs py-1.5 border-b border-border/30 last:border-0">
+                <span className="font-medium capitalize">{r.nome}</span>
+                {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-[#1A73E8] truncate ml-2 hover:underline">{r.url}</a>}
+              </div>
+            ))}
+          </Section>
+        )}
+
+        {/* Registros Profissionais (CRM, OAB, CREA etc.) */}
+        {(relatorio.registros_profissionais?.length ?? 0) > 0 && (
+          <Section title="Registros Profissionais" icon={GraduationCap} count={relatorio.registros_profissionais!.length} severity="ok">
+            {relatorio.registros_profissionais!.map((r, i) => (
+              <div key={i} className="text-xs py-1.5 border-b border-border/30 last:border-0">
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold">{r.profissao ?? '—'}</span>
+                  <span className="text-muted-foreground shrink-0">{r.sigla} {r.numero_inscricao}</span>
+                </div>
+                <p className="text-muted-foreground text-[10px]">
+                  {[r.situacao, r.uf, r.faixa_salarial, r.data_inscricao && `Desde ${formatarData(r.data_inscricao)}`].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+            ))}
+          </Section>
+        )}
+
+        {/* Histórico Profissional (onde trabalha/trabalhou, via vínculo empregatício) */}
+        {(relatorio.historico_profissional?.length ?? 0) > 0 && (
+          <Section title="Histórico Profissional" icon={Briefcase} count={relatorio.historico_profissional!.length} severity="ok">
+            {relatorio.historico_profissional!.map((h, i) => (
+              <div key={i} className="text-xs py-1.5 border-b border-border/30 last:border-0">
+                <div className="flex justify-between gap-2">
+                  <span className="font-semibold">{h.empresa ?? '—'}</span>
+                  {h.cnpj && <span className="text-muted-foreground font-mono text-[10px] shrink-0">{formatCnpj(h.cnpj)}</span>}
+                </div>
+                <p className="text-muted-foreground text-[10px]">
+                  {[h.cargo, h.setor, h.faixa_salarial, h.data_registro && `Desde ${formatarData(h.data_registro)}`].filter(Boolean).join(' · ')}
+                </p>
               </div>
             ))}
           </Section>
@@ -561,8 +608,18 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
         )}
 
         {/* Consultas Anteriores */}
-        {((relatorio.consultas_anteriores?.length ?? 0) > 0 || (relatorio.total_consultas_anteriores ?? 0) > 0) && (
+        {((relatorio.consultas_anteriores?.length ?? 0) > 0 || (relatorio.total_consultas_anteriores ?? 0) > 0 || (relatorio.total_consultas_mercado ?? 0) > 0) && (
           <Section title="Consultas Anteriores" icon={HistoryIcon} count={relatorio.total_consultas_anteriores ?? relatorio.consultas_anteriores?.length} severity="info">
+            {(relatorio.total_consultas_mercado ?? 0) > 0 && (
+              <div className="text-xs py-1.5 border-b border-border/30">
+                <p className="font-medium">{relatorio.total_consultas_mercado} consulta(s) no mercado por segmento</p>
+                {(relatorio.segmentos_consulta?.length ?? 0) > 0 && (
+                  <p className="text-muted-foreground text-[10px] mt-0.5">
+                    {relatorio.segmentos_consulta!.map(s => `${s.segmento} (${s.quantidade})`).join(' · ')}
+                  </p>
+                )}
+              </div>
+            )}
             {relatorio.consultas_anteriores?.map((c, i) => (
               <div key={i} className="flex justify-between items-center text-xs py-1.5 border-b border-border/30 last:border-0">
                 <span className="font-medium">{c.consultante ?? 'Consultante Não Informado'}</span>

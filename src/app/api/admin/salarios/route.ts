@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireSuperAdmin } from '@/lib/supabase/superAdmin'
 import { z } from 'zod'
 
 const salarioSchema = z.object({
@@ -15,28 +16,11 @@ const salarioSchema = z.object({
   ativo: z.boolean().default(true),
 })
 
-async function assertAdmin(supabase: Awaited<ReturnType<typeof createClient>>, empresa_id?: string) {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  let query = supabase
-    .from('usuario_empresa')
-    .select('papel')
-    .eq('usuario_id', user.id)
-    .eq('papel', 'admin')
-    .eq('ativo', true)
-
-  if (empresa_id) query = query.eq('empresa_id', empresa_id)
-
-  const { data } = await query.limit(1).maybeSingle()
-  return data ? user : null
-}
-
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const user = await assertAdmin(supabase)
-    if (!user) return NextResponse.json({ erro: 'Sem permissão' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const { searchParams } = new URL(request.url)
     const empresa_id = searchParams.get('empresa_id')
@@ -71,8 +55,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ erro: 'Dados inválidos', detalhes: parsed.error.issues }, { status: 400 })
     }
 
-    const user = await assertAdmin(supabase, parsed.data.empresa_id)
-    if (!user) return NextResponse.json({ erro: 'Sem permissão' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const admin = createAdminClient()
     const { data, error } = await admin
@@ -91,8 +75,8 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const user = await assertAdmin(supabase)
-    if (!user) return NextResponse.json({ erro: 'Sem permissão' }, { status: 403 })
+    const auth = await requireSuperAdmin(supabase)
+    if ('erro' in auth) return NextResponse.json({ erro: auth.erro }, { status: auth.status })
 
     const body = await request.json()
     const { id, ...rest } = body
