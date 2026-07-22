@@ -66,19 +66,52 @@ type RascunhoNovoEmprestimo = {
 function calcularJurosSimples(valor: number, taxa: number, n: number, dataInicio: string) {
   if (!valor || !taxa || !n) return { parcela: 0, total: 0, totalJuros: 0, tabela: [] as TabelaLinha[] }
   const i = taxa / 100
-  const amortizacao = valor / n
-  const juros = valor * i  // sempre sobre o principal original
-  const parcela = amortizacao + juros
+  const totalJuros = Number((valor * i * n).toFixed(2))
+  const totalGeral = Number((valor + totalJuros).toFixed(2))
+  
+  const parcelaBase = Number((totalGeral / n).toFixed(2))
+  const amortizacaoBase = Number((valor / n).toFixed(2))
+  const jurosBase = Number((totalJuros / n).toFixed(2))
+  
   const base = new Date(dataInicio || new Date().toISOString().split('T')[0])
   const tabela: TabelaLinha[] = []
+  
+  let somaAmortizacao = 0
+  let somaJuros = 0
+  let somaParcelas = 0
+
   for (let k = 1; k <= n; k++) {
-    const saldo_antes = valor - (k - 1) * amortizacao
-    const saldo_apos = Math.max(0, valor - k * amortizacao)
+    let amort = amortizacaoBase
+    let jur = jurosBase
+    let parc = parcelaBase
+
+    if (k === n) {
+      amort = Number((valor - somaAmortizacao).toFixed(2))
+      jur = Number((totalJuros - somaJuros).toFixed(2))
+      parc = Number((totalGeral - somaParcelas).toFixed(2))
+    }
+
+    somaAmortizacao += amort
+    somaJuros += jur
+    somaParcelas += parc
+
+    const saldo_antes = Number((valor - (somaAmortizacao - amort)).toFixed(2))
+    const saldo_apos = Math.max(0, Number((valor - somaAmortizacao).toFixed(2)))
+    
     const venc = new Date(base)
     venc.setMonth(venc.getMonth() + k)
-    tabela.push({ numero: k, vencimento: venc.toISOString().split('T')[0], principal: amortizacao, juros, parcela, saldo_antes, saldo_apos })
+    tabela.push({
+      numero: k,
+      vencimento: venc.toISOString().split('T')[0],
+      principal: amort,
+      juros: jur,
+      parcela: parc,
+      saldo_antes,
+      saldo_apos,
+    })
   }
-  return { parcela, total: parcela * n, totalJuros: juros * n, tabela }
+
+  return { parcela: parcelaBase, total: totalGeral, totalJuros, tabela }
 }
 
 const defaultVenc = (() => {
@@ -285,95 +318,134 @@ export default function NovoEmprestimoPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const userId = session?.user.id ?? null
-
-      const { count } = await supabase
-        .from('emprestimos')
-        .select('*', { count: 'exact', head: true })
-        .eq('empresa_id', empresaAtual.id)
-      const seq = String((count ?? 0) + 1).padStart(4, '0')
-      const year = new Date().getFullYear()
-      const numero_contrato = `EMP-${year}-${seq}`
       const hojeStr = new Date().toISOString().split('T')[0]
+      const token = typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36)
 
-      const { data: empData, error: empError } = await supabase
-        .from('emprestimos')
-        .insert({
-          empresa_id: empresaAtual.id,
-          numero_contrato,
-          cliente_id: cliente.id,
-          usuario_id: userId,
-          valor_principal: valorNum,
-          taxa_juros: taxaNum,
-          tipo_taxa: 'mensal',
-          prazo_meses: parcelasNum,
-          valor_parcela: resultado.parcela,
-          total_pagar: resultado.total,
-          total_juros: resultado.totalJuros,
-          valor_entrada: 0,
-          saldo_devedor: valorNum,
-          data_primeiro_vencimento: resultado.tabela[0]?.vencimento ?? dataVenc,
-          data_liberacao: hojeStr,
-          data_quitacao: null,
-          observacoes: `[Mora: ${jurosMoraDiarioInput || '0.0333'}% ao dia]${observacoes ? ` ${observacoes}` : ''}`.trim() || null,
-          garantias: garantias || null,
-          documentos: [],
-          status: 'ativo',
-        })
-        .select('id, assinatura_token')
-        .single()
+      let empId: string
+      let numero_contrato: string
+      let finalToken: string = token
 
-      if (empError || !empData) throw empError
-
-      const empId = empData.id
-
-      const parcelasInsert = resultado.tabela.map(row => ({
-        empresa_id: empresaAtual.id,
-        emprestimo_id: empId,
-        cliente_id: cliente.id,
-        numero_parcela: row.numero,
-        total_parcelas: parcelasNum,
-        valor: row.parcela,
-        valor_principal: row.principal,
-        valor_juros: row.juros,
-        saldo_devedor_antes: row.saldo_antes,
-        saldo_devedor_apos: row.saldo_apos,
-        valor_pago: null,
-        data_vencimento: row.vencimento,
-        data_pagamento: null,
-        tipo_pagamento: null,
-        multa: 0,
-        juros_mora: 0,
-        status: 'pendente',
-        observacoes: null,
-      }))
-
-      const { error: pError } = await supabase.from('parcelas_emprestimo').insert(parcelasInsert)
-      if (pError) throw pError
-
-      const { error: caixaError } = await supabase.from('movimentacoes_caixa').insert({
-        empresa_id: empresaAtual.id,
-        usuario_id: userId,
-        tipo: 'saida',
-        categoria: 'liberacao_emprestimo',
-        descricao: `Empréstimo ${numero_contrato} — ${cliente.nome}`,
-        valor: valorNum,
-        referencia_tipo: 'emprestimo',
-        referencia_id: empId,
-        data_movimentacao: hojeStr,
+      // Originação atômica via RPC PostgreSQL (evita corrupção de dados se alguma inserção falhar)
+      const { data: rpcRes, error: rpcError } = await supabase.rpc('originar_emprestimo_factoring', {
+        p_empresa_id: empresaAtual.id,
+        p_cliente_id: cliente.id,
+        p_usuario_id: userId,
+        p_valor_principal: valorNum,
+        p_taxa_juros: taxaNum,
+        p_prazo_meses: parcelasNum,
+        p_valor_parcela: resultado.parcela,
+        p_total_pagar: resultado.total,
+        p_total_juros: resultado.totalJuros,
+        p_data_liberacao: hojeStr,
+        p_data_primeiro_vencimento: resultado.tabela[0]?.vencimento ?? dataVenc,
+        p_tabela_parcelas: resultado.tabela.map(row => ({
+          numero_parcela: row.numero,
+          data_vencimento: row.vencimento,
+          valor: row.parcela,
+          valor_principal: row.principal,
+          valor_juros: row.juros,
+          saldo_devedor: row.saldo_apos,
+        })),
+        p_garantias: garantias || null,
+        p_observacoes: `[Mora: ${jurosMoraDiarioInput || '0.0333'}% ao dia]${observacoes ? ` ${observacoes}` : ''}`.trim() || null,
+        p_sistema_amortizacao: 'PRICE',
+        p_assinatura_token: token,
       })
-      if (caixaError) throw caixaError
 
-      const creditoDisponivel = cliente.credito_disponivel ?? cliente.limite_credito
-      const { error: limitError } = await supabase.from('clientes_factoring').update({
-        credito_utilizado: (cliente.limite_credito - creditoDisponivel) + valorNum,
-        ultima_operacao: hojeStr,
-        total_emprestimos: undefined,
-      }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
-      if (limitError) throw limitError
+      if (!rpcError && rpcRes && rpcRes.length > 0) {
+        empId = rpcRes[0].emprestimo_id
+        numero_contrato = rpcRes[0].numero_contrato
+      } else {
+        // Fallback para inserção cliente se a RPC ainda não tiver sido criada no Supabase pelo usuário
+        const { count } = await supabase
+          .from('emprestimos')
+          .select('*', { count: 'exact', head: true })
+          .eq('empresa_id', empresaAtual.id)
+        const seq = String((count ?? 0) + 1).padStart(4, '0')
+        const year = new Date().getFullYear()
+        numero_contrato = `EMP-${year}-${seq}`
+
+        const { data: empData, error: empError } = await supabase
+          .from('emprestimos')
+          .insert({
+            empresa_id: empresaAtual.id,
+            numero_contrato,
+            cliente_id: cliente.id,
+            usuario_id: userId,
+            valor_principal: valorNum,
+            taxa_juros: taxaNum,
+            tipo_taxa: 'mensal',
+            prazo_meses: parcelasNum,
+            valor_parcela: resultado.parcela,
+            total_pagar: resultado.total,
+            total_juros: resultado.totalJuros,
+            valor_entrada: 0,
+            saldo_devedor: valorNum,
+            data_primeiro_vencimento: resultado.tabela[0]?.vencimento ?? dataVenc,
+            data_liberacao: hojeStr,
+            data_quitacao: null,
+            observacoes: `[Mora: ${jurosMoraDiarioInput || '0.0333'}% ao dia]${observacoes ? ` ${observacoes}` : ''}`.trim() || null,
+            garantias: garantias || null,
+            documentos: [],
+            status: 'ativo',
+          })
+          .select('id, assinatura_token')
+          .single()
+
+        if (empError || !empData) throw empError
+
+        empId = empData.id
+        finalToken = empData.assinatura_token ?? token
+
+        const parcelasInsert = resultado.tabela.map(row => ({
+          empresa_id: empresaAtual.id,
+          emprestimo_id: empId,
+          cliente_id: cliente.id,
+          numero_parcela: row.numero,
+          total_parcelas: parcelasNum,
+          valor: row.parcela,
+          valor_principal: row.principal,
+          valor_juros: row.juros,
+          saldo_devedor_antes: row.saldo_antes,
+          saldo_devedor_apos: row.saldo_apos,
+          valor_pago: null,
+          data_vencimento: row.vencimento,
+          data_pagamento: null,
+          tipo_pagamento: null,
+          multa: 0,
+          juros_mora: 0,
+          status: 'pendente',
+          observacoes: null,
+        }))
+
+        const { error: pError } = await supabase.from('parcelas_emprestimo').insert(parcelasInsert)
+        if (pError) throw pError
+
+        const { error: caixaError } = await supabase.from('movimentacoes_caixa').insert({
+          empresa_id: empresaAtual.id,
+          usuario_id: userId,
+          tipo: 'saida',
+          categoria: 'liberacao_emprestimo',
+          descricao: `Empréstimo ${numero_contrato} — ${cliente.nome}`,
+          valor: valorNum,
+          referencia_tipo: 'emprestimo',
+          referencia_id: empId,
+          data_movimentacao: hojeStr,
+        })
+        if (caixaError) throw caixaError
+
+        const creditoDisponivel = cliente.credito_disponivel ?? cliente.limite_credito
+        const { error: limitError } = await supabase.from('clientes_factoring').update({
+          credito_utilizado: (cliente.limite_credito - creditoDisponivel) + valorNum,
+          ultima_operacao: hojeStr,
+          total_emprestimos: undefined,
+        }).eq('id', cliente.id).eq('empresa_id', empresaAtual.id)
+        if (limitError) throw limitError
+      }
 
       // ── Enviar Link de Assinatura via WhatsApp (independente do PDF) ──
       if (cliente.telefone) {
-        const linkAssinatura = `${window.location.origin}/assinar/${empId}?token=${empData.assinatura_token}`
+        const linkAssinatura = `${window.location.origin}/assinar/${empId}?token=${finalToken}`
         try {
           await fetch('/api/whatsapp/enviar', {
             method: 'POST',

@@ -1,40 +1,39 @@
 import { describe, it, expect } from 'vitest'
+import { verificarPermissao, type Acao } from '../usePermissao'
 
-// Teste da lógica pura de permissão: todos os usuários têm acesso total.
-// O hook usePermissao() retorna sempre true para qualquer ação — sem hierarquia.
-
-type Acao = 'cadastrar' | 'editar' | 'excluir' | 'financeiro' | 'config'
-
-const TODAS_ACOES: Acao[] = ['cadastrar', 'editar', 'excluir', 'financeiro', 'config']
-
-// Lógica pura extraída do hook (sem contexto React)
-function temPermissao(_acao: Acao): boolean {
-  return true
-}
-
-describe('sistema de usuário único (sem hierarquia)', () => {
-  it('retorna true para todas as ações independente de qual seja', () => {
-    for (const acao of TODAS_ACOES) {
-      expect(temPermissao(acao)).toBe(true)
+describe('Matriz de Permissões RBAC (usePermissao)', () => {
+  it('Admin possui acesso total a todas as ações', () => {
+    const acoes: Acao[] = ['cadastrar', 'editar', 'excluir', 'financeiro', 'config']
+    for (const a of acoes) {
+      expect(verificarPermissao('admin', a)).toBe(true)
     }
   })
 
-  it('não bloqueia "excluir" — antes restrito a admins', () => {
-    expect(temPermissao('excluir')).toBe(true)
+  it('Gerente pode cadastrar, editar e ver financeiro, mas não pode excluir ou configurar', () => {
+    expect(verificarPermissao('gerente', 'cadastrar')).toBe(true)
+    expect(verificarPermissao('gerente', 'editar')).toBe(true)
+    expect(verificarPermissao('gerente', 'financeiro')).toBe(true)
+    expect(verificarPermissao('gerente', 'excluir')).toBe(false)
+    expect(verificarPermissao('gerente', 'config')).toBe(false)
   })
 
-  it('não bloqueia "financeiro" — antes restrito a admin e gerente', () => {
-    expect(temPermissao('financeiro')).toBe(true)
+  it('Operador pode cadastrar e editar, mas não tem acesso a financeiro, excluir ou config', () => {
+    expect(verificarPermissao('operador', 'cadastrar')).toBe(true)
+    expect(verificarPermissao('operador', 'editar')).toBe(true)
+    expect(verificarPermissao('operador', 'financeiro')).toBe(false)
+    expect(verificarPermissao('operador', 'excluir')).toBe(false)
+    expect(verificarPermissao('operador', 'config')).toBe(false)
   })
 
-  it('não bloqueia "config" — antes restrito a admins', () => {
-    expect(temPermissao('config')).toBe(true)
+  it('Visualizador tem perfil somente-leitura (retorna false para todas as mutações)', () => {
+    const acoes: Acao[] = ['cadastrar', 'editar', 'excluir', 'financeiro', 'config']
+    for (const a of acoes) {
+      expect(verificarPermissao('visualizador', a)).toBe(false)
+    }
   })
 
-  it('retorna true mesmo sem role definido (usuário sem empresa selecionada)', () => {
-    // No sistema anterior: sem role → retornava false
-    // No sistema atual: sempre true
-    expect(temPermissao('cadastrar')).toBe(true)
-    expect(temPermissao('config')).toBe(true)
+  it('Retorna false se a role for nula ou indefinida', () => {
+    expect(verificarPermissao(null, 'cadastrar')).toBe(false)
+    expect(verificarPermissao(undefined, 'config')).toBe(false)
   })
 })

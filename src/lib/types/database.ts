@@ -409,6 +409,8 @@ export type Emprestimo = {
   assinado_em: string | null
   assinado_ip: string | null
   assinatura_token: string
+  avalistas?: unknown[] | null
+  garantias_detalhadas?: unknown[] | null
   created_at: string
   updated_at: string
 }
