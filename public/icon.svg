@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Card -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)" stroke="#334155" stroke-width="12"/>
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="none" stroke="url(#blue)" stroke-width="8" opacity="0.5"/>
+
+  <!-- Logo Mark S (SRSM) -->
+  <path d="M 340 160 C 340 100, 280 80, 220 80 L 180 80 C 130 80, 100 110, 100 150 C 100 200, 140 220, 230 240 L 280 250 C 370 270, 410 300, 410 360 C 410 420, 360 440, 290 440 L 220 440 C 150 440, 100 410, 90 350 L 165 350 C 175 380, 205 390, 250 390 L 290 390 C 330 390, 345 375, 345 355 C 345 330, 320 315, 240 295 L 190 285 C 110 265, 65 230, 65 160 C 65 95, 120 40, 220 40 L 280 40 C 360 40, 405 90, 410 160 Z" fill="url(#blue)"/>
+  
+  <!-- Accent Shield Dot -->
+  <circle cx="390" cy="110" r="32" fill="url(#gold)"/>
+</svg>
