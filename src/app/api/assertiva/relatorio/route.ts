@@ -168,6 +168,10 @@ export async function POST(request: NextRequest) {
     let creditoSemPermissao = false
     const erros: string[]  = []
 
+    let locResData: any = null
+    let scoreResData: any = null
+    let mensagemErroAssertiva = ''
+
     if (tipo === 'pf') {
       const [locRes, scoreRes, conRes, veiRes, refRes] = await Promise.allSettled([
         callAssertivaApi(`${LOCALIZE_BASE}/cpf?cpf=${doc}&idFinalidade=${ID_FINALIDADE}`, token),
@@ -180,9 +184,10 @@ export async function POST(request: NextRequest) {
       if (locRes.status === 'fulfilled' && locRes.value.ok) {
         localizeRaw = locRes.value.data
       } else {
-        const detail = locRes.status === 'rejected'
-          ? String(locRes.reason)
-          : `HTTP ${locRes.value.status}`
+        const d = locRes.status === 'fulfilled' ? locRes.value.data : null
+        if (d?.resposta) mensagemErroAssertiva = String(d.resposta)
+        else if (d?.message) mensagemErroAssertiva = String(d.message)
+        const detail = d?.resposta || d?.message || (locRes.status === 'rejected' ? String(locRes.reason) : `HTTP ${locRes.status === 'fulfilled' ? locRes.value.status : 0}`)
         erros.push(`Localize CPF: ${detail}`)
         console.error('[Assertiva] Localize CPF error:', detail)
       }
@@ -190,9 +195,12 @@ export async function POST(request: NextRequest) {
       if (scoreRes.status === 'fulfilled' && scoreRes.value.ok) {
         scoreRaw = scoreRes.value.data
       } else {
+        const d = scoreRes.status === 'fulfilled' ? scoreRes.value.data : null
+        if (!mensagemErroAssertiva && d?.resposta) mensagemErroAssertiva = String(d.resposta)
+        else if (!mensagemErroAssertiva && d?.message) mensagemErroAssertiva = String(d.message)
         const st = scoreRes.status === 'fulfilled' ? scoreRes.value.status : 0
         if (st === 403) creditoSemPermissao = true
-        const detail = scoreRes.status === 'rejected' ? String(scoreRes.reason) : `HTTP ${st}`
+        const detail = d?.resposta || d?.message || (scoreRes.status === 'rejected' ? String(scoreRes.reason) : `HTTP ${st}`)
         erros.push(`Score/Crédito PF: ${detail}`)
         console.warn('[Assertiva] Score/Crédito PF error:', detail)
       }
@@ -228,9 +236,10 @@ export async function POST(request: NextRequest) {
       if (locRes.status === 'fulfilled' && locRes.value.ok) {
         localizeRaw = locRes.value.data
       } else {
-        const detail = locRes.status === 'rejected'
-          ? String(locRes.reason)
-          : `HTTP ${locRes.value.status}`
+        const d = locRes.status === 'fulfilled' ? locRes.value.data : null
+        if (d?.resposta) mensagemErroAssertiva = String(d.resposta)
+        else if (d?.message) mensagemErroAssertiva = String(d.message)
+        const detail = d?.resposta || d?.message || (locRes.status === 'rejected' ? String(locRes.reason) : `HTTP ${locRes.status === 'fulfilled' ? locRes.value.status : 0}`)
         erros.push(`Localize CNPJ: ${detail}`)
         console.error('[Assertiva] Localize CNPJ error:', detail)
       }
@@ -238,9 +247,12 @@ export async function POST(request: NextRequest) {
       if (scoreRes.status === 'fulfilled' && scoreRes.value.ok) {
         scoreRaw = scoreRes.value.data
       } else {
+        const d = scoreRes.status === 'fulfilled' ? scoreRes.value.data : null
+        if (!mensagemErroAssertiva && d?.resposta) mensagemErroAssertiva = String(d.resposta)
+        else if (!mensagemErroAssertiva && d?.message) mensagemErroAssertiva = String(d.message)
         const st = scoreRes.status === 'fulfilled' ? scoreRes.value.status : 0
         if (st === 403) creditoSemPermissao = true
-        const detail = scoreRes.status === 'rejected' ? String(scoreRes.reason) : `HTTP ${st}`
+        const detail = d?.resposta || d?.message || (scoreRes.status === 'rejected' ? String(scoreRes.reason) : `HTTP ${st}`)
         erros.push(`Score/Crédito PJ: ${detail}`)
         console.warn('[Assertiva] Score/Crédito PJ error:', detail)
       }
@@ -260,11 +272,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Se Localize também falhou → sandbox ou erro ──────────────────────────
+    // ── Se Localize e Score falharam → exibe erro real da Assertiva ─────────
     if (!localizeRaw && !scoreRaw) {
       if (isSandbox) return NextResponse.json({ ...generateSandboxReport(doc, tipo), _sandbox: true })
+
+      const mensagemFinal = mensagemErroAssertiva || 'Nenhuma resposta válida da Assertiva'
+
       return NextResponse.json(
-        { erro: 'Nenhuma resposta válida da Assertiva', detalhes: erros },
+        { erro: mensagemFinal, detalhes: erros },
         { status: 502 }
       )
     }
