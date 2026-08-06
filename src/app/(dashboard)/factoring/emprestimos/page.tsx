@@ -206,11 +206,6 @@ export default function EmprestimosPage() {
       header: 'Data de Liberação',
       render: e => <span className="text-xs text-muted-foreground font-medium">{e.data_liberacao ? formatarData(e.data_liberacao) : '—'}</span>,
     },
-    {
-      key: 'saldo',
-      header: 'Saldo Devedor',
-      render: e => <MoneyDisplay valor={e.status === 'quitado' ? 0 : e.saldo_devedor} tamanho="sm" negativo={e.status !== 'quitado' && e.saldo_devedor > 0} />,
-    },
   ]
 
   if (loading) return <LoadingPage />

@@ -102,7 +102,7 @@ BEGIN
   LOOP
     INSERT INTO parcelas_emprestimo (
       empresa_id, emprestimo_id, cliente_id, numero_parcela, total_parcelas,
-      data_vencimento, valor, valor_principal, valor_juros, saldo_devedor, status
+      data_vencimento, valor, valor_principal, valor_juros, saldo_devedor_antes, saldo_devedor_apos, status
     ) VALUES (
       p_empresa_id, v_emprestimo_id, p_cliente_id,
       (v_item->>'numero_parcela')::INT,
@@ -111,7 +111,8 @@ BEGIN
       (v_item->>'valor')::DECIMAL,
       (v_item->>'valor_principal')::DECIMAL,
       (v_item->>'valor_juros')::DECIMAL,
-      (v_item->>'saldo_devedor')::DECIMAL,
+      COALESCE((v_item->>'saldo_devedor_antes')::DECIMAL, (v_item->>'saldo_devedor')::DECIMAL, 0),
+      COALESCE((v_item->>'saldo_devedor_apos')::DECIMAL, (v_item->>'saldo_devedor')::DECIMAL, 0),
       'pendente'
     );
   END LOOP;

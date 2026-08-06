@@ -297,7 +297,6 @@ export default function NovoEmprestimoPage() {
     { key: 'principal', header: 'Amortização', render: r => <span className="tabular-nums font-semibold text-xs text-foreground">{formatarMoeda(r.principal)}</span> },
     { key: 'juros', header: 'Juros', render: r => <span className="tabular-nums font-semibold text-xs text-[#FA903E]">{formatarMoeda(r.juros)}</span> },
     { key: 'parcela', header: 'Parcela', render: r => <span className="tabular-nums font-bold text-xs text-foreground">{formatarMoeda(r.parcela)}</span> },
-    { key: 'saldo', header: 'Saldo Devedor', render: r => <span className="tabular-nums font-semibold text-xs text-muted-foreground/80">{formatarMoeda(r.saldo_apos)}</span> },
   ]
 
   const avancar = () => {

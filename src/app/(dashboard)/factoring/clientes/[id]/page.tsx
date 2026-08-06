@@ -1838,7 +1838,7 @@ export default function ClientePerfilPage() {
                       {isExpanded && (
                         <div className="border-t border-border/60 p-5 bg-muted/20 space-y-5">
                           {/* Mini stats */}
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             <div className="bg-card rounded-xl p-3.5 border border-border/60 shadow-sm">
                               <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Capital</p>
                               <p className="font-extrabold text-foreground text-sm">{formatarMoeda(emp.valor_principal)}</p>
@@ -1850,10 +1850,6 @@ export default function ClientePerfilPage() {
                             <div className="bg-card rounded-xl p-3.5 border border-border/60 shadow-sm">
                               <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Valor da Parcela</p>
                               <p className="font-extrabold text-foreground text-sm">{formatarMoeda(emp.valor_parcela)}</p>
-                            </div>
-                            <div className="bg-card rounded-xl p-3.5 border border-border/60 shadow-sm">
-                              <p className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider mb-0.5">Saldo Devedor</p>
-                              <p className="font-extrabold text-foreground text-sm">{formatarMoeda(emp.saldo_devedor)}</p>
                             </div>
                           </div>
 

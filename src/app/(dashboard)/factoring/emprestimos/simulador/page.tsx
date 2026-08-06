@@ -116,7 +116,6 @@ export default function SimuladorPage() {
     { key: 'valor_principal', header: 'Principal', render: r => <MoneyDisplay valor={r.valor_principal} tamanho="sm" /> },
     { key: 'valor_juros', header: 'Juros', render: r => <MoneyDisplay valor={r.valor_juros} tamanho="sm" className="text-[var(--gt-orange)] dark:text-orange-400" /> },
     { key: 'valor_parcela', header: 'Parcela', render: r => <MoneyDisplay valor={r.valor_parcela} tamanho="sm" /> },
-    { key: 'saldo_devedor', header: 'Saldo Devedor', render: r => <MoneyDisplay valor={r.saldo_devedor} tamanho="sm" className="text-muted-foreground/60" /> },
   ]
 
   function criarContrato() {
