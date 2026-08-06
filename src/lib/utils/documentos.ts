@@ -975,8 +975,12 @@ export interface AssinaturaEvidencia {
   user_agent: string
   selfie_url?: string
   doc_url?: string
+  doc_frente_url?: string
+  doc_verso_url?: string
   selfie_base64?: string
   doc_base64?: string
+  doc_frente_base64?: string
+  doc_verso_base64?: string
   signature_base64?: string
   geolocation?: string
   provedor?: string
@@ -1176,16 +1180,25 @@ export async function gerarContratoComAssinaturaPDF(
 
   // Use base64 directly if available (avoids re-downloading from storage)
   // Fallback to URL fetch for backwards compatibility
-  const [selfieData, docData] = await Promise.all([
+  const [selfieData, docFrenteData, docVersoData] = await Promise.all([
     params.assinatura.selfie_base64
       ? Promise.resolve(params.assinatura.selfie_base64)
       : params.assinatura.selfie_url
         ? loadLogo(params.assinatura.selfie_url)
         : Promise.resolve(''),
-    params.assinatura.doc_base64
-      ? Promise.resolve(params.assinatura.doc_base64)
-      : params.assinatura.doc_url
-        ? loadLogo(params.assinatura.doc_url)
+    params.assinatura.doc_frente_base64
+      ? Promise.resolve(params.assinatura.doc_frente_base64)
+      : params.assinatura.doc_frente_url
+        ? loadLogo(params.assinatura.doc_frente_url)
+        : params.assinatura.doc_base64
+          ? Promise.resolve(params.assinatura.doc_base64)
+          : params.assinatura.doc_url
+            ? loadLogo(params.assinatura.doc_url)
+            : Promise.resolve(''),
+    params.assinatura.doc_verso_base64
+      ? Promise.resolve(params.assinatura.doc_verso_base64)
+      : params.assinatura.doc_verso_url
+        ? loadLogo(params.assinatura.doc_verso_url)
         : Promise.resolve(''),
   ])
 
@@ -1198,9 +1211,17 @@ export async function gerarContratoComAssinaturaPDF(
     }
   }
 
-  if (docData) {
+  if (docFrenteData && docVersoData) {
     try {
-      doc.addImage(docData, 'JPEG', 110, 100, 86, 86)
+      doc.addImage(docFrenteData, 'JPEG', 110, 100, 86, 42)
+      doc.addImage(docVersoData, 'JPEG', 110, 144, 86, 42)
+      docLoaded = true
+    } catch (err) {
+      console.error('Erro ao renderizar documentos frente e verso:', err)
+    }
+  } else if (docFrenteData) {
+    try {
+      doc.addImage(docFrenteData, 'JPEG', 110, 100, 86, 86)
       docLoaded = true
     } catch (err) {
       console.error('Erro ao renderizar documento:', err)

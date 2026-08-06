@@ -55,7 +55,9 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
   const [termosAceitos, setTermosAceitos] = useState(false)
   const contratoScrollRef = useRef<HTMLDivElement | null>(null)
   const [selfie, setSelfie] = useState<string | null>(null)
-  const [documento, setDocumento] = useState<string | null>(null)
+  const [docFrente, setDocFrente] = useState<string | null>(null)
+  const [docVerso, setDocVerso] = useState<string | null>(null)
+  const [docLadoAtivo, setDocLadoAtivo] = useState<'frente' | 'verso'>('frente')
   const [geolocation, setGeolocation] = useState<string | null>(null)
   const [geolocationStatus, setGeolocationStatus] = useState<'idle' | 'requesting' | 'success' | 'error'>('idle')
   const [enviando, setEnviando] = useState(false)
@@ -207,62 +209,6 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
       setCameraStream(null)
     }
     setCameraAtiva(false)
-  }
-
-  const iniciarCameraDocumento = async () => {
-    setDocCarregandoCamera(true)
-    setDocPermissaoNegada(false)
-    try {
-      if (docCameraStream) docCameraStream.getTracks().forEach(t => t.stop())
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
-        audio: false,
-      })
-      setDocCameraStream(stream)
-      setDocCameraAtiva(true)
-      setTimeout(() => {
-        if (docVideoRef.current) {
-          docVideoRef.current.srcObject = stream
-          docVideoRef.current.play().catch(() => {})
-        }
-      }, 150)
-    } catch {
-      setDocPermissaoNegada(true)
-    } finally {
-      setDocCarregandoCamera(false)
-    }
-  }
-
-  const pararCameraDocumento = () => {
-    if (docCameraStream) {
-      docCameraStream.getTracks().forEach(t => t.stop())
-      setDocCameraStream(null)
-    }
-    setDocCameraAtiva(false)
-  }
-
-  const capturarFotoDocumento = async () => {
-    const video = docVideoRef.current
-    if (!video) return
-    try {
-      // Câmeras de celular costumam negociar uma resolução bem maior do que o
-      // "ideal" pedido — captura no tamanho nativo e redimensiona em seguida,
-      // em vez de confiar que a câmera respeitou o pedido de 1280x960.
-      const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth || 1280
-      canvas.height = video.videoHeight || 960
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const bruto = canvas.toDataURL('image/jpeg', 0.9)
-        const base64 = await redimensionarImagemBase64(bruto, 1400, 0.85)
-        setDocumento(base64)
-        pararCameraDocumento()
-        toast.success('Documento fotografado com sucesso!')
-      }
-    } catch {
-      toast.error('Erro ao capturar foto do documento.')
-    }
   }
 
   const capturarFoto = async () => {
@@ -482,12 +428,76 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
     reader.readAsDataURL(file)
   }
 
-  const handleDocumentCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const iniciarCameraDocumento = async (lado: 'frente' | 'verso' = 'frente') => {
+    setDocLadoAtivo(lado)
+    setDocCarregandoCamera(true)
+    setDocPermissaoNegada(false)
+    try {
+      if (docCameraStream) docCameraStream.getTracks().forEach(t => t.stop())
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
+        audio: false,
+      })
+      setDocCameraStream(stream)
+      setDocCameraAtiva(true)
+      setTimeout(() => {
+        if (docVideoRef.current) {
+          docVideoRef.current.srcObject = stream
+          docVideoRef.current.play().catch(() => {})
+        }
+      }, 150)
+    } catch {
+      setDocPermissaoNegada(true)
+    } finally {
+      setDocCarregandoCamera(false)
+    }
+  }
+
+  const pararCameraDocumento = () => {
+    if (docCameraStream) {
+      docCameraStream.getTracks().forEach(t => t.stop())
+      setDocCameraStream(null)
+    }
+    setDocCameraAtiva(false)
+  }
+
+  const capturarFotoDocumento = async () => {
+    const video = docVideoRef.current
+    if (!video) return
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth || 1280
+      canvas.height = video.videoHeight || 960
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const bruto = canvas.toDataURL('image/jpeg', 0.9)
+        const base64 = await redimensionarImagemBase64(bruto, 1400, 0.85)
+        if (docLadoAtivo === 'frente') {
+          setDocFrente(base64)
+          toast.success('Frente do documento registrada com sucesso!')
+        } else {
+          setDocVerso(base64)
+          toast.success('Verso do documento registrado com sucesso!')
+        }
+        pararCameraDocumento()
+      }
+    } catch {
+      toast.error('Erro ao capturar foto do documento.')
+    }
+  }
+
+  const handleDocumentCapture = (lado: 'frente' | 'verso', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       processImageFile(file, (base64) => {
-        setDocumento(base64)
-        toast.success('Documento digitalizado com sucesso!')
+        if (lado === 'frente') {
+          setDocFrente(base64)
+          toast.success('Frente do documento enviada com sucesso!')
+        } else {
+          setDocVerso(base64)
+          toast.success('Verso do documento enviado com sucesso!')
+        }
       })
     }
   }
@@ -519,7 +529,9 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
         body: JSON.stringify({
           token,
           selfie,
-          documento,
+          documento: docFrente || docVerso,
+          documento_frente: docFrente,
+          documento_verso: docVerso,
           assinatura: signatureBase64,
           geolocation: geolocation || 'Não informada',
         }),
@@ -542,8 +554,8 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
   }
 
   const handleSubmitSignatureGovBr = async () => {
-    if (!selfie || !documento) {
-      toast.warning('É necessário capturar o documento e a selfie antes de assinar com o GOV.BR.')
+    if (!selfie || (!docFrente && !docVerso)) {
+      toast.warning('É necessário capturar a frente e verso do documento e a selfie antes de assinar com o GOV.BR.')
       return
     }
 
@@ -559,7 +571,9 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
         body: JSON.stringify({
           token,
           selfie,
-          documento,
+          documento: docFrente || docVerso,
+          documento_frente: docFrente,
+          documento_verso: docVerso,
           geolocation: geolocation || 'Não informada',
         }),
       })
@@ -961,126 +975,198 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
         </div>
       )}
 
-      {/* STEP 2: DOCUMENT CAPTURE */}
+      {/* STEP 2: DOCUMENT CAPTURE (FRENTE E VERSO - DOCUSIGN PATTERN) */}
       {passo === 2 && (
         <div className="bg-slate-950/75 backdrop-blur-xl border border-white/10 rounded-3xl p-6 space-y-6 shadow-[0_0_50px_rgba(99,102,241,0.15)] animate-fade-in-up">
           <div className="text-center space-y-1">
             <div className="w-14 h-14 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400 border border-indigo-500/20">
               <Camera size={28} />
             </div>
-            <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Foto do Documento</h2>
-            <p className="text-xs text-slate-400">Fotografe seu RG ou CNH aberto. Use câmera traseira para melhor qualidade.</p>
+            <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Captura do Documento</h2>
+            <p className="text-xs text-slate-400">Envie a <b>Frente</b> e o <b>Verso</b> do seu RG ou CNH (DocuSign Security Standard).</p>
           </div>
 
-          <div className="flex flex-col items-center justify-center">
-            {documento ? (
-              <div className="relative w-full rounded-2xl border border-emerald-500/30 overflow-hidden bg-slate-900 aspect-[4/3] flex items-center justify-center shadow-inner">
-                <img src={documento} alt="Documento" className="max-h-full max-w-full object-contain" />
-                <div className="absolute top-3 left-3 px-2.5 py-1 bg-emerald-500/90 rounded-full text-[10px] font-bold text-white flex items-center gap-1">
-                  <CheckCircle2 size={10} /> Documento Registrado
+          {/* Progress Status Bar */}
+          <div className="flex items-center justify-between bg-slate-900/80 border border-white/5 rounded-2xl p-3 text-xs">
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${docFrente && docVerso ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              <span className="font-bold text-slate-200">
+                {docFrente && docVerso ? '2 de 2 Documentos Capturados' : docFrente || docVerso ? '1 de 2 Documentos Capturados' : '0 de 2 Documentos Capturados'}
+              </span>
+            </div>
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-400">
+              {docFrente && docVerso ? 'Pronto' : 'Pendente'}
+            </span>
+          </div>
+
+          {docCameraAtiva ? (
+            /* Live Camera Overlay */
+            <div className="relative w-full rounded-2xl border border-indigo-500/40 overflow-hidden bg-slate-950 aspect-[4/3] flex items-center justify-center shadow-2xl">
+              <video ref={docVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+
+              {/* Document Frame Guide */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-[85%] h-[65%] border-2 border-indigo-400/90 rounded-xl relative">
+                  <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-indigo-400 rounded-tl" />
+                  <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-indigo-400 rounded-tr" />
+                  <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-indigo-400 rounded-bl" />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-indigo-400 rounded-br" />
+                  <div className="absolute inset-0 rounded-xl overflow-hidden">
+                    <div className="absolute left-0 right-0 h-0.5 bg-indigo-500/70 shadow-[0_0_12px_3px_rgba(99,102,241,0.8)] scanner-line" />
+                  </div>
                 </div>
+              </div>
+
+              <div className="absolute top-4 left-0 right-0 text-center pointer-events-none">
+                <span className="px-3.5 py-1.5 bg-slate-950/90 border border-white/10 text-[10px] font-extrabold tracking-wider uppercase text-indigo-300 rounded-full shadow-lg">
+                  Posicione a {docLadoAtivo === 'frente' ? 'FRENTE' : 'VERSO'} no visor
+                </span>
+              </div>
+
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-4 z-20">
                 <button
-                  onClick={() => { setDocumento(null); pararCameraDocumento() }}
-                  className="absolute bottom-4 right-4 w-10 h-10 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95"
+                  type="button"
+                  onClick={pararCameraDocumento}
+                  className="w-11 h-11 bg-slate-800 hover:bg-slate-700 text-white rounded-full flex items-center justify-center shadow border border-white/10 transition-all active:scale-90 cursor-pointer"
+                  title="Cancelar"
                 >
                   <Trash2 size={16} />
                 </button>
-              </div>
-            ) : docCameraAtiva ? (
-              /* Live doc camera */
-              <div className="relative w-full rounded-2xl border border-white/10 overflow-hidden bg-slate-900 aspect-[4/3] flex items-center justify-center shadow-inner">
-                <video ref={docVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-
-                {/* Document frame guide */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-[85%] h-[60%] border-2 border-indigo-400/80 rounded-xl relative">
-                    <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-indigo-300 rounded-tl" />
-                    <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-indigo-300 rounded-tr" />
-                    <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-indigo-300 rounded-bl" />
-                    <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-indigo-300 rounded-br" />
-                    <div className="absolute inset-0 rounded-xl overflow-hidden">
-                      <div className="absolute left-0 right-0 h-0.5 bg-indigo-500/50 shadow-[0_0_8px_2px_rgba(99,102,241,0.5)] scanner-line" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="absolute top-4 left-0 right-0 text-center pointer-events-none">
-                  <span className="px-3 py-1 bg-slate-950/85 border border-white/5 text-[9px] font-bold tracking-wider uppercase text-slate-300 rounded-full">
-                    Posicione o documento dentro do visor
-                  </span>
-                </div>
-
-                <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-4 z-20">
-                  <button
-                    type="button"
-                    onClick={pararCameraDocumento}
-                    className="w-10 h-10 bg-slate-800 hover:bg-slate-700 text-white rounded-full flex items-center justify-center shadow border border-white/10 transition-all active:scale-90 cursor-pointer"
-                    title="Cancelar"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={capturarFotoDocumento}
-                    className="w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-2xl border-4 border-slate-950 transition-all active:scale-90 duration-75 cursor-pointer"
-                    title="Fotografar Documento"
-                  >
-                    <Camera size={20} />
-                  </button>
-                </div>
-              </div>
-            ) : docCarregandoCamera ? (
-              <div className="w-full rounded-2xl border border-white/10 bg-slate-900 aspect-[4/3] flex flex-col items-center justify-center gap-3">
-                <Loader2 size={36} className="animate-spin text-indigo-500" />
-                <p className="text-xs font-bold text-slate-400">Ativando câmera...</p>
-              </div>
-            ) : (
-              /* Options: camera or upload */
-              <div className="w-full space-y-3">
-                {docPermissaoNegada && (
-                  <div className="bg-red-500/5 border border-red-500/15 rounded-xl p-3 flex gap-2 text-xs text-red-400">
-                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                    <span>Acesso à câmera bloqueado. Autorize nas configurações do navegador ou use o upload abaixo.</span>
-                  </div>
-                )}
-
                 <button
                   type="button"
-                  onClick={iniciarCameraDocumento}
-                  className="w-full rounded-2xl border-2 border-indigo-500/40 hover:border-indigo-500/80 bg-indigo-500/5 hover:bg-indigo-500/10 p-5 flex items-center gap-4 transition-all cursor-pointer"
+                  onClick={capturarFotoDocumento}
+                  className="w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full flex items-center justify-center shadow-2xl border-4 border-slate-950 transition-all active:scale-90 duration-75 cursor-pointer"
+                  title="Fotografar"
                 >
-                  <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 shrink-0">
-                    <Camera size={22} />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-bold text-slate-200">Fotografar com Câmera</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Use a câmera traseira para melhor nitidez. Recomendado.</p>
-                  </div>
+                  <Camera size={22} />
                 </button>
-
-                <label className="w-full rounded-2xl border-2 border-dashed border-slate-700 hover:border-slate-500 bg-slate-900/60 p-5 flex items-center gap-4 cursor-pointer transition-all group">
-                  <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-slate-200 transition-colors shrink-0">
-                    <Upload size={20} />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-bold text-slate-300">Enviar da Galeria / Arquivo</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Selecione uma foto já tirada do seu RG ou CNH.</p>
-                  </div>
-                  <input type="file" accept="image/*" onChange={handleDocumentCapture} className="hidden" />
-                </label>
               </div>
-            )}
-          </div>
+            </div>
+          ) : docCarregandoCamera ? (
+            <div className="w-full rounded-2xl border border-white/10 bg-slate-900 aspect-[4/3] flex flex-col items-center justify-center gap-3">
+              <Loader2 size={36} className="animate-spin text-indigo-500" />
+              <p className="text-xs font-bold text-slate-400">Ativando câmera da {docLadoAtivo === 'frente' ? 'frente' : 'verso'}...</p>
+            </div>
+          ) : (
+            /* Dual Document Cards (Frente e Verso) */
+            <div className="grid grid-cols-1 gap-4">
+
+              {/* FRENTE CARD */}
+              <div className={`rounded-2xl border p-4 transition-all ${docFrente ? 'bg-slate-900/90 border-emerald-500/40 shadow-sm' : 'bg-slate-900/40 border-white/10'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${docFrente ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-400'}`}>
+                      1
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-200">Frente do Documento</h4>
+                      <p className="text-[10px] text-slate-400">Com foto do rosto e nome (RG ou CNH)</p>
+                    </div>
+                  </div>
+                  {docFrente ? (
+                    <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/30 rounded-full text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 size={10} /> Registrada
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-full text-[10px] font-bold text-amber-400">
+                      Pendente
+                    </span>
+                  )}
+                </div>
+
+                {docFrente ? (
+                  <div className="relative w-full rounded-xl border border-emerald-500/30 overflow-hidden bg-slate-950 aspect-[16/9] flex items-center justify-center">
+                    <img src={docFrente} alt="Frente do Documento" className="max-h-full max-w-full object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => setDocFrente(null)}
+                      className="absolute bottom-3 right-3 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg cursor-pointer transition-transform active:scale-95"
+                    >
+                      <Trash2 size={12} /> Refazer
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => iniciarCameraDocumento('frente')}
+                      className="flex-1 rounded-xl border border-indigo-500/30 hover:border-indigo-500/70 bg-indigo-500/10 hover:bg-indigo-500/20 p-3.5 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Camera size={20} className="text-indigo-400" />
+                      <span className="text-xs font-bold text-slate-200">Fotografar Frente</span>
+                    </button>
+                    <label className="flex-1 rounded-xl border border-dashed border-slate-700 hover:border-slate-500 bg-slate-900/60 p-3.5 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all">
+                      <Upload size={20} className="text-slate-400" />
+                      <span className="text-xs font-bold text-slate-300">Enviar Arquivo</span>
+                      <input type="file" accept="image/*" onChange={(e) => handleDocumentCapture('frente', e)} className="hidden" />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* VERSO CARD */}
+              <div className={`rounded-2xl border p-4 transition-all ${docVerso ? 'bg-slate-900/90 border-emerald-500/40 shadow-sm' : 'bg-slate-900/40 border-white/10'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${docVerso ? 'bg-emerald-500/20 text-emerald-400' : 'bg-indigo-500/20 text-indigo-400'}`}>
+                      2
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-200">Verso do Documento</h4>
+                      <p className="text-[10px] text-slate-400">Com CPF, filiação e data de emissão</p>
+                    </div>
+                  </div>
+                  {docVerso ? (
+                    <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/30 rounded-full text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 size={10} /> Registrado
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-full text-[10px] font-bold text-amber-400">
+                      Pendente
+                    </span>
+                  )}
+                </div>
+
+                {docVerso ? (
+                  <div className="relative w-full rounded-xl border border-emerald-500/30 overflow-hidden bg-slate-950 aspect-[16/9] flex items-center justify-center">
+                    <img src={docVerso} alt="Verso do Documento" className="max-h-full max-w-full object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => setDocVerso(null)}
+                      className="absolute bottom-3 right-3 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg cursor-pointer transition-transform active:scale-95"
+                    >
+                      <Trash2 size={12} /> Refazer
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => iniciarCameraDocumento('verso')}
+                      className="flex-1 rounded-xl border border-indigo-500/30 hover:border-indigo-500/70 bg-indigo-500/10 hover:bg-indigo-500/20 p-3.5 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Camera size={20} className="text-indigo-400" />
+                      <span className="text-xs font-bold text-slate-200">Fotografar Verso</span>
+                    </button>
+                    <label className="flex-1 rounded-xl border border-dashed border-slate-700 hover:border-slate-500 bg-slate-900/60 p-3.5 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all">
+                      <Upload size={20} className="text-slate-400" />
+                      <span className="text-xs font-bold text-slate-300">Enviar Arquivo</span>
+                      <input type="file" accept="image/*" onChange={(e) => handleDocumentCapture('verso', e)} className="hidden" />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
 
           <div className="bg-slate-900/60 border border-white/5 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed text-slate-400">
-            <AlertTriangle size={18} className="text-indigo-400 shrink-0 mt-0.5" />
+            <ShieldCheck size={20} className="text-indigo-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-bold text-slate-200 mb-0.5">Dicas para melhor leitura</p>
-              <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-400">
-                <li>Documento aberto, frente e verso visíveis (CNH aberta ou RG frente).</li>
-                <li>Boa iluminação, sem reflexos ou sombras sobre o documento.</li>
-                <li>Remova o plástico protetor para evitar reflexo.</li>
-              </ul>
+              <p className="font-bold text-slate-200 mb-0.5">Padrão de Autenticidade (DocuSign Identity)</p>
+              <p className="text-[11px] text-slate-400">
+                A inclusão da frente e do verso garante a validação completa de autoria, CPF e órgão emissor em conformidade com as diretrizes do ITI e validade jurídica do contrato.
+              </p>
             </div>
           </div>
 
@@ -1094,7 +1180,7 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
             </Button>
             <Button
               className="flex-1 h-12 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 shadow-lg shadow-indigo-950/50 transition-all gap-1.5 cursor-pointer"
-              disabled={!documento}
+              disabled={!docFrente || !docVerso}
               onClick={() => { pararCameraDocumento(); setPasso(3) }}
             >
               <span>Avançar</span>

@@ -11,11 +11,14 @@ export async function POST(
   try {
     const { id } = await params
     const body = await request.json()
-    const { token, selfie, documento, geolocation } = body
+    const { token, selfie, documento, documento_frente, documento_verso, geolocation } = body
 
-    if (!selfie || !documento) {
+    const docFrente = documento_frente || documento
+    const docVerso = documento_verso || documento
+
+    if (!selfie || !docFrente) {
       return NextResponse.json(
-        { erro: 'As evidências de identificação (Selfie e Documento) são obrigatórias antes da assinatura GOV.BR.' },
+        { erro: 'As evidências de identificação (Selfie e Documento Frente/Verso) são obrigatórias antes da assinatura GOV.BR.' },
         { status: 400 }
       )
     }
@@ -72,30 +75,35 @@ export async function POST(
 
     // 5. Upload de Evidências (Selfie e RG) para o Supabase Storage
     const selfieBuffer = Buffer.from(selfie.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-    const docBuffer = Buffer.from(documento.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+    const docFrenteBuffer = Buffer.from(docFrente.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+    const docVersoBuffer = Buffer.from((docVerso || docFrente).replace(/^data:image\/\w+;base64,/, ''), 'base64')
 
     const ts = Date.now()
     const selfiePath = `signatures/${id}/selfie_${ts}.jpg`
-    const docPath = `signatures/${id}/documento_${ts}.jpg`
+    const docFrentePath = `signatures/${id}/documento_frente_${ts}.jpg`
+    const docVersoPath = `signatures/${id}/documento_verso_${ts}.jpg`
 
-    const [selfieUpload, docUpload, configFact] = await Promise.all([
+    const [selfieUpload, docFrenteUpload, docVersoUpload, configFact] = await Promise.all([
       supabase.storage.from('documentos-clientes').upload(selfiePath, selfieBuffer, { contentType: 'image/jpeg', upsert: true }),
-      supabase.storage.from('documentos-clientes').upload(docPath, docBuffer, { contentType: 'image/jpeg', upsert: true }),
+      supabase.storage.from('documentos-clientes').upload(docFrentePath, docFrenteBuffer, { contentType: 'image/jpeg', upsert: true }),
+      supabase.storage.from('documentos-clientes').upload(docVersoPath, docVersoBuffer, { contentType: 'image/jpeg', upsert: true }),
       supabase.from('config_factoring').select('whatsapp_settings').eq('empresa_id', emprestimo.empresa_id).maybeSingle(),
     ])
 
-    if (selfieUpload.error || docUpload.error) {
-      console.error('Erro no upload de evidências GOV.BR:', { selfie: selfieUpload.error, doc: docUpload.error })
+    if (selfieUpload.error || docFrenteUpload.error || docVersoUpload.error) {
+      console.error('Erro no upload de evidências GOV.BR:', { selfie: selfieUpload.error, frente: docFrenteUpload.error, verso: docVersoUpload.error })
       return NextResponse.json({ erro: 'Falha ao salvar arquivos de evidências no armazenamento.' }, { status: 500 })
     }
 
     const YEAR = 31_536_000
-    const [selfieSign, docSign] = await Promise.all([
+    const [selfieSign, docFrenteSign, docVersoSign] = await Promise.all([
       supabase.storage.from('documentos-clientes').createSignedUrl(selfiePath, YEAR),
-      supabase.storage.from('documentos-clientes').createSignedUrl(docPath, YEAR),
+      supabase.storage.from('documentos-clientes').createSignedUrl(docFrentePath, YEAR),
+      supabase.storage.from('documentos-clientes').createSignedUrl(docVersoPath, YEAR),
     ])
     const selfieUrl = selfieSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(selfiePath).data.publicUrl
-    const docUrl = docSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(docPath).data.publicUrl
+    const docFrenteUrl = docFrenteSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(docFrentePath).data.publicUrl
+    const docVersoUrl = docVersoSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(docVersoPath).data.publicUrl
 
     // 6. Estrutura de Evidências da Assinatura GOV.BR
     const assinaturaEvidencia = {
@@ -103,9 +111,13 @@ export async function POST(
       ip,
       user_agent: userAgent,
       selfie_url: selfieUrl,
-      doc_url: docUrl,
+      doc_url: docFrenteUrl,
+      doc_frente_url: docFrenteUrl,
+      doc_verso_url: docVersoUrl,
       selfie_base64: selfie,
-      doc_base64: documento,
+      doc_base64: docFrente,
+      doc_frente_base64: docFrente,
+      doc_verso_base64: docVerso,
       geolocation,
       provedor: 'GOV.BR',
       hash_govbr: govBrResult.hashAssinatura,
@@ -166,7 +178,8 @@ export async function POST(
           ip,
           user_agent: userAgent,
           selfie_url: selfieUrl,
-          doc_url: docUrl,
+          doc_frente_url: docFrenteUrl,
+          doc_verso_url: docVersoUrl,
           geolocation: geolocation || 'Não fornecida',
           hash_govbr: govBrResult.hashAssinatura,
           nivel_conta_govbr: govBrResult.userInfo.nivelConta,
@@ -195,9 +208,10 @@ export async function POST(
         const existingClientDocs = Array.isArray(cliente.documentos) ? cliente.documentos : []
         await supabase.from('clientes_factoring').update({
           documentos: [
-            ...existingClientDocs.filter((d: any) => d.path !== finalContractPath && d.path !== selfiePath && d.path !== docPath),
+            ...existingClientDocs.filter((d: any) => d.path !== finalContractPath && d.path !== selfiePath && d.path !== docFrentePath && d.path !== docVersoPath),
             { id: `doc_selfie_${id}`, categoria: 'foto', label: `Selfie (Contrato GOV.BR ${emprestimo.numero_contrato})`, nome_original: `selfie_${id}.jpg`, path: selfiePath, url: selfieUrl, tipo_mime: 'image/jpeg', tamanho: selfieBuffer.length, criado_em: signedAt },
-            { id: `doc_idcard_${id}`, categoria: 'rg_cnh', label: `Documento de Identidade (Contrato GOV.BR ${emprestimo.numero_contrato})`, nome_original: `documento_${id}.jpg`, path: docPath, url: docUrl, tipo_mime: 'image/jpeg', tamanho: docBuffer.length, criado_em: signedAt },
+            { id: `doc_idcard_frente_${id}`, categoria: 'rg_cnh', label: `Documento Frente (Contrato GOV.BR ${emprestimo.numero_contrato})`, nome_original: `documento_frente_${id}.jpg`, path: docFrentePath, url: docFrenteUrl, tipo_mime: 'image/jpeg', tamanho: docFrenteBuffer.length, criado_em: signedAt },
+            { id: `doc_idcard_verso_${id}`, categoria: 'rg_cnh', label: `Documento Verso (Contrato GOV.BR ${emprestimo.numero_contrato})`, nome_original: `documento_verso_${id}.jpg`, path: docVersoPath, url: docVersoUrl, tipo_mime: 'image/jpeg', tamanho: docVersoBuffer.length, criado_em: signedAt },
             { id: `doc_contract_${id}`, categoria: 'contrato_assinado', label: `Contrato Assinado GOV.BR - ${emprestimo.numero_contrato}`, nome_original: `contrato_assinado_govbr_${emprestimo.numero_contrato}.pdf`, path: finalContractPath, url: finalPdfUrl, tipo_mime: 'application/pdf', tamanho: pdfBuffer.length, criado_em: signedAt },
           ],
         }).eq('id', emprestimo.cliente_id)

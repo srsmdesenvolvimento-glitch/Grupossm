@@ -10,11 +10,14 @@ export async function POST(
   try {
     const { id } = await params
     const body = await request.json()
-    const { token, selfie, documento, assinatura, geolocation } = body
+    const { token, selfie, documento, documento_frente, documento_verso, assinatura, geolocation } = body
 
-    if (!selfie || !documento || !assinatura) {
+    const docFrente = documento_frente || documento
+    const docVerso = documento_verso || documento
+
+    if (!selfie || !docFrente || !assinatura) {
       return NextResponse.json(
-        { erro: 'Todos os campos de identificação (Selfie, Documento e Assinatura) são obrigatórios.' },
+        { erro: 'Todos os campos de identificação (Selfie, Documento Frente/Verso e Assinatura) são obrigatórios.' },
         { status: 400 }
       )
     }
@@ -34,10 +37,6 @@ export async function POST(
       return NextResponse.json({ erro: 'Contrato não localizado.' }, { status: 404 })
     }
 
-    // Sem isso, qualquer pessoa com o UUID do empréstimo (não é segredo —
-    // aparece em URLs internas do sistema) conseguiria assinar o contrato no
-    // lugar do cliente de verdade, enviando selfie/documento/assinatura
-    // forjados. O token só é conhecido por quem recebeu o link de assinatura.
     if (!token || token !== emprestimo.assinatura_token) {
       return NextResponse.json({ erro: 'Link de assinatura inválido ou expirado.' }, { status: 403 })
     }
@@ -72,36 +71,41 @@ export async function POST(
 
     // 5. Convert base64 data to Buffers
     const selfieBuffer = Buffer.from(selfie.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-    const docBuffer = Buffer.from(documento.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+    const docFrenteBuffer = Buffer.from(docFrente.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+    const docVersoBuffer = Buffer.from((docVerso || docFrente).replace(/^data:image\/\w+;base64,/, ''), 'base64')
     const sigBuffer = Buffer.from(assinatura.replace(/^data:image\/\w+;base64,/, ''), 'base64')
 
     // 6. Upload evidence + prefetch WhatsApp config in parallel
     const ts = Date.now()
     const selfiePath = `signatures/${id}/selfie_${ts}.jpg`
-    const docPath = `signatures/${id}/documento_${ts}.jpg`
+    const docFrentePath = `signatures/${id}/documento_frente_${ts}.jpg`
+    const docVersoPath = `signatures/${id}/documento_verso_${ts}.jpg`
     const sigPath = `signatures/${id}/assinatura_${ts}.png`
 
-    const [selfieUpload, docUpload, sigUpload, configFact] = await Promise.all([
+    const [selfieUpload, docFrenteUpload, docVersoUpload, sigUpload, configFact] = await Promise.all([
       supabase.storage.from('documentos-clientes').upload(selfiePath, selfieBuffer, { contentType: 'image/jpeg', upsert: true }),
-      supabase.storage.from('documentos-clientes').upload(docPath, docBuffer, { contentType: 'image/jpeg', upsert: true }),
+      supabase.storage.from('documentos-clientes').upload(docFrentePath, docFrenteBuffer, { contentType: 'image/jpeg', upsert: true }),
+      supabase.storage.from('documentos-clientes').upload(docVersoPath, docVersoBuffer, { contentType: 'image/jpeg', upsert: true }),
       supabase.storage.from('documentos-clientes').upload(sigPath, sigBuffer, { contentType: 'image/png', upsert: true }),
       supabase.from('config_factoring').select('whatsapp_settings').eq('empresa_id', emprestimo.empresa_id).maybeSingle(),
     ])
 
-    if (selfieUpload.error || docUpload.error || sigUpload.error) {
-      console.error('Erro no upload de evidências:', { selfie: selfieUpload.error, doc: docUpload.error, sig: sigUpload.error })
+    if (selfieUpload.error || docFrenteUpload.error || docVersoUpload.error || sigUpload.error) {
+      console.error('Erro no upload de evidências:', { selfie: selfieUpload.error, frente: docFrenteUpload.error, verso: docVersoUpload.error, sig: sigUpload.error })
       return NextResponse.json({ erro: 'Falha ao salvar arquivos de evidências no armazenamento de segurança.' }, { status: 500 })
     }
 
     // 7. Signed URLs para evidências (1 ano — uso interno pelo admin)
     const YEAR = 31_536_000
-    const [selfieSign, docSign, sigSign] = await Promise.all([
+    const [selfieSign, docFrenteSign, docVersoSign, sigSign] = await Promise.all([
       supabase.storage.from('documentos-clientes').createSignedUrl(selfiePath, YEAR),
-      supabase.storage.from('documentos-clientes').createSignedUrl(docPath, YEAR),
+      supabase.storage.from('documentos-clientes').createSignedUrl(docFrentePath, YEAR),
+      supabase.storage.from('documentos-clientes').createSignedUrl(docVersoPath, YEAR),
       supabase.storage.from('documentos-clientes').createSignedUrl(sigPath, YEAR),
     ])
     const selfieUrl = selfieSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(selfiePath).data.publicUrl
-    const docUrl = docSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(docPath).data.publicUrl
+    const docFrenteUrl = docFrenteSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(docFrentePath).data.publicUrl
+    const docVersoUrl = docVersoSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(docVersoPath).data.publicUrl
     const sigUrl = sigSign.data?.signedUrl ?? supabase.storage.from('documentos-clientes').getPublicUrl(sigPath).data.publicUrl
 
     // 8. Generate PDF — pass base64 directly to skip re-downloading from storage
@@ -110,9 +114,13 @@ export async function POST(
       ip,
       user_agent: userAgent,
       selfie_url: selfieUrl,
-      doc_url: docUrl,
+      doc_url: docFrenteUrl,
+      doc_frente_url: docFrenteUrl,
+      doc_verso_url: docVersoUrl,
       selfie_base64: selfie,
-      doc_base64: documento,
+      doc_base64: docFrente,
+      doc_frente_base64: docFrente,
+      doc_verso_base64: docVerso,
       signature_base64: assinatura,
       geolocation,
     }
@@ -169,7 +177,8 @@ export async function POST(
           ip,
           user_agent: userAgent,
           selfie_url: selfieUrl,
-          doc_url: docUrl,
+          doc_frente_url: docFrenteUrl,
+          doc_verso_url: docVersoUrl,
           geolocation: geolocation || 'Não fornecida',
         },
       },
@@ -196,9 +205,10 @@ export async function POST(
         const existingClientDocs = Array.isArray(cliente.documentos) ? cliente.documentos : []
         await supabase.from('clientes_factoring').update({
           documentos: [
-            ...existingClientDocs.filter((d: any) => d.path !== finalContractPath && d.path !== selfiePath && d.path !== docPath),
+            ...existingClientDocs.filter((d: any) => d.path !== finalContractPath && d.path !== selfiePath && d.path !== docFrentePath && d.path !== docVersoPath),
             { id: `doc_selfie_${id}`, categoria: 'foto', label: `Selfie de Confirmação (Contrato ${emprestimo.numero_contrato})`, nome_original: `selfie_${id}.jpg`, path: selfiePath, url: selfieUrl, tipo_mime: 'image/jpeg', tamanho: selfieBuffer.length, criado_em: signedAt },
-            { id: `doc_idcard_${id}`, categoria: 'rg_cnh', label: `Documento de Identidade (Contrato ${emprestimo.numero_contrato})`, nome_original: `documento_${id}.jpg`, path: docPath, url: docUrl, tipo_mime: 'image/jpeg', tamanho: docBuffer.length, criado_em: signedAt },
+            { id: `doc_idcard_frente_${id}`, categoria: 'rg_cnh', label: `Documento Frente (Contrato ${emprestimo.numero_contrato})`, nome_original: `documento_frente_${id}.jpg`, path: docFrentePath, url: docFrenteUrl, tipo_mime: 'image/jpeg', tamanho: docFrenteBuffer.length, criado_em: signedAt },
+            { id: `doc_idcard_verso_${id}`, categoria: 'rg_cnh', label: `Documento Verso (Contrato ${emprestimo.numero_contrato})`, nome_original: `documento_verso_${id}.jpg`, path: docVersoPath, url: docVersoUrl, tipo_mime: 'image/jpeg', tamanho: docVersoBuffer.length, criado_em: signedAt },
             { id: `doc_contract_${id}`, categoria: 'contrato_assinado', label: `Contrato Assinado - ${emprestimo.numero_contrato}`, nome_original: `contrato_assinado_${emprestimo.numero_contrato}.pdf`, path: finalContractPath, url: finalPdfUrl, tipo_mime: 'application/pdf', tamanho: pdfBuffer.length, criado_em: signedAt },
           ],
         }).eq('id', emprestimo.cliente_id)
