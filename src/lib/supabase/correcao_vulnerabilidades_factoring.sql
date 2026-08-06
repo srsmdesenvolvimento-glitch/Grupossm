@@ -88,11 +88,16 @@ BEGIN
 
   -- 4. Gera o número sequencial do contrato para o ano atual
   v_ano_atual := EXTRACT(YEAR FROM CURRENT_DATE);
-  SELECT COALESCE(MAX(CAST(SPLIT_PART(numero_contrato, '-', 2) AS INT)), 0) + 1
+  SELECT COALESCE(MAX(
+    CASE
+      WHEN numero_contrato LIKE 'EMP-%-%' THEN CAST(SPLIT_PART(numero_contrato, '-', 3) AS INT)
+      WHEN numero_contrato LIKE 'EMP-%' THEN CAST(SPLIT_PART(numero_contrato, '-', 2) AS INT)
+      ELSE 0
+    END
+  ), 0) + 1
     INTO v_seq
   FROM emprestimos
-  WHERE empresa_id = p_empresa_id
-    AND numero_contrato LIKE 'EMP-' || v_ano_atual || '-%';
+  WHERE empresa_id = p_empresa_id;
 
   v_numero_contrato := 'EMP-' || v_ano_atual || '-' || LPAD(v_seq::TEXT, 4, '0');
 

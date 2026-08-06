@@ -357,12 +357,27 @@ export default function NovoEmprestimoPage() {
         numero_contrato = rpcRes[0].numero_contrato
       } else {
         // Fallback para inserção cliente se a RPC ainda não tiver sido criada no Supabase pelo usuário
-        const { count } = await supabase
-          .from('emprestimos')
-          .select('*', { count: 'exact', head: true })
-          .eq('empresa_id', empresaAtual.id)
-        const seq = String((count ?? 0) + 1).padStart(4, '0')
         const year = new Date().getFullYear()
+        const { data: ultimosEmprestimos } = await supabase
+          .from('emprestimos')
+          .select('numero_contrato')
+          .eq('empresa_id', empresaAtual.id)
+          .order('created_at', { ascending: false })
+          .limit(100)
+
+        let maxSeq = 0
+        if (ultimosEmprestimos && ultimosEmprestimos.length > 0) {
+          for (const emp of ultimosEmprestimos) {
+            if (emp.numero_contrato) {
+              const parts = emp.numero_contrato.split('-')
+              const numPart = parseInt(parts[parts.length - 1], 10)
+              if (!isNaN(numPart) && numPart > maxSeq) {
+                maxSeq = numPart
+              }
+            }
+          }
+        }
+        const seq = String(maxSeq + 1).padStart(4, '0')
         numero_contrato = `EMP-${year}-${seq}`
 
         const { data: empData, error: empError } = await supabase

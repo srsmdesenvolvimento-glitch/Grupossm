@@ -13,11 +13,20 @@ const PG_MESSAGES: Record<string, string> = {
 export function parseSupabaseError(err: unknown, fallback = 'Erro inesperado — tente novamente'): string {
   if (!err) return fallback
   const e = err as SupabaseError
+  const fullText = `${e.message ?? ''} ${e.details ?? ''}`.toLowerCase()
+
+  if (e.code === '23505' || e.message?.includes('duplicate key') || e.message?.includes('unique')) {
+    if (fullText.includes('numero_contrato') || fullText.includes('emprestimo')) {
+      return 'Número de contrato duplicado — tente gerar novamente.'
+    }
+    if (fullText.includes('cpf') || fullText.includes('cnpj') || fullText.includes('cliente')) {
+      return 'Registro duplicado — verifique se CPF/CNPJ já está cadastrado.'
+    }
+    return 'Registro duplicado — este dado já existe no sistema.'
+  }
+
   if (e.code && PG_MESSAGES[e.code]) return PG_MESSAGES[e.code]
   if (e.message) {
-    if (e.message.includes('duplicate key') || e.message.includes('unique')) {
-      return 'Registro duplicado — CPF ou dado único já existe'
-    }
     if (e.message.includes('violates not-null')) return 'Campo obrigatório não informado'
     if (e.message.includes('JWT')) return 'Sessão expirada — faça login novamente'
   }
