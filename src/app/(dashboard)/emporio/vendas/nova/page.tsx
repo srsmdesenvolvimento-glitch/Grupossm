@@ -9,7 +9,7 @@ import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { toast } from 'sonner'
 import { formatarMoeda } from '@/lib/utils/formatters'
 import { cn } from '@/lib/utils'
-import { salvarRascunho, lerRascunho, limparRascunho } from '@/lib/utils/formDraft'
+import { salvarRascunho, lerRascunho, limparRascunho, RASCUNHO_NOVA_VENDA } from '@/lib/utils/formDraft'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -73,7 +73,7 @@ type ItemCarrinho = {
 
 // Rascunho em memória — sair pra outra tela no meio da venda e voltar não
 // perde o carrinho (só refresh/fechar aba reseta).
-const RASCUNHO_NOVA_VENDA = 'nova-venda-emporio'
+// Chave importada de formDraft.ts (centralizada — ver limparTodosRascunhos).
 
 type RascunhoNovaVenda = {
   clienteSelecionado: ClienteEmporio | null

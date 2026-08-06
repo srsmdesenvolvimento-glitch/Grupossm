@@ -19,7 +19,7 @@ import { handleCurrencyChange, parseBRL, formatBRL, valorPorExtenso } from '@/li
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { toast } from 'sonner'
 import type { ClienteFactoring } from '@/lib/types/database'
-import { salvarRascunho, lerRascunho, limparRascunho } from '@/lib/utils/formDraft'
+import { salvarRascunho, lerRascunho, limparRascunho, RASCUNHO_NOVO_EMPRESTIMO } from '@/lib/utils/formDraft'
 
 type ClienteSumario = {
   id: string
@@ -49,7 +49,7 @@ type TabelaLinha = {
 
 // Rascunho em memória — sair pra outra tela no meio da criação do contrato e
 // voltar não deve perder o que já foi preenchido (só refresh/fechar reseta).
-const RASCUNHO_NOVO_EMPRESTIMO = 'novo-emprestimo-factoring'
+// Chave importada de formDraft.ts (centralizada — ver limparTodosRascunhos).
 
 type RascunhoNovoEmprestimo = {
   step: number

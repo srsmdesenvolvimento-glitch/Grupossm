@@ -541,6 +541,45 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
     }
   }
 
+  const handleSubmitSignatureGovBr = async () => {
+    if (!selfie || !documento) {
+      toast.warning('É necessário capturar o documento e a selfie antes de assinar com o GOV.BR.')
+      return
+    }
+
+    setEnviando(true)
+    setPasso(5)
+
+    try {
+      const response = await fetch(`/api/emprestimos/${id}/assinar-govbr`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token,
+          selfie,
+          documento,
+          geolocation: geolocation || 'Não informada',
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.erro || 'Falha ao processar assinatura via GOV.BR.')
+      }
+
+      setResultadoUrl(data.url)
+      toast.success('Contrato assinado via GOV.BR com sucesso!')
+    } catch (err: any) {
+      console.error('Erro de assinatura GOV.BR:', err)
+      toast.error(err.message || 'Erro ao processar assinatura via GOV.BR no servidor.')
+      setPasso(4)
+    } finally {
+      setEnviando(false)
+    }
+  }
+
   return (
     <div className="flex-1 flex flex-col max-w-lg w-full mx-auto p-4 md:py-8 justify-center min-h-[90vh]">
       
@@ -1188,8 +1227,48 @@ export default function SignatureWizard({ id, token, contrato, cliente, parcelas
             <div className="w-14 h-14 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto text-indigo-400 border border-indigo-500/20">
               <Award size={28} />
             </div>
-            <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Assinatura Digital</h2>
-            <p className="text-xs text-slate-400">Desenhe sua rubrica na tela ou digite seu nome.</p>
+            <h2 className="text-xl font-black tracking-tight mt-3 text-slate-100">Assinatura Eletrônica</h2>
+            <p className="text-xs text-slate-400">Assine com sua conta GOV.BR oficial ou por rubrica manual.</p>
+          </div>
+
+          {/* BANNER / BOTÃO GOV.BR (RECOMENDADO / OFICIAL) */}
+          <div className="bg-gradient-to-br from-blue-950/90 via-slate-900 to-indigo-950/90 border-2 border-blue-500/40 hover:border-blue-400/70 rounded-3xl p-5 space-y-4 shadow-xl transition-all">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-base shadow-lg shrink-0 border border-blue-400/30">
+                gov.br
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+                  Assinar com GOV.BR
+                  <span className="bg-amber-400/20 text-amber-300 text-[9px] font-black px-2 py-0.5 rounded-full border border-amber-400/30 uppercase tracking-wider">
+                    Recomendado
+                  </span>
+                </h3>
+                <p className="text-[11px] text-blue-200/80 font-medium leading-tight mt-0.5">
+                  Assinatura Eletrônica Avançada (Lei nº 14.063/2020). Autenticada pelo Governo Federal.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              onClick={handleSubmitSignatureGovBr}
+              disabled={geolocationStatus !== 'success' || enviando}
+              className="w-full h-12 rounded-full font-extrabold bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white shadow-lg shadow-blue-950/60 transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {enviando ? (
+                <Loader2 size={16} className="animate-spin text-white" />
+              ) : (
+                <ShieldCheck size={18} />
+              )}
+              <span>Assinar com minha Conta GOV.BR</span>
+            </Button>
+          </div>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-white/10"></div>
+            <span className="flex-shrink mx-3 text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">ou assinar por rubrica manual</span>
+            <div className="flex-grow border-t border-white/10"></div>
           </div>
 
           {/* Tab Selector between Draw and Type */}

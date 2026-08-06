@@ -63,6 +63,11 @@ export interface RelatorioEndereco {
   tipo?: string
   data_inclusao?: string
   titulo?: string
+  // Confiabilidade do endereço — vem pronto da Assertiva (ex.: "CONFIRMADA" x
+  // "APROXIMADA"), não é algo que dá pra calcular do nosso lado.
+  precisao_cep?: string
+  latitude?: string
+  longitude?: string
 }
 
 export interface RelatorioTelefone {
@@ -72,6 +77,19 @@ export interface RelatorioTelefone {
   whatsapp?: boolean
   score?: number
   operadora?: string
+}
+
+// Telefone extra de um vínculo (pai/mãe/cônjuge/sócio/etc.), vindo do produto
+// dedicado /localize/v3/mais-telefones — diferente de RelatorioTelefone porque
+// carrega sinais de qualidade que só esse endpoint retorna.
+export interface RelatorioTelefoneVinculo {
+  numero?: string
+  tipo?: 'Fixo' | 'Celular'
+  relacao?: string
+  nao_perturbe?: boolean
+  hotphone?: boolean
+  plus?: boolean
+  ultimo_contato?: string
 }
 
 export interface RelatorioEmail {
@@ -120,9 +138,16 @@ export interface RelatorioVinculo {
   data?: string
   data_nascimento?: string
   telefone?: string
+  // Sinais de precisão do telefone principal — vêm no mesmo item de /conexoes,
+  // só não eram lidos: se está marcado "não perturbe" e se é celular ou fixo.
+  telefone_nao_perturbe?: boolean
+  tipo_telefone?: 'Fixo' | 'Celular'
   whatsapp?: boolean
   email?: string
   endereco?: RelatorioEndereco
+  // Telefones adicionais (com sinais hotphone/plus) via /mais-telefones —
+  // só preenchido para os vínculos mais próximos (ver MAX_MAIS_TELEFONES em route.ts).
+  telefones_extra?: RelatorioTelefoneVinculo[]
   _enriquecido?: boolean
 }
 
@@ -287,6 +312,11 @@ export interface RelatorioCompleto {
   _mix_403?: boolean
   _credito_403?: boolean
   _auth_error?: string
+  // 'basico': identificação + conexões + veículos (sem score/dívidas) — pra
+  // localizar/contatar sem pagar preço de análise de crédito. 'completo':
+  // tudo, incluindo score/negativações/protestos/cheques (comportamento
+  // histórico, é o default quando o campo não é enviado).
+  _nivel?: 'basico' | 'completo'
 }
 
 // ── Análise Comportamental / Análise 360 (produto assíncrono, PF e PJ) ───────
@@ -372,9 +402,14 @@ export interface Analise360DividaUniao {
   numero_inscricao?: string
   situacao?: string
   uf?: string
+  unidade_responsavel?: string
   entidade_responsavel?: string
   data?: string
   valor?: number
+  // Etapa do processo de cobrança (ETAPA_1..4, PROCESSAMENTO_INTERNO) — ver
+  // CATEGORIA_DIVIDA_UNIAO em parsers.ts pro texto explicativo de cada uma.
+  categoria?: string
+  categoria_label?: string
 }
 
 export interface Analise360Beneficio {

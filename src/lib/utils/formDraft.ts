@@ -21,6 +21,28 @@ function chaveStorage(chave: string): string {
   return `rascunho:${chave}`
 }
 
+// Chaves centralizadas aqui (em vez de cada tela declarar a sua) por dois
+// motivos: evita string duplicada/errada por engano, e permite
+// `limparTodosRascunhos` saber a lista completa sem precisar importar cada
+// página — sessionStorage sobrevive a logout, então sem isso um rascunho de
+// cadastro de um usuário poderia reaparecer pra outro usuário que loga na
+// mesma aba/computador depois (ver EmpresaContext, chamado no SIGNED_OUT).
+export const RASCUNHO_CADASTRO_CLIENTE = 'cadastro-cliente-factoring'
+export const RASCUNHO_NOVO_EMPRESTIMO = 'novo-emprestimo-factoring'
+export const RASCUNHO_NOVA_VENDA = 'nova-venda-emporio'
+
+const TODAS_AS_CHAVES_DE_RASCUNHO = [
+  RASCUNHO_CADASTRO_CLIENTE,
+  RASCUNHO_NOVO_EMPRESTIMO,
+  RASCUNHO_NOVA_VENDA,
+] as const
+
+// Chamar no logout — sessionStorage não é limpo automaticamente ao trocar de
+// usuário na mesma aba, só quando a aba é fechada de fato.
+export function limparTodosRascunhos(): void {
+  for (const chave of TODAS_AS_CHAVES_DE_RASCUNHO) limparRascunho(chave)
+}
+
 function ignorarNaoSerializavel(_key: string, value: unknown) {
   if (value instanceof Map) return undefined
   if (typeof File !== 'undefined' && value instanceof File) return undefined

@@ -1,19 +1,56 @@
 import type { RelatorioCompleto } from './types'
 
+// Campos que só existem porque o Score/Crédito foi chamado. Uma consulta
+// 'basico' nunca chama esse endpoint — mas o servidor pode devolver um cache
+// 'completo' já existente pra responder um pedido 'basico' sem gastar de novo
+// (ver docs/politica-cache.md). Isso significa que o objeto pode vir com
+// esses campos preenchidos mesmo quando NINGUÉM pediu score nessa chamada.
+// Removidos aqui, na fronteira de entrada dos dados — assim NENHUMA tela,
+// atual ou futura, que só renderiza `relatorio.<campo>` corre o risco de
+// mostrar score/dívida sem ter sido pedido (regra 2 da política de cache).
+const CAMPOS_SO_COMPLETO = [
+  'score', 'score_detalhado', 'faixa_risco',
+  'renda_estimada', 'renda_presumida', 'capacidade_pagamento', 'faixa_renda', 'comprometimento_renda',
+  'negativacoes', 'total_negativacoes', 'valor_total_negativacoes',
+  'protestos', 'total_protestos', 'valor_total_protestos',
+  'acoes_judiciais', 'total_acoes_judiciais', 'valor_total_acoes',
+  'ccf', 'total_ccf',
+  'operacoes_credito', 'total_operacoes_credito',
+  'consultas_anteriores', 'total_consultas_anteriores',
+  'total_dividas', 'valor_total_dividas',
+  'faturamento_presumido',
+  '_credito', '_credito_403',
+] as const
+
+export function sanitizarParaBasico(data: RelatorioCompleto): RelatorioCompleto {
+  const limpo: Record<string, unknown> = { ...data }
+  for (const campo of CAMPOS_SO_COMPLETO) delete limpo[campo]
+  // Força a verdade sobre o que ESTA chamada pediu, mesmo que o objeto tenha
+  // vindo de um cache 'completo' reaproveitado — quem consome (ex.: a
+  // gravação no perfil do cliente) decide o que persistir com base nisso.
+  limpo._nivel = 'basico'
+  return limpo as unknown as RelatorioCompleto
+}
+
 export async function buscarRelatorioAssertiva(
   documento: string,
   tipo: 'pf' | 'pj',
+  // 'basico' = identificação + conexões + veículos (achar/contatar a pessoa e
+  // ver o que ela possui, sem gastar em score de crédito). 'completo' (default,
+  // igual ao comportamento de sempre) soma score/negativações/protestos/cheques.
+  nivel: 'basico' | 'completo' = 'completo',
 ): Promise<{ data: RelatorioCompleto | null; erro: string | null }> {
   try {
     const res = await fetch('/api/assertiva/relatorio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ documento: documento.replace(/\D/g, ''), tipo }),
+      body: JSON.stringify({ documento: documento.replace(/\D/g, ''), tipo, nivel }),
     })
 
     const json = await res.json()
     if (!res.ok) return { data: null, erro: json.erro ?? 'Erro ao consultar Assertiva' }
-    return { data: json as RelatorioCompleto, erro: null }
+    const data = json as RelatorioCompleto
+    return { data: nivel === 'basico' ? sanitizarParaBasico(data) : data, erro: null }
   } catch (e) {
     return { data: null, erro: 'Falha de conexão' }
   }

@@ -31,7 +31,40 @@ produção. Antes de mexer em `parsers.ts` ou `route.ts`, leia isto.
   `extrairListaComTotais`.
 - **`/localize/v3/cpf` nunca retorna o nome do pai** — só da mãe
   (`maeNome`). Pai só aparece via `/conexoes` ou `/pessoas-de-referencia`,
-  quando existe registro de parentesco.
+  quando existe registro de parentesco. **Confirmado em 2026-08-06 varrendo
+  os dois swaggers inteiros (Localize + Análise 360) procurando qualquer
+  propriedade com "pai" no nome — zero ocorrências.** Não existe outra fonte
+  possível dentro do plano contratado; a ausência varia pessoa a pessoa
+  porque depende da base de relacionamento da própria Assertiva ter aquele
+  vínculo específico indexado. Não é bug — é limitação real de dado.
+- **`/conexoes` só tem 5 params** (`documento`, `tipo`, `idFinalidade`,
+  `conjuge`, `telefones`) — não existe um parâmetro pra pedir "todas as
+  categorias". Uma única chamada já retorna o array plano misturando todas
+  as categorias que existirem pra aquele documento (parentes, sócios,
+  empregador, empresas, convívio familiar, decisores). Os 8 schemas
+  `ResponseConexoes*PF/PJ` do swagger (`oneOf`) são só artefato de
+  documentação — na prática todos têm exatamente os mesmos campos por item:
+  `nomeOuRazaoSocial`, `documento`, `tipoDocumento`, `tipoRelacao`, `relacao`,
+  `telefone`, `tipoTelefone` (M/F), `naoPerturbe`, `whatsapp`,
+  `dataNascimento`, `cargo`, `dataEntrada`/`dataAbertura`.
+- **`/localize/v3/mais-telefones`** (não integrado até 2026-08-06) devolve
+  MÚLTIPLOS telefones por documento (não só 1 como `/conexoes`), cada um com
+  `relacao`, `naoPerturbe`, `ultimoContato` e — só nos móveis — `hotphone`
+  (número validado/ativo recentemente) e `plus` (maior confiança). Exige
+  `protocolo` de uma consulta de `/cpf`\|`/cnpj` do MESMO documento feita
+  pouco antes — não dá pra reaproveitar protocolo de um cache antigo.
+  Integrado em `route.ts` só para os `MAX_MAIS_TELEFONES` (5) vínculos mais
+  próximos que tiveram lookup fresco (cache miss) — em cache hit, sem
+  protocolo, pula silenciosamente.
+- **`/localize/v3/possiveis-decisores`** (dedicado, CNPJ) tem MENOS dado que
+  o que já vem em `/conexoes` (nem telefone tem, só cargo/cpf/nome/data
+  nasc.) — confirmado que não vale integrar.
+- **`DividasAtivasUniaoModule.registros[]`** (Análise 360 PF) tem `categoria`
+  (enum `ETAPA_1`..`ETAPA_4`, `PROCESSAMENTO_INTERNO` — tabela em
+  `CATEGORIA_DIVIDA_UNIAO` em `parsers.ts`) e `unidadeResponsavel` — os dois
+  existiam na API desde sempre mas só passaram a ser parseados em 2026-08-06.
+  `ETAPA_4` = acordo rompido/escalando pra leilão (crítico); `ETAPA_3` =
+  parcelamento em dia (ok).
 - **`possivelHistoricoProfissional`** é um **array** (histórico de vínculos
   empregatícios: empresa, CNPJ, cargo, setor, renda, data), não um objeto
   único — usar o array inteiro (`historico_profissional`), não só `[0]`
@@ -82,6 +115,38 @@ confirmado. **Antes de tentar integrar isso, confirmar com o contato comercial
 da Assertiva** (Jessica Anjos, jessica.anjos@assertivasolucoes.com.br) se
 existe uma variante "por Consulta/Chave" (nome citado na proposta) que aceite
 um CPF/CNPJ por vez via API — só vale gastar esforço de código depois disso.
+
+## Priorização de vínculos (2026-08-06)
+
+`MAX_VINCULOS_ENRIQUECER` (25) e `MAX_MAIS_TELEFONES` (5) em `route.ts` são
+tetos de CUSTO — cada vínculo enriquecido é 1 consulta paga extra (cacheada
+30 dias), e `mais-telefones` é mais uma em cima disso. Antes de aplicar os
+tetos, `ordenarVinculosPorProximidade` (parsers.ts) reordena a lista pondo
+família direta (mãe/pai/cônjuge/filho) primeiro, depois irmãos/avós, depois
+sócios/empregador/decisores. Isso garante que pessoa com muitos vínculos
+societários (ex.: sócio de empresa grande) não "engula" o teto com sócios
+distantes antes de enriquecer a família — que é quem mais importa pra
+localizar o devedor numa cobrança. Se `MAX_VINCULOS_ENRIQUECER` for alterado,
+reavaliar custo (consultas Assertiva são pagas por chamada).
+
+## Endereço: precisão e geolocalização (2026-08-06)
+
+`Enderecos.precisaoCep` (ex.: `"CONFIRMADA"`) e `latitude`/`longitude` vêm
+prontos em qualquer endereço retornado por `/cpf`\|`/cnpj` (e por tabela
+herdam pros perfis de vínculo enriquecidos) — agora capturados em
+`RelatorioEndereco`. Não confiar em endereço com `precisao_cep` diferente de
+`"CONFIRMADA"` como se fosse exato (é aproximado — cuidado ao mandar
+cobrador pro local).
+
+## Campos intencionalmente não removidos: `RelatorioTelefone.ddd`/`.operadora`
+
+Esses dois campos nunca são preenchidos com dado real — `numero` já vem
+formatado inteiro (ex. `"(11) 99898-9898"`) e nem `ddd` nem `operadora`
+existem em nenhum schema real da Assertiva. São campos "mortos" mas foram
+mantidos no tipo por decisão consciente em 2026-08-06: já existem testes e
+código dependendo do shape, e remover não muda comportamento nenhum (sempre
+foram `undefined`/`''` em produção) — só risco de quebrar algo por zero
+ganho. Se um dia for limpar, checar usos em toda a UI antes.
 
 ## Cache
 

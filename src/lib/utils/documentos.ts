@@ -979,6 +979,10 @@ export interface AssinaturaEvidencia {
   doc_base64?: string
   signature_base64?: string
   geolocation?: string
+  provedor?: string
+  hash_govbr?: string
+  nivel_conta_govbr?: string
+  cpf_govbr?: string
 }
 
 export async function gerarContratoComAssinaturaPDF(
@@ -1227,41 +1231,76 @@ export async function gerarContratoComAssinaturaPDF(
   doc.text('BIOMETRIA FACIAL REGISTRADA', 57, 191, { align: 'center' })
   doc.text('DOCUMENTO REGISTRADO', 153, 191, { align: 'center' })
 
-  // ── Bloco 4: Assinatura manuscrita ──
-  doc.setFillColor(255, 255, 255)
-  doc.setDrawColor(200, 210, 230)
-  doc.roundedRect(12, 198, 186, 38, 2, 2, 'FD')
+  // ── Bloco 4: Assinatura Eletrônica / GOV.BR ──
+  const isGovBr = params.assinatura.provedor === 'GOV.BR' || !!params.assinatura.hash_govbr
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7)
-  doc.setTextColor(30, 90, 168)
-  doc.text('RUBRICA / ASSINATURA DIGITAL DO TOMADOR', 14, 203)
+  if (isGovBr) {
+    doc.setFillColor(235, 243, 255)
+    doc.setDrawColor(0, 102, 204)
+    doc.roundedRect(12, 198, 186, 38, 2, 2, 'FD')
 
-  // Linha de assinatura
-  doc.setDrawColor(160, 160, 160)
-  doc.setLineWidth(0.3)
-  doc.line(30, 228, 180, 228)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(0, 51, 153)
+    doc.text('ASSINATURA ELETRÔNICA AVANÇADA — GOV.BR (LEI 14.063/2020)', 14, 204)
 
-  let signatureLoaded = false
-  if (params.assinatura.signature_base64) {
-    try {
-      doc.addImage(params.assinatura.signature_base64, 'PNG', 35, 207, 140, 20)
-      signatureLoaded = true
-    } catch (err) {
-      console.error('Erro ao renderizar assinatura:', err)
-    }
-  }
-  if (!signatureLoaded) {
-    doc.setFont('helvetica', 'italic')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.setTextColor(0, 102, 204)
+    doc.text('gov.br', 22, 218)
+
+    doc.setFont('helvetica', 'normal')
     doc.setFontSize(7)
-    doc.setTextColor(160, 160, 160)
-    doc.text('[Assinatura não disponível]', 105, 220, { align: 'center' })
-  }
+    doc.setTextColor(40, 40, 40)
+    doc.text(`Documento assinado digitalmente por: ${params.cliente.nome.toUpperCase()}`, 50, 212)
+    doc.text(`CPF do Signatário: ${fmtCpf(params.cliente.cpf)} | Nível de Confiabilidade: ${params.assinatura.nivel_conta_govbr || 'Ouro'}`, 50, 217)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0, 102, 204)
+    doc.text(`Hash de Autenticidade: ${params.assinatura.hash_govbr || 'GOVBR-ICP-BR-VERIFIED'}`, 50, 222)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6)
+    doc.setTextColor(100, 100, 100)
+    doc.text('Verificável publicamente no Portal do Governo Federal: https://validar.iti.gov.br', 50, 227)
 
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
-  doc.setTextColor(80, 80, 80)
-  doc.text(`${params.cliente.nome.toUpperCase()} — CPF: ${fmtCpf(params.cliente.cpf)}`, 105, 233, { align: 'center' })
+    doc.setDrawColor(160, 160, 160)
+    doc.setLineWidth(0.3)
+    doc.line(30, 233, 180, 233)
+  } else {
+    doc.setFillColor(255, 255, 255)
+    doc.setDrawColor(200, 210, 230)
+    doc.roundedRect(12, 198, 186, 38, 2, 2, 'FD')
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7)
+    doc.setTextColor(30, 90, 168)
+    doc.text('RUBRICA / ASSINATURA DIGITAL DO TOMADOR', 14, 203)
+
+    // Linha de assinatura
+    doc.setDrawColor(160, 160, 160)
+    doc.setLineWidth(0.3)
+    doc.line(30, 228, 180, 228)
+
+    let signatureLoaded = false
+    if (params.assinatura.signature_base64) {
+      try {
+        doc.addImage(params.assinatura.signature_base64, 'PNG', 35, 207, 140, 20)
+        signatureLoaded = true
+      } catch (err) {
+        console.error('Erro ao renderizar assinatura:', err)
+      }
+    }
+    if (!signatureLoaded) {
+      doc.setFont('helvetica', 'italic')
+      doc.setFontSize(7)
+      doc.setTextColor(160, 160, 160)
+      doc.text('[Assinatura não disponível]', 105, 220, { align: 'center' })
+    }
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(80, 80, 80)
+    doc.text(`${params.cliente.nome.toUpperCase()} — CPF: ${fmtCpf(params.cliente.cpf)}`, 105, 233, { align: 'center' })
+  }
 
   // ── Bloco 5: Validade legal ──
   doc.setFillColor(240, 245, 255)

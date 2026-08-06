@@ -1,7 +1,7 @@
 import type {
   RelatorioCompleto, RelatorioNegativacao, RelatorioProtesto,
   RelatorioAcaoJudicial, RelatorioCcf, RelatorioEndereco,
-  RelatorioTelefone, RelatorioEmail, RelatorioParticipacao,
+  RelatorioTelefone, RelatorioTelefoneVinculo, RelatorioEmail, RelatorioParticipacao,
   RelatorioSocio, RelatorioConsultaAnterior, RelatorioScoreDetalhado,
   RelatorioVeiculo, RelatorioVinculo,
   RelatorioRedeSocial, RelatorioRegistroProfissional, RelatorioSegmentoConsulta,
@@ -9,6 +9,45 @@ import type {
   Analise360ResultadoPJ, Analise360ResultadoPF, Analise360Imovel,
   Analise360Reputacao, Analise360Movimentacao, Analise360Concorrencia,
 } from './types'
+
+// Etapa do processo de cobrança de dívida ativa da União (Análise 360 PF) —
+// tabela oficial em https://integracao.assertivasolucoes.com.br/v3/doc/#section/Categorias-de-Dividas-Ativas-na-Uniao
+export const CATEGORIA_DIVIDA_UNIAO: Record<string, string> = {
+  ETAPA_1: 'Registrada em cobrança, sem acordo',
+  ETAPA_2: 'Proposta de acordo/garantia em análise',
+  ETAPA_3: 'Parcelamento ativo e em dia',
+  ETAPA_4: 'Acordo rompido — escalando para execução/leilão',
+  PROCESSAMENTO_INTERNO: 'Atualização interna (situação temporária)',
+}
+
+// Proximidade de parentesco/relação — usado pra priorizar QUAIS vínculos
+// recebem enriquecimento de perfil completo (endereço/telefone extra) quando
+// a pessoa tem mais vínculos do que o teto de consultas pagas permite, e
+// quais entram na busca de telefones extras (mais-telefones, mais cara ainda).
+// Menor número = mais próximo = prioridade mais alta.
+const ORDEM_PROXIMIDADE_PARENTESCO: Record<string, number> = {
+  'Mãe': 1, 'Pai': 1, 'Cônjuge': 1, 'Companheiro(a)': 1, 'Marido': 1, 'Esposa': 1,
+  'Filho(a)': 2, 'Filho': 2, 'Filha': 2,
+  'Irmão(ã)': 3, 'Irmão': 3, 'Irmã': 3,
+  'Avô': 4, 'Avó': 4, 'Neto(a)': 4,
+  'Outros': 5, // convívio familiar — mesmo endereço, sem parentesco formal identificado
+  'Sócio(a)': 6,
+  'Representante Legal': 7, 'Decisor': 7,
+  'Funcionário': 8, 'Empregador': 8,
+  'Empresas com participação': 9,
+}
+const PROXIMIDADE_PADRAO = 10
+
+// Reordena vínculos do mais próximo (família) pro mais distante (sócio de
+// empresa, empregador) — sort estável, preserva a ordem original dentro do
+// mesmo nível de proximidade. Quem chama decide quantos pegar (slice depois).
+export function ordenarVinculosPorProximidade(vinculos: RelatorioVinculo[]): RelatorioVinculo[] {
+  return [...vinculos].sort((a, b) => {
+    const pa = ORDEM_PROXIMIDADE_PARENTESCO[a.parentesco ?? ''] ?? PROXIMIDADE_PADRAO
+    const pb = ORDEM_PROXIMIDADE_PARENTESCO[b.parentesco ?? ''] ?? PROXIMIDADE_PADRAO
+    return pa - pb
+  })
+}
 
 // Telefones/endereços/emails "adicionados" vêm de um mecanismo à parte da Assertiva
 // (anotados via /meu-portal, não localizados automaticamente) — hoje sempre vazios
@@ -84,6 +123,9 @@ export function parseLocalizePf(raw: any) {
     cep: e.cep,
     tipo: e.tipo ?? e.tipoEndereco ?? e.classificacao,
     data_inclusao: formatarDataParaIso(e.dataInclusao ?? e.dataAtualizacao),
+    precisao_cep: e.precisaoCep,
+    latitude: e.latitude,
+    longitude: e.longitude,
   }))
 
   const emails: RelatorioEmail[] = [...(resp.emails ?? []), ...(resp.emailsAdicionados ?? [])].map((e: any) => ({
@@ -180,6 +222,9 @@ export function parseLocalizePj(raw: any) {
     cep: e.cep,
     tipo: e.tipo ?? e.tipoEndereco ?? e.classificacao,
     data_inclusao: formatarDataParaIso(e.dataInclusao ?? e.dataAtualizacao),
+    precisao_cep: e.precisaoCep,
+    latitude: e.latitude,
+    longitude: e.longitude,
   }))
 
   const emails: RelatorioEmail[] = [...(resp.emails ?? []), ...(resp.emailsAdicionados ?? [])].map((e: any) => ({
@@ -424,6 +469,10 @@ function mapearConexao(c: any, categoria?: string): RelatorioVinculo {
     data: c.dataEntrada ?? c.dataAbertura,
     data_nascimento: formatarDataParaIso(c.dataNascimento),
     telefone: c.telefone,
+    // tipoTelefone vem 'M'/'F' (móvel/fixo); naoPerturbe é o sinal de "não ligar"
+    // — os dois vêm de graça no mesmo item, só não eram lidos antes.
+    tipo_telefone: c.tipoTelefone === 'M' ? 'Celular' : c.tipoTelefone === 'F' ? 'Fixo' : undefined,
+    telefone_nao_perturbe: c.naoPerturbe,
     whatsapp: c.whatsapp,
   }
 }
@@ -516,6 +565,35 @@ export function enriquecerVinculos(
 function formatarTelefoneVinculo(t?: { ddd?: string; numero?: string }): string | undefined {
   if (!t?.numero) return undefined
   return `${t.ddd ?? ''}${t.numero}`
+}
+
+// ─── Parser: Mais Telefones → telefones extras de um vínculo já identificado ─
+// Endpoint /localize/v3/mais-telefones. Diferente de /conexoes (que só dá 1
+// telefone por pessoa conectada), este devolve VÁRIOS números por pessoa, cada
+// um com sinais de qualidade que não existem em nenhum outro produto: hotphone
+// (número validado/ativo recentemente) e plus (maior confiança). Exige ter
+// feito uma consulta de /cpf ou /cnpj do MESMO documento antes (usa o
+// protocolo dessa consulta) — por isso só é chamado para vínculos que acabaram
+// de receber um lookup fresco (ver route.ts).
+export function parseMaisTelefones(raw: any): RelatorioTelefoneVinculo[] {
+  if (!raw) return []
+  const mt = raw?.resposta?.maisTelefones ?? {}
+  const tels: RelatorioTelefoneVinculo[] = []
+  for (const t of (mt.moveis ?? [])) {
+    tels.push({
+      numero: t.numero, tipo: 'Celular', relacao: t.relacao,
+      nao_perturbe: t.naoPerturbe, hotphone: t.hotphone, plus: t.plus,
+      ultimo_contato: t.ultimoContato,
+    })
+  }
+  for (const t of (mt.fixos ?? [])) {
+    tels.push({
+      numero: t.numero, tipo: 'Fixo', relacao: t.relacao,
+      nao_perturbe: t.naoPerturbe,
+      ultimo_contato: t.ultimoContato,
+    })
+  }
+  return tels
 }
 
 // ─── Parser: Crédito Mix PF → campos financeiros ─────────────────────────────
@@ -611,7 +689,8 @@ export function parseMixPf(raw: any) {
   return {
     nome: cad.nome,
     nome_mae: cad.maeNome ?? cad.nomeMae,
-    nome_pai: cad.paiNome ?? cad.nomePai,
+    // Nenhum produto Assertiva contratado retorna nome do pai como campo direto
+    // (confirmado varrendo os schemas oficiais) — só via /conexoes, relacao "Pai".
     data_nascimento: formatarDataParaIso(cad.dataNascimento),
     sexo: cad.sexo,
     situacao_cpf: cad.situacaoCadastral,
@@ -1146,9 +1225,12 @@ export function parseAnalise360PF(raw: any): Analise360ResultadoPF {
       numero_inscricao: d.numeroInscricao?.toString(),
       situacao: d.situacao,
       uf: d.uf,
+      unidade_responsavel: d.unidadeResponsavel,
       entidade_responsavel: d.entidadeResponsavel,
       data: formatarDataParaIso(d.data),
       valor: d.valor,
+      categoria: d.categoria,
+      categoria_label: d.categoria ? CATEGORIA_DIVIDA_UNIAO[d.categoria] : undefined,
     })),
     quantidade_dividas_uniao: dividasU.quantidadeTotal,
     valor_total_dividas_uniao: dividasU.valorTotal,

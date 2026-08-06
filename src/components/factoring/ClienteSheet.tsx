@@ -35,7 +35,7 @@ export function ClienteSheet({ clienteId, empresaId, trigger }: ClienteSheetProp
   const [open, setOpen] = useState(false)
 
   const { data: cliente, isLoading: loadingCliente } = useQuery<ClienteFactoring | null>({
-    queryKey: ['cliente-sheet', clienteId],
+    queryKey: ['cliente-sheet', clienteId, empresaId],
     enabled: open && !!clienteId,
     queryFn: async () => {
       const { data } = await supabase

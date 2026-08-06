@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { SectionCard } from '@/components/shared/SectionCard'
 import { Button } from '@/components/ui/button'
 import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
+import { NivelConsultaInfo } from '@/components/factoring/analise-credito/NivelConsultaInfo'
 import { buscarRelatorioAssertiva, detectarTipo, maskDoc, formatCpf, formatCnpj } from '@/lib/assertiva/client'
 import type { RelatorioCompleto } from '@/lib/assertiva/types'
 import { createClient } from '@/lib/supabase/client'
@@ -25,6 +26,7 @@ export default function AnaliseCreditoPage() {
   const supabase = createClient()
 
   const [input, setInput]           = useState('')
+  const [nivel, setNivel]           = useState<'basico' | 'completo'>('basico')
   const [loading, setLoading]       = useState(false)
   const [relatorio, setRelatorio]   = useState<RelatorioCompleto | null>(null)
   const [erro, setErro]             = useState<string | null>(null)
@@ -47,7 +49,7 @@ export default function AnaliseCreditoPage() {
     setErro(null)
   }
 
-  async function analisar(docOverride?: string) {
+  async function analisar(docOverride?: string, nivelOverride?: 'basico' | 'completo') {
     const raw = docOverride ?? input
     const doc  = raw.replace(/\D/g, '')
     const tipo = detectarTipo(doc)
@@ -61,7 +63,7 @@ export default function AnaliseCreditoPage() {
     setErro(null)
     setRelatorio(null)
 
-    const { data, erro: err } = await buscarRelatorioAssertiva(doc, tipo)
+    const { data, erro: err } = await buscarRelatorioAssertiva(doc, tipo, nivelOverride ?? nivel)
     setLoading(false)
 
     if (err) { setErro(err); return }
@@ -119,6 +121,31 @@ export default function AnaliseCreditoPage() {
             {!loading && <span className="hidden sm:inline">Analisar</span>}
           </Button>
         </div>
+
+        {/* Nível da consulta — Básico não gasta em score/crédito */}
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground">Nível:</span>
+          <div className="inline-flex rounded-full bg-muted p-0.5">
+            <button
+              type="button"
+              onClick={() => setNivel('basico')}
+              className={`text-[11px] font-semibold px-3 py-1 rounded-full transition-colors ${nivel === 'basico' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'}`}
+            >
+              Simples
+            </button>
+            <button
+              type="button"
+              onClick={() => setNivel('completo')}
+              className={`text-[11px] font-semibold px-3 py-1 rounded-full transition-colors ${nivel === 'completo' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'}`}
+            >
+              Análise Completa
+            </button>
+          </div>
+          <NivelConsultaInfo />
+          <span className="text-[10px] text-muted-foreground/70">
+            {nivel === 'basico' ? 'Contato, endereço, vínculos e veículos — sem score/dívidas' : 'Tudo, incluindo score, negativações, protestos e cheques'}
+          </span>
+        </div>
       </SectionCard>
 
       {/* Erro */}
@@ -158,12 +185,14 @@ export default function AnaliseCreditoPage() {
               <div className="divide-y divide-border/30">
                 {recentes.map(r => {
                   const isPj = r.chave.startsWith('pj:')
+                  const partesChave = r.chave.split(':')
+                  const nivelRecente = partesChave[2] === 'basico' ? 'basico' : 'completo'
                   const score = r.resultado?.score
                   const temRestricoes = (r.resultado?.total_dividas ?? 0) > 0
                   return (
                     <button
                       key={r.chave}
-                      onClick={() => analisar(r.chave.split(':').pop()!)}
+                      onClick={() => analisar(partesChave[partesChave.length - 1], nivelRecente)}
                       className="w-full px-5 py-3.5 flex items-center gap-3 hover:bg-muted/40 transition-colors text-left"
                     >
                       <div className="w-8 h-8 rounded-full bg-muted/60 border border-border/40 flex items-center justify-center shrink-0">
@@ -174,6 +203,9 @@ export default function AnaliseCreditoPage() {
                         <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{formatarDocRecente(r.chave)}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        {nivelRecente === 'basico' && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600">Simples</span>
+                        )}
                         {temRestricoes && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-600">Restrições</span>
                         )}
@@ -230,6 +262,16 @@ export default function AnaliseCreditoPage() {
 
           {/* Ações pós-consulta */}
           <div className="mt-4 flex flex-col sm:flex-row gap-2">
+            {relatorio._nivel === 'basico' && (
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={() => { setNivel('completo'); analisar(relatorio.documento, 'completo') }}
+              >
+                <BarChart3 size={16} />
+                Ver Análise Completa
+              </Button>
+            )}
             <Button onClick={irParaCadastro} className="flex-1">
               <UserPlus size={16} />
               Cadastrar como Cliente

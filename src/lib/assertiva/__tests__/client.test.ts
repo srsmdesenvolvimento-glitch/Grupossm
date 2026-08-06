@@ -7,7 +7,9 @@ import {
   formatCpf,
   formatCnpj,
   formatTel,
+  sanitizarParaBasico,
 } from '../client'
+import type { RelatorioCompleto } from '../types'
 
 // ─── detectarTipo ─────────────────────────────────────────────────────────────
 
@@ -165,6 +167,61 @@ describe('formatTel', () => {
 
   it('retorna string bruta para formatos não reconhecidos', () => {
     expect(formatTel('123')).toBe('123')
+  })
+})
+
+// ─── sanitizarParaBasico ──────────────────────────────────────────────────────
+// Guarda contra o bug de 2026-08-06: cache 'completo' reaproveitado pra
+// responder um pedido 'basico' não pode deixar score/dívida vazar pra tela.
+
+describe('sanitizarParaBasico', () => {
+  const relatorioCompleto: RelatorioCompleto = {
+    documento: '12345678909',
+    tipo: 'pf',
+    nome: 'GUSTAVO GOMES FRANCO LEITE',
+    data_nascimento: '2004-11-25',
+    enderecos: [{ municipio: 'BRASILIA', uf: 'DF' }],
+    vinculos: [{ nome: 'LUZANGELA GOMES SILVA', parentesco: 'Mãe', telefone: '(62) 99109-5389' }],
+    veiculos: [{ placa: 'ABC1D23' }],
+    score: 117,
+    faixa_risco: 'F — Altíssimo risco',
+    renda_estimada: 1317.87,
+    total_negativacoes: 12,
+    valor_total_negativacoes: 18216.91,
+    total_dividas: 12,
+    valor_total_dividas: 18216.91,
+    negativacoes: [{ credor: 'BANCO DO BRASIL S/A', valor: 3453.96 }],
+    _credito: { resposta: {} },
+    _credito_403: false,
+    _nivel: 'completo',
+  }
+
+  it('remove todos os campos que só existem por causa do Score/Crédito', () => {
+    const r = sanitizarParaBasico(relatorioCompleto)
+    expect(r.score).toBeUndefined()
+    expect(r.faixa_risco).toBeUndefined()
+    expect(r.renda_estimada).toBeUndefined()
+    expect(r.total_negativacoes).toBeUndefined()
+    expect(r.valor_total_negativacoes).toBeUndefined()
+    expect(r.negativacoes).toBeUndefined()
+    expect(r.total_dividas).toBeUndefined()
+    expect(r.valor_total_dividas).toBeUndefined()
+    expect(r._credito).toBeUndefined()
+    expect(r._credito_403).toBeUndefined()
+  })
+
+  it('preserva os campos de identificação, contato, vínculos e veículos', () => {
+    const r = sanitizarParaBasico(relatorioCompleto)
+    expect(r.nome).toBe('GUSTAVO GOMES FRANCO LEITE')
+    expect(r.enderecos).toHaveLength(1)
+    expect(r.vinculos).toHaveLength(1)
+    expect(r.vinculos![0].parentesco).toBe('Mãe')
+    expect(r.veiculos).toHaveLength(1)
+  })
+
+  it('força _nivel como basico mesmo se o objeto original dizia completo', () => {
+    const r = sanitizarParaBasico(relatorioCompleto)
+    expect(r._nivel).toBe('basico')
   })
 })
 

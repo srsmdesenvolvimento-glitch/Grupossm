@@ -58,7 +58,10 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
+import { NivelConsultaInfo } from '@/components/factoring/analise-credito/NivelConsultaInfo'
 import { buscarRelatorioAssertiva, faixaRiscoLabel, faixaRiscoColor } from '@/lib/assertiva/client'
+import { calcularCamposOrigemManual, extrairValoresParaOrigem } from '@/lib/utils/origemDados'
+import { formatBRL } from '@/lib/utils/currency'
 import type { RelatorioCompleto, Analise360ResultadoPJ, Analise360ResultadoPF } from '@/lib/assertiva/types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -118,6 +121,7 @@ interface ClienteFactoring {
   indicador_obito_assertiva: boolean | null
   situacao_documento_assertiva: string | null
   faturamento_presumido_assertiva: number | null
+  campos_origem_manual: string[] | null
 }
 
 interface Emprestimo {
@@ -179,6 +183,7 @@ interface ReferenciaCliente {
   endereco: string | null
   email: string | null
   observacoes: string | null
+  origem: 'assertiva' | 'manual' | null
 }
 
 interface Anotacao {
@@ -251,16 +256,44 @@ function FormField({
   label,
   children,
   className,
+  badge,
 }: {
   label: string
   children: React.ReactNode
   className?: string
+  badge?: React.ReactNode
 }) {
   return (
     <div className={cn('space-y-1.5', className)}>
-      <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</Label>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</Label>
+        {badge}
+      </div>
       {children}
     </div>
+  )
+}
+
+// Selo de origem do dado — 'Via Assertiva' quando o valor atual é
+// exatamente o que a Assertiva retornou (nunca editado); 'Editado
+// manualmente' quando `campos_origem_manual` marca esse campo como
+// corrigido/digitado pelo usuário. Sem selo quando a Assertiva nunca teve
+// esse dado e o campo está vazio (nada a distinguir ainda).
+function OrigemBadge({ campo, cliente, valoresAssertiva }: {
+  campo: string
+  cliente: ClienteFactoring
+  valoresAssertiva: Record<string, string>
+}) {
+  const editadoManualmente = cliente.campos_origem_manual?.includes(campo)
+  const temValorDaAssertiva = campo in valoresAssertiva
+  if (!editadoManualmente && !temValorDaAssertiva) return null
+  return (
+    <span className={cn(
+      'text-[9px] font-bold px-1.5 py-0.5 rounded-full normal-case tracking-normal',
+      editadoManualmente ? 'bg-muted text-muted-foreground' : 'bg-blue-500/10 text-blue-600',
+    )}>
+      {editadoManualmente ? 'Editado manualmente' : 'Via Assertiva'}
+    </span>
   )
 }
 
@@ -280,8 +313,11 @@ function AssertivaTab({
   )
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Default Simples — é o que mais se usa no dia a dia (localizar/contatar);
+  // quem precisar de score/dívidas troca pra Completa antes de consultar.
+  const [nivel, setNivel] = useState<'basico' | 'completo'>('basico')
 
-  async function consultar() {
+  async function consultar(nivelOverride?: 'basico' | 'completo') {
     const docBruto = cliente.tipo_pessoa === 'juridica' ? cliente.cnpj : cliente.cpf
     const doc = (docBruto ?? '').replace(/\D/g, '')
     if (!doc || (doc.length !== 11 && doc.length !== 14)) {
@@ -292,7 +328,7 @@ function AssertivaTab({
     setLoading(true)
     setErro(null)
 
-    const { data, erro: err } = await buscarRelatorioAssertiva(doc, tipo)
+    const { data, erro: err } = await buscarRelatorioAssertiva(doc, tipo, nivelOverride ?? nivel)
     setLoading(false)
 
     if (err) { setErro(err); return }
@@ -300,32 +336,50 @@ function AssertivaTab({
 
     setRelatorio(data)
 
+    // Consulta 'basico' (localizar/contatar) não busca score/negativações/
+    // protestos/cheques — se gravássemos esses campos como null/0 mesmo assim,
+    // uma atualização básica apagaria o histórico de crédito já registrado do
+    // cliente (vindo de uma consulta completa anterior). Sempre grava os dados
+    // cadastrais; só sobrescreve as colunas de crédito quando o nível pedido
+    // realmente as buscou (data._nivel ausente = consultas antigas, tratamos
+    // como completo pra manter compatibilidade).
+    const ehCompleto = data._nivel !== 'basico'
+    // Numa consulta básica, `data` não tem as chaves de crédito (foram
+    // removidas na sanitização) — mesclar em vez de substituir preserva
+    // score/negativações/etc de uma consulta completa anterior, enquanto
+    // ainda atualiza os dados cadastrais (telefone, endereço, vínculos...)
+    // com o que veio de fresco.
+    const dadosAssertivaMesclado = ehCompleto
+      ? data
+      : { ...(cliente.dados_assertiva ?? {}), ...data }
     await supabase.from('clientes_factoring').update({
-      dados_assertiva: data,
-      score_assertiva: data.score ?? null,
-      faixa_risco_assertiva: data.faixa_risco ?? null,
-      renda_estimada_assertiva: data.renda_estimada ?? null,
+      dados_assertiva: dadosAssertivaMesclado,
       assertiva_consultado_em: new Date().toISOString(),
-      total_negativacoes_assertiva: data.total_negativacoes ?? 0,
-      valor_total_negativacoes_assertiva: data.valor_total_negativacoes ?? 0.00,
-      total_protestos_assertiva: data.total_protestos ?? 0,
-      valor_total_protestos_assertiva: data.valor_total_protestos ?? 0.00,
-      total_acoes_judiciais_assertiva: data.total_acoes_judiciais ?? 0,
-      valor_total_acoes_assertiva: data.valor_total_acoes ?? 0.00,
-      total_ccf_assertiva: data.total_ccf ?? 0,
-      total_dividas_assertiva: data.total_dividas ?? 0,
-      valor_total_dividas_assertiva: data.valor_total_dividas ?? 0.00,
       pep_assertiva: data.pep ?? false,
       indicador_obito_assertiva: data.indicador_obito ?? false,
       situacao_documento_assertiva: data.tipo === 'pf' ? (data.situacao_cpf ?? null) : (data.situacao_cnpj ?? null),
-      faturamento_presumido_assertiva: data.faturamento_presumido ? (typeof data.faturamento_presumido === 'number' ? data.faturamento_presumido : parseFloat(data.faturamento_presumido as string)) : null,
+      ...(ehCompleto ? {
+        score_assertiva: data.score ?? null,
+        faixa_risco_assertiva: data.faixa_risco ?? null,
+        renda_estimada_assertiva: data.renda_estimada ?? null,
+        total_negativacoes_assertiva: data.total_negativacoes ?? 0,
+        valor_total_negativacoes_assertiva: data.valor_total_negativacoes ?? 0.00,
+        total_protestos_assertiva: data.total_protestos ?? 0,
+        valor_total_protestos_assertiva: data.valor_total_protestos ?? 0.00,
+        total_acoes_judiciais_assertiva: data.total_acoes_judiciais ?? 0,
+        valor_total_acoes_assertiva: data.valor_total_acoes ?? 0.00,
+        total_ccf_assertiva: data.total_ccf ?? 0,
+        total_dividas_assertiva: data.total_dividas ?? 0,
+        valor_total_dividas_assertiva: data.valor_total_dividas ?? 0.00,
+        faturamento_presumido_assertiva: data.faturamento_presumido ? (typeof data.faturamento_presumido === 'number' ? data.faturamento_presumido : parseFloat(data.faturamento_presumido as string)) : null,
+      } : {}),
     }).eq('id', cliente.id)
 
     // O score interno depende dos dados do bureau (negativações, score externo
-    // etc.) — sem isso, o score_interno persistido fica desatualizado até o
-    // próximo pagamento ou empréstimo (que são os únicos outros gatilhos de
-    // recálculo), mesmo já mostrando os dados novos da Assertiva na tela.
-    const novoScore = empresaAtual
+    // etc.) — só recalcula numa consulta completa; numa básica não há dado novo
+    // de crédito pra justificar o recálculo (e recalcular sem esses dados
+    // rebaixaria o score interno artificialmente).
+    const novoScore = (empresaAtual && ehCompleto)
       ? await recalcularScoreCliente(cliente.id, empresaAtual.id, supabase).catch(() => undefined)
       : undefined
 
@@ -361,8 +415,29 @@ function AssertivaTab({
             <p className="text-xs text-muted-foreground mt-0.5">Nenhuma consulta realizada ainda.</p>
           )}
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <Button onClick={consultar} disabled={loading || bloqueadoPorTempo} size="sm">
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <div className="inline-flex rounded-full bg-muted p-0.5">
+              <button
+                type="button"
+                onClick={() => setNivel('basico')}
+                title="Contato, endereço, vínculos e veículos — sem score/dívidas"
+                className={`text-[10px] font-semibold px-2.5 py-1 rounded-full transition-colors ${nivel === 'basico' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'}`}
+              >
+                Simples
+              </button>
+              <button
+                type="button"
+                onClick={() => setNivel('completo')}
+                title="Tudo, incluindo score, negativações, protestos e cheques"
+                className={`text-[10px] font-semibold px-2.5 py-1 rounded-full transition-colors ${nivel === 'completo' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'}`}
+              >
+                Completa
+              </button>
+            </div>
+            <NivelConsultaInfo />
+          </div>
+          <Button onClick={() => consultar()} disabled={loading || bloqueadoPorTempo} size="sm">
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
             {relatorio ? 'Atualizar Consulta' : 'Consultar Assertiva'}
           </Button>
@@ -389,7 +464,22 @@ function AssertivaTab({
       )}
 
       {/* Relatório */}
-      {!loading && relatorio && <RelatorioView relatorio={relatorio} />}
+      {!loading && relatorio && (
+        <>
+          {relatorio._nivel === 'basico' && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { setNivel('completo'); consultar('completo') }}
+              disabled={loading}
+            >
+              <Search size={14} />
+              Ampliar para Análise Completa
+            </Button>
+          )}
+          <RelatorioView relatorio={relatorio} />
+        </>
+      )}
 
       {/* Empty */}
       {!loading && !relatorio && !erro && (
@@ -491,15 +581,27 @@ function PerfilFinanceiroPF({ resultado }: { resultado: Analise360ResultadoPF })
           <p className="text-sm text-muted-foreground">Nenhuma dívida ativa da União encontrada.</p>
         ) : (
           <div className="space-y-2">
-            {resultado.dividas_uniao!.map((d, i) => (
-              <div key={i} className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs space-y-1">
-                <div className="flex justify-between gap-2">
-                  <span className="font-semibold text-foreground">{d.tipo ?? 'Dívida'}</span>
-                  {d.valor != null && <span className="font-bold text-red-600">{formatarMoeda(d.valor)}</span>}
+            {resultado.dividas_uniao!.map((d, i) => {
+              // ETAPA_4 = acordo rompido/leilão (crítico); ETAPA_3 = parcelamento em dia (ok);
+              // ETAPA_1/2 = em cobrança/negociação (atenção); resto = neutro.
+              const corCategoria =
+                d.categoria === 'ETAPA_4' ? 'bg-red-600/15 text-red-700' :
+                d.categoria === 'ETAPA_3' ? 'bg-green-500/15 text-green-700' :
+                (d.categoria === 'ETAPA_1' || d.categoria === 'ETAPA_2') ? 'bg-amber-500/15 text-amber-700' :
+                'bg-muted text-muted-foreground'
+              return (
+                <div key={i} className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs space-y-1">
+                  <div className="flex justify-between gap-2">
+                    <span className="font-semibold text-foreground">{d.tipo ?? 'Dívida'}</span>
+                    {d.valor != null && <span className="font-bold text-red-600">{formatarMoeda(d.valor)}</span>}
+                  </div>
+                  {d.categoria_label && (
+                    <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-full ${corCategoria}`}>{d.categoria_label}</span>
+                  )}
+                  <p className="text-muted-foreground">{[d.unidade_responsavel ?? d.entidade_responsavel, d.situacao, d.uf].filter(Boolean).join(' · ')}</p>
                 </div>
-                <p className="text-muted-foreground">{[d.entidade_responsavel, d.situacao, d.uf].filter(Boolean).join(' · ')}</p>
-              </div>
-            ))}
+              )
+            })}
             {resultado.valor_total_dividas_uniao != null && (
               <p className="text-xs font-bold text-red-600">Total: {formatarMoeda(resultado.valor_total_dividas_uniao)}</p>
             )}
@@ -662,6 +764,12 @@ export default function ClientePerfilPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [bloqueandoOpen, setBloqueandoOpen] = useState(false)
   const [bloqueandoLoading, setBloqueandoLoading] = useState(false)
+
+  // Exclusão de cliente — exige digitar o nome completo (ver excluirCliente)
+  const [excluirOpen, setExcluirOpen] = useState(false)
+  const [excluirNomeDigitado, setExcluirNomeDigitado] = useState('')
+  const [excluirLoading, setExcluirLoading] = useState(false)
+  const [excluirErro, setExcluirErro] = useState<string | null>(null)
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<string>('historico')
@@ -908,10 +1016,52 @@ export default function ClientePerfilPage() {
     setBloqueandoOpen(false)
   }
 
+  async function excluirCliente() {
+    if (!cliente) return
+    setExcluirLoading(true)
+    setExcluirErro(null)
+    try {
+      const res = await fetch(`/api/clientes/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nomeConfirmacao: excluirNomeDigitado }),
+      })
+      const json = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        // 409 = bloqueado por contrato em aberto — mensagem já vem pronta do servidor.
+        setExcluirErro(json.erro ?? 'Erro ao excluir cliente.')
+        setExcluirLoading(false)
+        return
+      }
+
+      toast.success('Cliente excluído.')
+      router.push('/factoring/clientes')
+    } catch {
+      setExcluirErro('Falha de conexão. Tente novamente.')
+      setExcluirLoading(false)
+    }
+  }
+
   async function salvarDados() {
     if (!cliente || !empresaAtual) return
     setSalvandoDados(true)
     const supabase = createClient()
+    // renda_mensal aqui é number (input type="number"), mas o snapshot da
+    // Assertiva guarda string formatada (ex.: "1.317,87") — formata pra
+    // comparar igual, senão todo cliente com renda vinda da Assertiva
+    // apareceria como "editado manualmente" mesmo sem ter mudado nada.
+    const camposOrigemManual = calcularCamposOrigemManual(
+      {
+        nome: formData.nome, data_nascimento: formData.data_nascimento,
+        telefone: formData.telefone, email: formData.email, cep: formData.cep,
+        endereco: formData.endereco, numero: formData.numero, complemento: formData.complemento,
+        bairro: formData.bairro, cidade: formData.cidade, estado: formData.estado,
+        renda_mensal: formData.renda_mensal != null ? formatBRL(formData.renda_mensal) : null,
+        estado_civil: formData.estado_civil, profissao: formData.profissao,
+      },
+      extrairValoresParaOrigem(cliente.dados_assertiva as RelatorioCompleto | null),
+    )
     const payload = {
       nome: formData.nome,
       cpf: formData.cpf ?? null,
@@ -938,6 +1088,7 @@ export default function ClientePerfilPage() {
       pix: formData.pix ?? null,
       limite_credito: formData.limite_credito ?? null,
       observacoes: formData.observacoes ?? null,
+      campos_origem_manual: camposOrigemManual,
     }
     const { error } = await supabase
       .from('clientes_factoring')
@@ -1029,9 +1180,12 @@ export default function ClientePerfilPage() {
 
   async function salvarEdicaoRef(refId: string) {
     const supabase = createClient()
+    // Editar uma referência (mesmo uma que veio da Assertiva) é uma correção
+    // manual a partir de agora — mesma regra do cadastro (ver setRef em
+    // clientes/novo).
     const { error } = await supabase
       .from('referencias_cliente_factoring')
-      .update(editRefData)
+      .update({ ...editRefData, origem: 'manual' })
       .eq('id', refId)
       .eq('cliente_id', id)
 
@@ -1265,6 +1419,10 @@ export default function ClientePerfilPage() {
   }
 
   const risco = getRiscoBadge(cliente.score_interno)
+  // Valores que a Assertiva retornou originalmente (derivado do snapshot
+  // salvo em `dados_assertiva`) — usado só pra decidir o selo "Via
+  // Assertiva" x "Editado manualmente" em cada campo do formulário.
+  const valoresAssertiva = extrairValoresParaOrigem(cliente.dados_assertiva as RelatorioCompleto | null)
 
   // ─── Main render ─────────────────────────────────────────────────────────
 
@@ -1357,6 +1515,15 @@ export default function ClientePerfilPage() {
                   >
                     <Ban size={15} />
                     {cliente.status === 'bloqueado' ? 'Desbloquear' : 'Bloquear'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 rounded-full font-semibold h-9 px-4 text-red-600 border-red-500/20 hover:bg-red-500/10"
+                    onClick={() => { setExcluirErro(null); setExcluirNomeDigitado(''); setExcluirOpen(true) }}
+                  >
+                    <Trash2 size={15} />
+                    Excluir
                   </Button>
                 </div>
               </div>
@@ -1831,7 +1998,7 @@ export default function ClientePerfilPage() {
                   <h3 className="font-bold text-foreground text-sm">Dados Pessoais</h3>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  <FormField label="Nome Completo">
+                  <FormField label="Nome Completo" badge={<OrigemBadge campo="nome" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.nome ?? ''}
                       onChange={e => setFormData(p => ({ ...p, nome: e.target.value }))}
@@ -1860,7 +2027,7 @@ export default function ClientePerfilPage() {
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Data Nascimento">
+                  <FormField label="Data Nascimento" badge={<OrigemBadge campo="data_nascimento" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       type="date"
                       value={formData.data_nascimento?.slice(0, 10) ?? ''}
@@ -1868,7 +2035,7 @@ export default function ClientePerfilPage() {
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Estado Civil">
+                  <FormField label="Estado Civil" badge={<OrigemBadge campo="estado_civil" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Select
                       value={formData.estado_civil ?? ''}
                       onValueChange={v => setFormData(p => ({ ...p, estado_civil: v ?? '' }))}
@@ -1885,14 +2052,14 @@ export default function ClientePerfilPage() {
                       </SelectContent>
                     </Select>
                   </FormField>
-                  <FormField label="Profissão">
+                  <FormField label="Profissão" badge={<OrigemBadge campo="profissao" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.profissao ?? ''}
                       onChange={e => setFormData(p => ({ ...p, profissao: e.target.value }))}
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Renda Mensal (R$)">
+                  <FormField label="Renda Mensal (R$)" badge={<OrigemBadge campo="renda_mensal" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       type="number"
                       value={formData.renda_mensal ?? ''}
@@ -1900,7 +2067,7 @@ export default function ClientePerfilPage() {
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Telefone">
+                  <FormField label="Telefone" badge={<OrigemBadge campo="telefone" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.telefone ?? ''}
                       onChange={e => setFormData(p => ({ ...p, telefone: e.target.value }))}
@@ -1916,7 +2083,7 @@ export default function ClientePerfilPage() {
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="E-mail">
+                  <FormField label="E-mail" badge={<OrigemBadge campo="email" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       type="email"
                       value={formData.email ?? ''}
@@ -1935,7 +2102,7 @@ export default function ClientePerfilPage() {
                   <h3 className="font-bold text-foreground text-sm">Endereço</h3>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  <FormField label="CEP">
+                  <FormField label="CEP" badge={<OrigemBadge campo="cep" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <div className="flex gap-2 items-center">
                       <Input
                         value={formData.cep ?? ''}
@@ -1961,42 +2128,42 @@ export default function ClientePerfilPage() {
                       </Button>
                     </div>
                   </FormField>
-                  <FormField label="Endereço" className="sm:col-span-2">
+                  <FormField label="Endereço" className="sm:col-span-2" badge={<OrigemBadge campo="endereco" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.endereco ?? ''}
                       onChange={e => setFormData(p => ({ ...p, endereco: e.target.value }))}
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Número">
+                  <FormField label="Número" badge={<OrigemBadge campo="numero" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.numero ?? ''}
                       onChange={e => setFormData(p => ({ ...p, numero: e.target.value }))}
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Complemento">
+                  <FormField label="Complemento" badge={<OrigemBadge campo="complemento" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.complemento ?? ''}
                       onChange={e => setFormData(p => ({ ...p, complemento: e.target.value }))}
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Bairro">
+                  <FormField label="Bairro" badge={<OrigemBadge campo="bairro" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.bairro ?? ''}
                       onChange={e => setFormData(p => ({ ...p, bairro: e.target.value }))}
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Cidade">
+                  <FormField label="Cidade" badge={<OrigemBadge campo="cidade" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.cidade ?? ''}
                       onChange={e => setFormData(p => ({ ...p, cidade: e.target.value }))}
                       className="h-11 px-4 focus-visible:ring-1 focus-visible:ring-[#1A73E8] focus-visible:border-[#1A73E8] rounded-lg transition-all"
                     />
                   </FormField>
-                  <FormField label="Estado (UF)">
+                  <FormField label="Estado (UF)" badge={<OrigemBadge campo="estado" cliente={cliente} valoresAssertiva={valoresAssertiva} />}>
                     <Input
                       value={formData.estado ?? ''}
                       onChange={e => setFormData(p => ({ ...p, estado: e.target.value }))}
@@ -2177,6 +2344,9 @@ export default function ClientePerfilPage() {
                                 {ref.parentesco && (
                                   <Badge variant="outline" className="text-[10px] font-bold rounded-full bg-muted/60">{ref.parentesco}</Badge>
                                 )}
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${ref.origem === 'assertiva' ? 'bg-blue-500/10 text-blue-600' : 'bg-muted text-muted-foreground'}`}>
+                                  {ref.origem === 'assertiva' ? 'Via Assertiva' : 'Manual'}
+                                </span>
                               </div>
                               {ref.telefone && (
                                 <p className="text-sm text-[#1A73E8] font-semibold">{formatarTelefone(ref.telefone)}</p>
@@ -2271,6 +2441,27 @@ export default function ClientePerfilPage() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Zona de Perigo — excluir cliente */}
+              <div className="bg-card rounded-2xl border border-red-500/30 shadow-m3-1 p-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-red-500" />
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle size={18} className="text-red-500" />
+                  <h3 className="font-bold text-foreground text-sm">Zona de Perigo</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Exclui o cliente e todo o histórico associado (empréstimos quitados, parcelas, referências, lembretes).
+                  Não é possível desfazer. Se quiser cadastrar essa pessoa novamente depois, será preciso consultar a Assertiva de novo do zero.
+                </p>
+                <Button
+                  variant="outline"
+                  className="border-red-500/40 text-red-600 hover:bg-red-500/10 hover:text-red-700"
+                  onClick={() => { setExcluirErro(null); setExcluirNomeDigitado(''); setExcluirOpen(true) }}
+                >
+                  <Trash2 size={14} />
+                  Excluir Cliente
+                </Button>
               </div>
             </div>
           </TabsContent>
@@ -2803,32 +2994,39 @@ export default function ClientePerfilPage() {
         <AssertivaTab
           cliente={cliente}
           onAtualizar={(rel, novoScoreInterno) =>
-            setCliente((c) =>
-              c
-                ? {
-                    ...c,
-                    dados_assertiva: rel,
-                    score_assertiva: rel.score ?? null,
-                    faixa_risco_assertiva: rel.faixa_risco ?? null,
-                    renda_estimada_assertiva: rel.renda_estimada ?? null,
-                    assertiva_consultado_em: new Date().toISOString(),
-                    total_negativacoes_assertiva: rel.total_negativacoes ?? 0,
-                    valor_total_negativacoes_assertiva: rel.valor_total_negativacoes ?? 0.00,
-                    total_protestos_assertiva: rel.total_protestos ?? 0,
-                    valor_total_protestos_assertiva: rel.valor_total_protestos ?? 0.00,
-                    total_acoes_judiciais_assertiva: rel.total_acoes_judiciais ?? 0,
-                    valor_total_acoes_assertiva: rel.valor_total_acoes ?? 0.00,
-                    total_ccf_assertiva: rel.total_ccf ?? 0,
-                    total_dividas_assertiva: rel.total_dividas ?? 0,
-                    valor_total_dividas_assertiva: rel.valor_total_dividas ?? 0.00,
-                    pep_assertiva: rel.pep ?? false,
-                    indicador_obito_assertiva: rel.indicador_obito ?? false,
-                    situacao_documento_assertiva: rel.tipo === 'pf' ? (rel.situacao_cpf ?? null) : (rel.situacao_cnpj ?? null),
-                    faturamento_presumido_assertiva: rel.faturamento_presumido ? (typeof rel.faturamento_presumido === 'number' ? rel.faturamento_presumido : parseFloat(rel.faturamento_presumido as string)) : null,
-                    score_interno: novoScoreInterno ?? c.score_interno,
-                  }
-                : c
-            )
+            setCliente((c) => {
+              if (!c) return c
+              // Mesma regra do consultar(): consulta básica não traz dados de
+              // crédito, então não pode zerar/sobrescrever o que já tava salvo.
+              const ehCompleto = rel._nivel !== 'basico'
+              const dadosAssertivaMesclado = ehCompleto
+                ? rel
+                : { ...(c.dados_assertiva ?? {}), ...rel }
+              return {
+                ...c,
+                dados_assertiva: dadosAssertivaMesclado,
+                assertiva_consultado_em: new Date().toISOString(),
+                pep_assertiva: rel.pep ?? false,
+                indicador_obito_assertiva: rel.indicador_obito ?? false,
+                situacao_documento_assertiva: rel.tipo === 'pf' ? (rel.situacao_cpf ?? null) : (rel.situacao_cnpj ?? null),
+                ...(ehCompleto ? {
+                  score_assertiva: rel.score ?? null,
+                  faixa_risco_assertiva: rel.faixa_risco ?? null,
+                  renda_estimada_assertiva: rel.renda_estimada ?? null,
+                  total_negativacoes_assertiva: rel.total_negativacoes ?? 0,
+                  valor_total_negativacoes_assertiva: rel.valor_total_negativacoes ?? 0.00,
+                  total_protestos_assertiva: rel.total_protestos ?? 0,
+                  valor_total_protestos_assertiva: rel.valor_total_protestos ?? 0.00,
+                  total_acoes_judiciais_assertiva: rel.total_acoes_judiciais ?? 0,
+                  valor_total_acoes_assertiva: rel.valor_total_acoes ?? 0.00,
+                  total_ccf_assertiva: rel.total_ccf ?? 0,
+                  total_dividas_assertiva: rel.total_dividas ?? 0,
+                  valor_total_dividas_assertiva: rel.valor_total_dividas ?? 0.00,
+                  faturamento_presumido_assertiva: rel.faturamento_presumido ? (typeof rel.faturamento_presumido === 'number' ? rel.faturamento_presumido : parseFloat(rel.faturamento_presumido as string)) : null,
+                } : {}),
+                score_interno: novoScoreInterno ?? c.score_interno,
+              }
+            })
           }
         />
       </div>
@@ -2851,6 +3049,55 @@ export default function ClientePerfilPage() {
         onConfirmar={bloquearCliente}
         carregando={bloqueandoLoading}
       />
+
+      {/* Excluir cliente — exige digitar o nome completo pra confirmar */}
+      <Dialog open={excluirOpen} onOpenChange={open => { if (!excluirLoading) setExcluirOpen(open) }}>
+        <DialogContent className="sm:max-w-md rounded-2xl border-border">
+          <DialogHeader className="space-y-2 text-left">
+            <DialogTitle className="text-lg font-bold text-red-600 flex items-center gap-2">
+              <AlertTriangle size={18} />
+              Excluir cliente permanentemente
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
+              Isso apaga <strong>{cliente.nome}</strong> e todo o histórico associado (empréstimos quitados,
+              parcelas, referências, lembretes). Não pode ser desfeito.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Digite o nome completo (&quot;{cliente.nome}&quot;) para confirmar
+            </Label>
+            <Input
+              value={excluirNomeDigitado}
+              onChange={e => { setExcluirNomeDigitado(e.target.value); setExcluirErro(null) }}
+              placeholder={cliente.nome}
+              autoFocus
+              className="h-11 px-4 rounded-lg focus-visible:ring-1 focus-visible:ring-red-500 focus-visible:border-red-500"
+            />
+          </div>
+
+          {excluirErro && (
+            <div className="flex items-start gap-2 bg-red-500/5 border border-red-500/20 rounded-xl p-3">
+              <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-red-600">{excluirErro}</p>
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-row items-center justify-end gap-2.5">
+            <Button variant="outline" onClick={() => setExcluirOpen(false)} disabled={excluirLoading}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={excluirCliente}
+              disabled={excluirLoading || excluirNomeDigitado.trim().toLowerCase() !== cliente.nome.trim().toLowerCase()}
+            >
+              {excluirLoading ? 'Excluindo...' : 'Excluir Permanentemente'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Deletar referência */}
       <ConfirmDialog

@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef, ty
 import { createClient } from '@/lib/supabase/client'
 import type { EmpresaInfo } from '@/lib/types/shared'
 import type { PapelUsuario } from '@/lib/types/database'
+import { limparTodosRascunhos } from '@/lib/utils/formDraft'
 
 type EmpresaContextType = {
   empresas: EmpresaInfo[]
@@ -106,6 +107,11 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
         setRolesMap({})
         setLoading(false)
         if (typeof window !== 'undefined') localStorage.removeItem('srsm:empresa_id')
+        // sessionStorage não é limpo ao trocar de usuário na mesma aba — sem
+        // isso, um rascunho de cadastro/venda/empréstimo do usuário anterior
+        // reapareceria pro próximo que logar nessa aba (computador
+        // compartilhado, troca de turno etc.).
+        limparTodosRascunhos()
       }
     })
 

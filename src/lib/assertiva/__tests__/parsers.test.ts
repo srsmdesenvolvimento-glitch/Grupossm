@@ -11,6 +11,8 @@ import {
   parseConexoes,
   parsePessoasDeReferencia,
   mesclarVinculos,
+  ordenarVinculosPorProximidade,
+  parseMaisTelefones,
   parseHistoricoVeiculos,
   mesclarVeiculos,
   enriquecerVinculos,
@@ -116,6 +118,22 @@ describe('parseLocalizePf', () => {
     expect(result.enderecos![0].logradouro).toBe('Rua das Flores')
     expect(result.enderecos![0].numero).toBe('100')
     expect(result.enderecos![0].municipio).toBe('SP')
+  })
+
+  it('lê precisaoCep e coordenadas do endereço', () => {
+    const raw = {
+      resposta: {
+        dadosCadastrais: { nome: 'TESTE' },
+        enderecos: [{ logradouro: 'X', cep: '01001000', precisaoCep: 'CONFIRMADA', latitude: '-22.88', longitude: '-47.08' }],
+        telefones: { moveis: [], fixos: [] },
+        emails: [],
+        participacoesEmpresas: [],
+      },
+    }
+    const result = parseLocalizePf(raw)
+    expect(result.enderecos![0].precisao_cep).toBe('CONFIRMADA')
+    expect(result.enderecos![0].latitude).toBe('-22.88')
+    expect(result.enderecos![0].longitude).toBe('-47.08')
   })
 
   it('converte data de nascimento dd/mm/yyyy no cadastro', () => {
@@ -527,6 +545,66 @@ describe('parseConexoes', () => {
 
   it('retorna array vazio para entrada nula', () => {
     expect(parseConexoes(null)).toEqual([])
+  })
+
+  it('lê tipoTelefone (M/F) e naoPerturbe de cada conexão', () => {
+    const raw = {
+      resposta: [
+        { nomeOuRazaoSocial: 'MARIA DA SILVA', documento: '11122233344', tipoDocumento: 'PF', relacao: 'Mãe', telefone: '(62) 99999-0001', tipoTelefone: 'M', naoPerturbe: true },
+        { nomeOuRazaoSocial: 'JOAO PAI', documento: '99988877766', tipoDocumento: 'PF', relacao: 'Pai', telefone: '(62) 3333-0001', tipoTelefone: 'F', naoPerturbe: false },
+      ],
+    }
+    const vinculos = parseConexoes(raw)
+    expect(vinculos[0].tipo_telefone).toBe('Celular')
+    expect(vinculos[0].telefone_nao_perturbe).toBe(true)
+    expect(vinculos[1].tipo_telefone).toBe('Fixo')
+    expect(vinculos[1].telefone_nao_perturbe).toBe(false)
+  })
+})
+
+// ─── ordenarVinculosPorProximidade ────────────────────────────────────────────
+
+describe('ordenarVinculosPorProximidade', () => {
+  it('coloca família próxima antes de sócios/empregadores/vínculos distantes', () => {
+    const vinculos = [
+      { nome: 'SOCIO X', parentesco: 'Sócio(a)' },
+      { nome: 'EMPREGADOR X', parentesco: 'Empregador' },
+      { nome: 'MAE', parentesco: 'Mãe' },
+      { nome: 'CONJUGE', parentesco: 'Cônjuge' },
+      { nome: 'DESCONHECIDO', parentesco: undefined },
+    ]
+    const ordenado = ordenarVinculosPorProximidade(vinculos)
+    expect(ordenado.map(v => v.nome)).toEqual(['MAE', 'CONJUGE', 'SOCIO X', 'EMPREGADOR X', 'DESCONHECIDO'])
+  })
+
+  it('não muta o array original', () => {
+    const vinculos = [{ nome: 'SOCIO X', parentesco: 'Sócio(a)' }, { nome: 'MAE', parentesco: 'Mãe' }]
+    ordenarVinculosPorProximidade(vinculos)
+    expect(vinculos[0].nome).toBe('SOCIO X')
+  })
+})
+
+// ─── parseMaisTelefones ───────────────────────────────────────────────────────
+
+describe('parseMaisTelefones', () => {
+  it('extrai telefones móveis com hotphone/plus e fixos sem esses campos', () => {
+    const raw = {
+      resposta: {
+        maisTelefones: {
+          moveis: [{ numero: '(11) 99898-9898', relacao: 'Irmão(ã)', naoPerturbe: true, hotphone: true, plus: true, ultimoContato: 'Contato feito há 6 meses via SMS.' }],
+          fixos: [{ numero: '(19) 3553-6256', relacao: 'Empregador', naoPerturbe: false }],
+        },
+      },
+    }
+    const tels = parseMaisTelefones(raw)
+    expect(tels).toHaveLength(2)
+    expect(tels[0]).toMatchObject({ numero: '(11) 99898-9898', tipo: 'Celular', relacao: 'Irmão(ã)', hotphone: true, plus: true })
+    expect(tels[1]).toMatchObject({ numero: '(19) 3553-6256', tipo: 'Fixo', relacao: 'Empregador' })
+  })
+
+  it('retorna array vazio para entrada nula ou sem maisTelefones', () => {
+    expect(parseMaisTelefones(null)).toEqual([])
+    expect(parseMaisTelefones({ resposta: {} })).toEqual([])
   })
 })
 
@@ -984,6 +1062,27 @@ describe('parseAnalise360PF', () => {
     expect(result.limite_credito_sugerido).toBe(8000)
     expect(result.score).toBe(720)
     expect(result.faixa_risco).toBe('B — Médio-baixo risco')
+  })
+
+  it('lê categoria e unidadeResponsavel de cada dívida ativa da União', () => {
+    const raw = {
+      resposta: {
+        modulos: {
+          dividasAtivasUniao: {
+            quantidadeTotal: 1, valorTotal: 3200,
+            registros: [{
+              tipo: 'IPTU', numeroInscricao: 999, situacao: 'Em cobrança', uf: 'SP',
+              unidadeResponsavel: 'PGFN-SP', entidadeResponsavel: 'PGFN',
+              data: '10/01/2025', valor: 3200, categoria: 'ETAPA_4',
+            }],
+          },
+        },
+      },
+    }
+    const result = parseAnalise360PF(raw)
+    expect(result.dividas_uniao?.[0].categoria).toBe('ETAPA_4')
+    expect(result.dividas_uniao?.[0].categoria_label).toBe('Acordo rompido — escalando para execução/leilão')
+    expect(result.dividas_uniao?.[0].unidade_responsavel).toBe('PGFN-SP')
   })
 
   it('não quebra quando nenhum módulo vem na resposta', () => {

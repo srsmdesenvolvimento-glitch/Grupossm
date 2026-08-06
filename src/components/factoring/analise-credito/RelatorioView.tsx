@@ -144,9 +144,14 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
 
           <div className="flex-1 space-y-3 w-full min-w-0">
             <div>
-              <h2 className="text-lg font-bold leading-tight break-words">
-                {relatorio.nome ?? relatorio.razao_social ?? 'Nome não encontrado'}
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-bold leading-tight break-words">
+                  {relatorio.nome ?? relatorio.razao_social ?? 'Nome não encontrado'}
+                </h2>
+                {relatorio._nivel === 'basico' && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 shrink-0">Consulta Simples</span>
+                )}
+              </div>
               {relatorio.nome_fantasia && (
                 <p className="text-sm text-muted-foreground">{relatorio.nome_fantasia}</p>
               )}
@@ -481,12 +486,34 @@ export function RelatorioView({ relatorio }: { relatorio: RelatorioCompleto }) {
                     <span className="text-muted-foreground shrink-0 ml-2">{v.parentesco ?? v.tipo}</span>
                   </div>
                   {v.telefone && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {formatTel(v.telefone)}{v.whatsapp ? ' · WhatsApp' : ''}
+                    <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center flex-wrap gap-1">
+                      <span>{formatTel(v.telefone)}{v.whatsapp ? ' · WhatsApp' : ''}{v.tipo_telefone ? ` · ${v.tipo_telefone}` : ''}</span>
+                      {v.telefone_nao_perturbe && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 shrink-0">Não perturbe</span>
+                      )}
                     </p>
                   )}
+                  {(v.telefones_extra?.length ?? 0) > 0 && (
+                    <div className="mt-0.5 space-y-0.5">
+                      {v.telefones_extra.map((t: any, ti: number) => (
+                        <p key={ti} className="text-[10px] text-muted-foreground flex items-center flex-wrap gap-1">
+                          <span>{formatTel(t.numero)}{t.relacao ? ` · ${t.relacao}` : ''}</span>
+                          {t.hotphone && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-600 shrink-0">Hotphone</span>}
+                          {t.plus && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-600 shrink-0">Plus</span>}
+                          {t.nao_perturbe && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 shrink-0">Não perturbe</span>}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                   {v.email && <p className="text-[10px] text-muted-foreground">{v.email}</p>}
-                  {enderecoStr && <p className="text-[10px] text-muted-foreground">{enderecoStr}</p>}
+                  {enderecoStr && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {enderecoStr}
+                      {end?.precisao_cep && end.precisao_cep !== 'CONFIRMADA' && (
+                        <span className="text-muted-foreground/70"> (endereço aproximado)</span>
+                      )}
+                    </p>
+                  )}
                   {v.data && <p className="text-[10px] text-muted-foreground mt-0.5">Desde {formatarData(v.data)}</p>}
                 </div>
               )

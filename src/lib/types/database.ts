@@ -341,6 +341,9 @@ export type ClienteFactoring = {
   indicador_obito_assertiva: boolean | null
   situacao_documento_assertiva: string | null
   faturamento_presumido_assertiva: number | null
+  // Nomes dos campos cujo valor atual foi editado/digitado manualmente,
+  // diferindo do que a Assertiva retornou (ver src/lib/utils/origemDados.ts)
+  campos_origem_manual: string[]
 }
 export type ClienteFactoringInsert = Omit<ClienteFactoring, 'id' | 'created_at' | 'updated_at' | 'credito_disponivel'> & {
   id?: string
@@ -359,7 +362,10 @@ export type ReferenciaClienteFactoring = {
   nome: string
   parentesco: string | null
   telefone: string
+  endereco: string | null
+  email: string | null
   observacoes: string | null
+  origem: 'assertiva' | 'manual'
   created_at: string
 }
 export type ReferenciaClienteFactoringInsert = Omit<ReferenciaClienteFactoring, 'id' | 'created_at'> & { id?: string }

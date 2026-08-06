@@ -17,10 +17,15 @@ const TOKEN_TTL_MS = 28 * 60 * 1000
 // Incrementar sempre que um parser (parsers.ts) mudar o formato dos dados
 // retornados — sem isso, uma correção não afeta documentos já cacheados
 // (TTL de 30 dias em assertiva_cache_factoring), mascarando o fix por semanas.
-export const ASSERTIVA_CACHE_VERSION = 2
+export const ASSERTIVA_CACHE_VERSION = 3
 
-export function chaveCacheAssertiva(tipo: 'pf' | 'pj', documento: string): string {
-  return `${tipo}:v${ASSERTIVA_CACHE_VERSION}:${documento}`
+// 'completo' é sempre um superconjunto de 'basico' (mesmas chamadas + score/
+// crédito/veículos/pessoas-de-referência) — por isso o cache de 'completo'
+// pode responder um pedido de 'basico' sem gastar nada, mas não o contrário.
+export type NivelConsulta = 'basico' | 'completo'
+
+export function chaveCacheAssertiva(tipo: 'pf' | 'pj', documento: string, nivel: NivelConsulta = 'completo'): string {
+  return `${tipo}:v${ASSERTIVA_CACHE_VERSION}:${nivel}:${documento}`
 }
 
 let _tokenCache: { token: string; expiresAt: number } | null = null

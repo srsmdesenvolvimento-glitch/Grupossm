@@ -6,9 +6,10 @@ import {
   User, Phone, MapPin, CreditCard, Users, FileText, CheckCircle2,
   ChevronLeft, ChevronRight, Search, Building2, CheckCircle, XCircle,
   Loader2, AlertCircle, Camera, Home, Banknote, Paperclip, X,
-  ShieldCheck, ArrowRight, BarChart3, TrendingDown,
+  ShieldCheck, ArrowRight, BarChart3, TrendingDown, Plus, Trash2,
 } from 'lucide-react'
 import { RelatorioView } from '@/components/factoring/analise-credito/RelatorioView'
+import { NivelConsultaInfo } from '@/components/factoring/analise-credito/NivelConsultaInfo'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -21,7 +22,7 @@ import {
 import { formatarCPF, formatarTelefone } from '@/lib/utils/formatters'
 import { parseSupabaseError, logError } from '@/lib/utils/errors'
 import { handleCurrencyChange, parseBRL, formatBRL } from '@/lib/utils/currency'
-import { buscarRelatorioAssertiva, faixaRiscoLabel, faixaRiscoColor } from '@/lib/assertiva/client'
+import { buscarRelatorioAssertiva, faixaRiscoLabel, faixaRiscoColor, sanitizarParaBasico } from '@/lib/assertiva/client'
 import type { RelatorioCompleto } from '@/lib/assertiva/types'
 import { buscarEnderecoPorCep } from '@/lib/utils/cep'
 import {
@@ -30,7 +31,8 @@ import {
 } from '@/lib/utils/storage'
 import { toast } from 'sonner'
 import { recalcularScoreCliente } from '@/lib/utils/score'
-import { salvarRascunho, lerRascunho, limparRascunho } from '@/lib/utils/formDraft'
+import { salvarRascunho, lerRascunho, limparRascunho, RASCUNHO_CADASTRO_CLIENTE } from '@/lib/utils/formDraft'
+import { calcularCamposOrigemManual, extrairValoresParaOrigem } from '@/lib/utils/origemDados'
 
 // ── Validadores locais ────────────────────────────────────────────────────────
 function validarCPF(cpf: string): boolean {
@@ -82,13 +84,18 @@ const STEPS = [
   { label: 'Revisão', icon: CheckCircle2 },
 ]
 
-type Referencia = { nome: string; parentesco: string; telefone: string; endereco: string; email: string }
+type Referencia = {
+  nome: string; parentesco: string; telefone: string; endereco: string; email: string
+  // 'assertiva' = veio da rede de vínculos e ainda não foi editado.
+  // 'manual' = criado pelo usuário, ou uma referência da Assertiva que foi corrigida.
+  origem: 'assertiva' | 'manual'
+}
 
-const emptyRef = (): Referencia => ({ nome: '', parentesco: '', telefone: '', endereco: '', email: '' })
+const emptyRef = (): Referencia => ({ nome: '', parentesco: '', telefone: '', endereco: '', email: '', origem: 'manual' })
 
 // Rascunho em memória do cadastro — sair pra outra tela e voltar não deve
 // perder o que já foi preenchido (só um refresh ou fechar a aba reseta).
-const RASCUNHO_CADASTRO_CLIENTE = 'cadastro-cliente-factoring'
+// Chave importada de formDraft.ts (centralizada — ver limparTodosRascunhos).
 
 type RascunhoCadastroCliente = {
   step: number
@@ -171,6 +178,9 @@ export default function NovoClienteFactoringPage() {
   const [buscandoAssertiva, setBuscandoAssertiva] = useState(false)
   const [assertivaConsultada, setAssertivaConsultada] = useState(false)
   const [assertivaErro, setAssertivaErro] = useState<string | null>(null)
+  // 'basico' = nome/contato/endereço/vínculos/veículos, sem score de crédito.
+  // 'completo' (default) = tudo, é a decisão de aceitar ou não o cliente novo.
+  const [nivelConsulta, setNivelConsulta] = useState<'basico' | 'completo'>('basico')
   const [expandirRelatorio, setExpandirRelatorio] = useState(true)
   const [verificandoDuplicata, setVerificandoDuplicata] = useState(false)
   const [documentoDuplicado, setDocumentoDuplicado] = useState(false)
@@ -218,9 +228,15 @@ export default function NovoClienteFactoringPage() {
   // Step 5 — Referências
   const [referencias, setReferencias] = useState<Referencia[]>([emptyRef(), emptyRef(), emptyRef()])
 
+  // Editar qualquer campo de uma referência marca ela como 'manual' — mesmo
+  // que tenha começado como 'assertiva', a partir da edição é uma correção
+  // do usuário, não mais o dado cru que a Assertiva devolveu.
   const setRef = (idx: number, field: keyof Referencia, value: string) => {
-    setReferencias(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r))
+    setReferencias(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value, origem: 'manual' } : r))
   }
+
+  const adicionarSlotReferencia = () => setReferencias(prev => [...prev, emptyRef()])
+  const removerSlotReferencia = (idx: number) => setReferencias(prev => prev.filter((_, i) => i !== idx))
 
   // Step 6 — Documentos
   const [arquivosPendentes, setArquivosPendentes] = useState<Map<string, File>>(new Map())
@@ -332,10 +348,10 @@ export default function NovoClienteFactoringPage() {
 
   const preencherCamposComAssertiva = useCallback((data: RelatorioCompleto) => {
     if (!data) return
-    
+
     // Nome
     if (data.nome) setNome(data.nome)
-    
+
     // Data de Nascimento (with formatting fallback)
     if (data.data_nascimento) {
       let dt = data.data_nascimento
@@ -413,17 +429,28 @@ export default function NovoClienteFactoringPage() {
         telefone: v.telefone ? formatarTelefone(v.telefone) : '',
         endereco: formatarEnderecoVinculo(v.endereco),
         email: v.email ?? '',
+        origem: 'assertiva',
       }))
       setReferencias([...novosRefs, ...Array(Math.max(0, 3 - novosRefs.length)).fill(null).map(emptyRef)])
     }
   }, [tipoPessoa])
 
-  const consultarAssertivaCnpj = useCallback(async (cnpjLimpo: string) => {
-    if (dadosAssertiva?.documento === cnpjLimpo) return
+  // Já tem dado suficiente pra esse documento? 'completo' cobre qualquer pedido
+  // (o servidor reaproveita o cache completo mesmo se pedirmos básico); 'basico'
+  // só cobre outro pedido de básico — se o nível pedido subiu, precisa buscar de novo.
+  function dadosJaCobremNivel(doc: string, nivel: 'basico' | 'completo'): boolean {
+    if (dadosAssertiva?.documento !== doc) return false
+    const nivelAtual = dadosAssertiva._nivel === 'basico' ? 'basico' : 'completo'
+    return nivelAtual === 'completo' || nivel === 'basico'
+  }
+
+  const consultarAssertivaCnpj = useCallback(async (cnpjLimpo: string, nivelOverride?: 'basico' | 'completo') => {
+    const nivel = nivelOverride ?? nivelConsulta
+    if (dadosJaCobremNivel(cnpjLimpo, nivel)) return
     setBuscandoAssertiva(true)
     setAssertivaErro(null)
     try {
-      const { data, erro } = await buscarRelatorioAssertiva(cnpjLimpo, 'pj')
+      const { data, erro } = await buscarRelatorioAssertiva(cnpjLimpo, 'pj', nivel)
       if (!data) {
         setAssertivaConsultada(true)
         setAssertivaErro(erro ?? 'Nenhum dado encontrado para este CNPJ.')
@@ -440,14 +467,16 @@ export default function NovoClienteFactoringPage() {
     } finally {
       setBuscandoAssertiva(false)
     }
-  }, [dadosAssertiva, preencherCamposComAssertiva])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dadosAssertiva, nivelConsulta, preencherCamposComAssertiva])
 
-  const consultarAssertivaCpf = useCallback(async (cpfLimpo: string) => {
-    if (dadosAssertiva?.documento === cpfLimpo) return
+  const consultarAssertivaCpf = useCallback(async (cpfLimpo: string, nivelOverride?: 'basico' | 'completo') => {
+    const nivel = nivelOverride ?? nivelConsulta
+    if (dadosJaCobremNivel(cpfLimpo, nivel)) return
     setBuscandoAssertiva(true)
     setAssertivaErro(null)
     try {
-      const { data, erro } = await buscarRelatorioAssertiva(cpfLimpo, 'pf')
+      const { data, erro } = await buscarRelatorioAssertiva(cpfLimpo, 'pf', nivel)
       if (!data) {
         setAssertivaConsultada(true)
         setAssertivaErro(erro ?? 'Nenhum dado encontrado para este CPF.')
@@ -464,7 +493,21 @@ export default function NovoClienteFactoringPage() {
     } finally {
       setBuscandoAssertiva(false)
     }
-  }, [dadosAssertiva, preencherCamposComAssertiva])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dadosAssertiva, nivelConsulta, preencherCamposComAssertiva])
+
+  // Troca de nível reconsulta na hora se já tiver um documento válido digitado —
+  // sem isso, o toggle ficaria mudo até a pessoa apagar e redigitar o documento.
+  function selecionarNivel(novoNivel: 'basico' | 'completo') {
+    setNivelConsulta(novoNivel)
+    const cpfLimpo = cpf.replace(/\D/g, '')
+    const cnpjLimpo = cnpj.replace(/\D/g, '')
+    if (tipoPessoa === 'fisica' && cpfLimpo.length === 11 && validarCPF(cpfLimpo)) {
+      consultarAssertivaCpf(cpfLimpo, novoNivel)
+    } else if (tipoPessoa === 'juridica' && cnpjLimpo.length === 14 && validarCNPJ(cnpjLimpo)) {
+      consultarAssertivaCnpj(cnpjLimpo, novoNivel)
+    }
+  }
 
   useEffect(() => {
     const cpfLimpo = cpf.replace(/\D/g, '')
@@ -562,6 +605,26 @@ export default function NovoClienteFactoringPage() {
     if (!empresaAtual) return
     setSalvando(true)
     try {
+      // `dadosAssertiva` pode ter ficado com dado de uma consulta Completa
+      // anterior (o usuário alternou o toggle antes de enviar o form — o
+      // fetch nem repete nesse caso, já que Completo cobre Básico). Quem
+      // decide o que grava é a seleção ATUAL (`nivelConsulta`), não o que
+      // porventura ainda está em memória — mesma regra do card da Etapa 1.
+      const dadosParaGravar = !dadosAssertiva
+        ? null
+        : nivelConsulta === 'completo'
+          ? dadosAssertiva
+          : sanitizarParaBasico(dadosAssertiva)
+
+      const camposOrigemManual = calcularCamposOrigemManual(
+        {
+          nome, data_nascimento: dataNascimento, telefone, email, cep, endereco, numero,
+          complemento, bairro, cidade, estado, renda_mensal: rendaMensal,
+          estado_civil: estadoCivil, profissao,
+        },
+        extrairValoresParaOrigem(dadosParaGravar),
+      )
+
       const { data: clienteData, error } = await supabase
         .from('clientes_factoring')
         .insert({
@@ -593,29 +656,34 @@ export default function NovoClienteFactoringPage() {
           pix: pix || null,
           limite_credito: 0,
           credito_utilizado: 0,
-          score_interno: dadosAssertiva?.score != null ? Math.round(dadosAssertiva.score / 10) : 50,
+          score_interno: nivelConsulta === 'completo' && dadosParaGravar?.score != null ? Math.round(dadosParaGravar.score / 10) : 50,
           total_emprestimos: 0,
           valor_total_emprestado: 0,
           documentos: [],
           status: 'ativo',
-          dados_assertiva: dadosAssertiva ?? null,
-          score_assertiva: dadosAssertiva?.score ?? null,
-          faixa_risco_assertiva: dadosAssertiva?.faixa_risco ?? null,
-          renda_estimada_assertiva: dadosAssertiva?.renda_estimada ?? null,
-          assertiva_consultado_em: dadosAssertiva ? new Date().toISOString() : null,
-          total_negativacoes_assertiva: dadosAssertiva?.total_negativacoes ?? 0,
-          valor_total_negativacoes_assertiva: dadosAssertiva?.valor_total_negativacoes ?? 0.00,
-          total_protestos_assertiva: dadosAssertiva?.total_protestos ?? 0,
-          valor_total_protestos_assertiva: dadosAssertiva?.valor_total_protestos ?? 0.00,
-          total_acoes_judiciais_assertiva: dadosAssertiva?.total_acoes_judiciais ?? 0,
-          valor_total_acoes_assertiva: dadosAssertiva?.valor_total_acoes ?? 0.00,
-          total_ccf_assertiva: dadosAssertiva?.total_ccf ?? 0,
-          total_dividas_assertiva: dadosAssertiva?.total_dividas ?? 0,
-          valor_total_dividas_assertiva: dadosAssertiva?.valor_total_dividas ?? 0.00,
-          pep_assertiva: dadosAssertiva?.pep ?? false,
-          indicador_obito_assertiva: dadosAssertiva?.indicador_obito ?? false,
-          situacao_documento_assertiva: tipoPessoa === 'fisica' ? (dadosAssertiva?.situacao_cpf ?? null) : (dadosAssertiva?.situacao_cnpj ?? null),
-          faturamento_presumido_assertiva: dadosAssertiva?.faturamento_presumido ? (typeof dadosAssertiva.faturamento_presumido === 'number' ? dadosAssertiva.faturamento_presumido : parseFloat(dadosAssertiva.faturamento_presumido as string)) : null,
+          dados_assertiva: dadosParaGravar,
+          score_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.score ?? null) : null,
+          faixa_risco_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.faixa_risco ?? null) : null,
+          renda_estimada_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.renda_estimada ?? null) : null,
+          assertiva_consultado_em: dadosParaGravar ? new Date().toISOString() : null,
+          // Consulta 'basico' nunca chama Score/Crédito — gravar 0 aqui diria
+          // "verificado, sem negativações", quando a verdade é "nunca verificado".
+          // null distingue os dois casos (RestricoesAlerta/score.ts precisam
+          // saber a diferença entre "limpo" e "não checado").
+          total_negativacoes_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.total_negativacoes ?? 0) : null,
+          valor_total_negativacoes_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.valor_total_negativacoes ?? 0.00) : null,
+          total_protestos_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.total_protestos ?? 0) : null,
+          valor_total_protestos_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.valor_total_protestos ?? 0.00) : null,
+          total_acoes_judiciais_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.total_acoes_judiciais ?? 0) : null,
+          valor_total_acoes_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.valor_total_acoes ?? 0.00) : null,
+          total_ccf_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.total_ccf ?? 0) : null,
+          total_dividas_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.total_dividas ?? 0) : null,
+          valor_total_dividas_assertiva: nivelConsulta === 'completo' ? (dadosParaGravar?.valor_total_dividas ?? 0.00) : null,
+          pep_assertiva: dadosParaGravar?.pep ?? false,
+          indicador_obito_assertiva: dadosParaGravar?.indicador_obito ?? false,
+          situacao_documento_assertiva: tipoPessoa === 'fisica' ? (dadosParaGravar?.situacao_cpf ?? null) : (dadosParaGravar?.situacao_cnpj ?? null),
+          faturamento_presumido_assertiva: nivelConsulta === 'completo' && dadosParaGravar?.faturamento_presumido ? (typeof dadosParaGravar.faturamento_presumido === 'number' ? dadosParaGravar.faturamento_presumido : parseFloat(dadosParaGravar.faturamento_presumido as string)) : null,
+          campos_origem_manual: camposOrigemManual,
         })
         .select('id')
         .single()
@@ -623,10 +691,18 @@ export default function NovoClienteFactoringPage() {
       if (error) throw error
       if (!clienteData) throw new Error('Nenhum dado retornado após inserção')
 
-      // Recalcular o score interno com base nas regras ativas e dados cadastrados
-      await recalcularScoreCliente(clienteData.id, empresaAtual.id, supabase).catch((err) => {
-        console.error('Erro ao recalcular score inicial:', err)
-      })
+      // Recalcular o score interno com base nas regras ativas e dados cadastrados.
+      // Só faz sentido com nível Completo — score.ts lê dados_assertiva direto
+      // (negativações/protestos/etc.), e numa consulta Simples esses campos
+      // não existem; recalcular ali trataria "não verificado" como "0
+      // encontrado", inflando artificialmente o score de alguém que nunca
+      // teve o crédito checado de verdade. Fica no default neutro (50) até
+      // uma consulta Completa ser feita (ver "Ver Análise Completa" na tela).
+      if (nivelConsulta === 'completo') {
+        await recalcularScoreCliente(clienteData.id, empresaAtual.id, supabase).catch((err) => {
+          console.error('Erro ao recalcular score inicial:', err)
+        })
+      }
 
       const refs = referencias.filter(r => r.nome.trim())
       if (refs.length > 0) {
@@ -638,6 +714,7 @@ export default function NovoClienteFactoringPage() {
             telefone: r.telefone.trim(),
             endereco: r.endereco.trim() || null,
             email: r.email.trim() || null,
+            origem: r.origem,
           }))
         )
         if (refError) {
@@ -772,6 +849,28 @@ export default function NovoClienteFactoringPage() {
               </button>
             </div>
 
+            {/* Nível da consulta — Simples não gasta em score/crédito */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">Nível da consulta:</span>
+              <div className="inline-flex rounded-full bg-muted p-0.5">
+                <button
+                  type="button"
+                  onClick={() => selecionarNivel('basico')}
+                  className={`text-[11px] font-semibold px-3 py-1 rounded-full transition-colors ${nivelConsulta === 'basico' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'}`}
+                >
+                  Simples
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selecionarNivel('completo')}
+                  className={`text-[11px] font-semibold px-3 py-1 rounded-full transition-colors ${nivelConsulta === 'completo' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'}`}
+                >
+                  Completa
+                </button>
+              </div>
+              <NivelConsultaInfo />
+            </div>
+
             {/* Input CPF ou CNPJ */}
             {tipoPessoa === 'fisica' ? (
               <div className="space-y-2">
@@ -874,27 +973,46 @@ export default function NovoClienteFactoringPage() {
             {/* Preview Assertiva — snapshot compacto */}
             {dadosAssertiva && !buscandoAssertiva && (() => {
               const r = dadosAssertiva
-              const scoreVal = r.score ?? null
-              const flags: { label: string; danger: boolean }[] = []
-              if (r.indicador_obito)            flags.push({ label: 'Óbito', danger: true })
-              if (r.pep)                        flags.push({ label: 'PEP', danger: true })
-              const negCount = r.total_negativacoes ?? 0
-              const protCount = r.total_protestos ?? 0
-              const ccfCount = r.total_ccf ?? 0
-              const acaoCount = r.total_acoes_judiciais ?? 0
-              if (negCount > 0)  flags.push({ label: `${negCount} negativaç${negCount > 1 ? 'ões' : 'ão'}`, danger: true })
-              if (protCount > 0) flags.push({ label: `${protCount} protesto${protCount > 1 ? 's' : ''}`, danger: true })
-              if (ccfCount > 0)  flags.push({ label: `CCF: ${ccfCount}`, danger: true })
-              if (acaoCount > 0) flags.push({ label: `${acaoCount} ação jud.`, danger: true })
-              const limpo = flags.length === 0
+              // Mostra score/dívidas só se o nível SELECIONADO agora for Completa —
+              // não se guia pelo que o objeto tem (um cache antigo de Completa pode
+              // "vazar" score numa consulta que a pessoa pediu como Simples).
+              const mostrarCompleto = nivelConsulta === 'completo'
+              const scoreVal = mostrarCompleto ? (r.score ?? null) : null
+
+              // Óbito/PEP vêm da Identificação (cadastral) — disponíveis em Simples também.
+              const flagsIdentidade: { label: string }[] = []
+              if (r.indicador_obito) flagsIdentidade.push({ label: 'Óbito' })
+              if (r.pep)             flagsIdentidade.push({ label: 'PEP' })
+
+              // Negativações/protestos/CCF/ações só existem se o Score/Crédito foi buscado.
+              const flagsRisco: { label: string }[] = []
+              if (mostrarCompleto) {
+                const negCount   = r.total_negativacoes ?? 0
+                const protCount  = r.total_protestos ?? 0
+                const ccfCount   = r.total_ccf ?? 0
+                const acaoCount  = r.total_acoes_judiciais ?? 0
+                if (negCount > 0)  flagsRisco.push({ label: `${negCount} negativaç${negCount > 1 ? 'ões' : 'ão'}` })
+                if (protCount > 0) flagsRisco.push({ label: `${protCount} protesto${protCount > 1 ? 's' : ''}` })
+                if (ccfCount > 0)  flagsRisco.push({ label: `CCF: ${ccfCount}` })
+                if (acaoCount > 0) flagsRisco.push({ label: `${acaoCount} ação jud.` })
+              }
+              const flags = [...flagsIdentidade, ...flagsRisco]
+              const limpo = mostrarCompleto && flagsRisco.length === 0
+              const vinculosPreview = (r.vinculos ?? []).filter(v => v.nome)
+
               return (
                 <div className="border border-border/60 rounded-xl overflow-hidden">
                   {/* Barra de status */}
-                  <div className={`h-1 w-full ${limpo ? 'bg-[#34A853]' : 'bg-[#EA4335]'}`} />
+                  <div className={`h-1 w-full ${mostrarCompleto ? (limpo ? 'bg-[#34A853]' : 'bg-[#EA4335]') : 'bg-[#1A73E8]'}`} />
                   <div className="p-4 space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-[#34A853]">
-                      <CheckCircle size={14} />
-                      Dados encontrados — revise e confirme para prosseguir
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-[#34A853]">
+                        <CheckCircle size={14} />
+                        Dados encontrados — revise e confirme para prosseguir
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 shrink-0">
+                        {mostrarCompleto ? 'Completa' : 'Simples'}
+                      </span>
                     </div>
                     {/* Linha principal: score + dados básicos */}
                     <div className="flex items-start gap-4">
@@ -918,7 +1036,7 @@ export default function NovoClienteFactoringPage() {
                             Nascimento: {new Date(r.data_nascimento).toLocaleDateString('pt-BR')}
                           </p>
                         )}
-                        {r.renda_estimada && (
+                        {mostrarCompleto && r.renda_estimada && (
                           <p className="text-xs text-muted-foreground">
                             Renda estimada: <span className="font-semibold text-foreground">
                               {r.renda_estimada.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -933,7 +1051,7 @@ export default function NovoClienteFactoringPage() {
                       </div>
                     </div>
 
-                    {/* Flags de risco */}
+                    {/* Flags */}
                     {flags.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
                         {flags.map(f => (
@@ -942,23 +1060,54 @@ export default function NovoClienteFactoringPage() {
                           </span>
                         ))}
                       </div>
-                    ) : (
+                    ) : mostrarCompleto ? (
                       <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#34A853]">
                         <CheckCircle size={12} /> Sem restrições encontradas
                       </div>
+                    ) : null}
+
+                    {/* Pessoas próximas — nome, parentesco, telefone, endereço */}
+                    {vinculosPreview.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-border/40">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          Pessoas Próximas ({vinculosPreview.length})
+                        </p>
+                        {vinculosPreview.slice(0, 3).map((v, i) => (
+                          <p key={i} className="text-xs text-muted-foreground truncate">
+                            <span className="font-medium text-foreground">{v.nome}</span>
+                            {v.parentesco && ` · ${v.parentesco}`}
+                            {v.telefone && ` · ${formatarTelefone(v.telefone)}`}
+                          </p>
+                        ))}
+                        {vinculosPreview.length > 3 && (
+                          <p className="text-[10px] text-muted-foreground">+{vinculosPreview.length - 3} mais</p>
+                        )}
+                      </div>
                     )}
 
-                    {/* Expandir relatório completo */}
-                    <button
-                      type="button"
-                      onClick={() => setExpandirRelatorio(v => !v)}
-                      className="text-[11px] font-semibold text-[#1A73E8] underline hover:no-underline flex items-center gap-1"
-                    >
-                      <BarChart3 size={11} />
-                      {expandirRelatorio ? 'Ocultar relatório completo' : 'Ver relatório completo'}
-                    </button>
+                    {/* Expandir relatório / ampliar pra Completa */}
+                    {mostrarCompleto ? (
+                      <button
+                        type="button"
+                        onClick={() => setExpandirRelatorio(v => !v)}
+                        className="text-[11px] font-semibold text-[#1A73E8] underline hover:no-underline flex items-center gap-1"
+                      >
+                        <BarChart3 size={11} />
+                        {expandirRelatorio ? 'Ocultar relatório completo' : 'Ver relatório completo'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => selecionarNivel('completo')}
+                        disabled={buscandoAssertiva}
+                        className="text-[11px] font-semibold text-[#1A73E8] underline hover:no-underline flex items-center gap-1"
+                      >
+                        <BarChart3 size={11} />
+                        Ver Análise Completa (score e dívidas)
+                      </button>
+                    )}
 
-                    {expandirRelatorio && <RelatorioView relatorio={dadosAssertiva} />}
+                    {mostrarCompleto && expandirRelatorio && <RelatorioView relatorio={dadosAssertiva} />}
                   </div>
                 </div>
               )
@@ -1168,23 +1317,34 @@ export default function NovoClienteFactoringPage() {
                     </div>
                   )}
                   {cpfCompleto && cpfOk && dadosAssertiva && !buscandoAssertiva && (() => {
+                    // Consulta Simples não traz score/negativações/protestos — mostrar
+                    // esses dados (ou "Sem restrições") aqui seria afirmar uma análise
+                    // de crédito que não foi feita. Só exibe o bloco de risco quando a
+                    // consulta pedida foi Completa (mesma regra do card da Etapa 0).
+                    const mostrarCompleto = nivelConsulta === 'completo'
                     const sc = dadosAssertiva.score
-                    const color = faixaRiscoColor(dadosAssertiva.faixa_risco, sc)
-                    const label = faixaRiscoLabel(dadosAssertiva.faixa_risco, sc)
-                    const temNeg = (dadosAssertiva.total_negativacoes ?? 0) > 0
-                    const temProt = (dadosAssertiva.total_protestos ?? 0) > 0
+                    const color = mostrarCompleto ? faixaRiscoColor(dadosAssertiva.faixa_risco, sc) : undefined
+                    const label = mostrarCompleto ? faixaRiscoLabel(dadosAssertiva.faixa_risco, sc) : null
+                    const temNeg = mostrarCompleto && (dadosAssertiva.total_negativacoes ?? 0) > 0
+                    const temProt = mostrarCompleto && (dadosAssertiva.total_protestos ?? 0) > 0
                     return (
                       <div className="rounded-xl border border-border bg-card p-3 space-y-2 mt-1 shadow-sm">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                             <CheckCircle size={13} className="text-[#34A853]" /> Assertiva — Dados carregados
                           </span>
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${color}20`, color }}>
-                            {label}
-                          </span>
+                          {mostrarCompleto ? (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${color}20`, color }}>
+                              {label}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600">
+                              Simples
+                            </span>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-1.5 text-[10px]">
-                          {dadosAssertiva.renda_estimada && (
+                          {mostrarCompleto && dadosAssertiva.renda_estimada && (
                             <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 font-semibold">
                               Renda est. R$ {dadosAssertiva.renda_estimada.toLocaleString('pt-BR')}
                             </span>
@@ -1199,7 +1359,7 @@ export default function NovoClienteFactoringPage() {
                               {dadosAssertiva.total_protestos} protestos
                             </span>
                           )}
-                          {!temNeg && !temProt && (
+                          {mostrarCompleto && !temNeg && !temProt && (
                             <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 font-semibold">
                               Sem restrições
                             </span>
@@ -1215,7 +1375,11 @@ export default function NovoClienteFactoringPage() {
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-muted-foreground">Formulário preenchido automaticamente com dados da Assertiva.</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {mostrarCompleto
+                            ? 'Formulário preenchido automaticamente com dados da Assertiva.'
+                            : 'Dados cadastrais preenchidos automaticamente. Consulta Simples não inclui score/dívidas.'}
+                        </p>
                       </div>
                     )
                   })()}
@@ -1593,13 +1757,36 @@ export default function NovoClienteFactoringPage() {
               <h2 className="font-bold text-lg text-foreground">Referências Contatos / Pessoais</h2>
               <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full font-medium">Etapa 5 de 7</span>
             </div>
-            <p className="text-xs text-muted-foreground font-medium">Informe até 3 contatos de referência para segurança em análise de risco.</p>
+            <p className="text-xs text-muted-foreground font-medium">
+              Contatos de referência para segurança em análise de risco — os 3 primeiros vêm sugeridos
+              da rede de vínculos da Assertiva quando disponível, mas você pode corrigir qualquer campo
+              ou adicionar mais pessoas.
+            </p>
 
             <div className="space-y-5">
               {referencias.map((ref, idx) => (
                 <div key={idx} className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-3 relative overflow-hidden">
                   <div className="absolute top-0 left-0 bottom-0 w-1 bg-[#1A73E8]" />
-                  <p className="text-xs font-bold text-[#1A73E8] uppercase tracking-wider">Referência {idx + 1}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold text-[#1A73E8] uppercase tracking-wider">Referência {idx + 1}</p>
+                      {ref.nome.trim() && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ref.origem === 'assertiva' ? 'bg-blue-500/10 text-blue-600' : 'bg-muted text-muted-foreground'}`}>
+                          {ref.origem === 'assertiva' ? 'Via Assertiva' : 'Adicionado manualmente'}
+                        </span>
+                      )}
+                    </div>
+                    {referencias.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removerSlotReferencia(idx)}
+                        className="text-muted-foreground hover:text-red-600 transition-colors"
+                        aria-label="Remover referência"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold text-muted-foreground">Nome</Label>
@@ -1653,6 +1840,17 @@ export default function NovoClienteFactoringPage() {
                 </div>
               ))}
             </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={adicionarSlotReferencia}
+              className="rounded-full border-dashed"
+            >
+              <Plus size={14} />
+              Adicionar Pessoa
+            </Button>
           </div>
         )}
 
