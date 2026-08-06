@@ -522,6 +522,7 @@ export interface ContratoParams {
   cliente: {
     nome: string
     cpf: string | null
+    cnpj?: string | null
     telefone?: string | null
     endereco?: string | null
     numero?: string | null
@@ -1080,7 +1081,7 @@ export async function gerarContratoComAssinaturaPDF(
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
   doc.setTextColor(255, 255, 255)
-  doc.text('CERTIFICADO DE ASSINATURA ELETRÔNICA — SRS M FACTORING', 105, 18.5, { align: 'center' })
+  doc.text('CERTIFICADO DE ASSINATURA ELETRÔNICA: SRS M FACTORING', 105, 18.5, { align: 'center' })
 
   // Certificate number / fingerprint
   const certId = `CERT-${params.contrato.numero_contrato}-${params.assinatura.signed_at.replace(/\D/g, '').substring(0, 14)}`
@@ -1113,10 +1114,14 @@ export async function gerarContratoComAssinaturaPDF(
   const nomeShort = params.cliente.nome.toUpperCase().substring(0, 36)
   doc.text(nomeShort, 122, 40)
 
+  const isPjCliente = !!(params.cliente.cnpj || (params.cliente.cpf && params.cliente.cpf.replace(/\D/g, '').length > 11))
+  const docRotulo = isPjCliente ? 'CNPJ:' : 'CPF:'
+  const docVal = isPjCliente ? formatCnpj(params.cliente.cnpj || params.cliente.cpf) : fmtCpf(params.cliente.cpf)
+
   doc.setFont('helvetica', 'normal')
-  doc.text('CPF:', 14, 46)
+  doc.text(docRotulo, 14, 46)
   doc.setFont('helvetica', 'bold')
-  doc.text(fmtCpf(params.cliente.cpf), 24, 46)
+  doc.text(docVal, isPjCliente ? 28 : 24, 46)
 
   doc.setFont('helvetica', 'normal')
   doc.text('Valor do Mútuo:', 90, 46)
@@ -1132,7 +1137,7 @@ export async function gerarContratoComAssinaturaPDF(
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7)
   doc.setTextColor(30, 90, 168)
-  doc.text('TRILHA DE AUDITORIA — EVIDÊNCIAS TÉCNICAS', 14, 61)
+  doc.text('TRILHA DE AUDITORIA: EVIDÊNCIAS TÉCNICAS', 14, 61)
 
   const signedDate = fmtData(params.assinatura.signed_at.split('T')[0])
   const signedTime = params.assinatura.signed_at.split('T')[1]?.substring(0, 8) ?? ''
