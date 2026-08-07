@@ -526,8 +526,15 @@ export default function WhatsAppConexaoPage() {
     setDiagnosticoAberto(true)
     setResultadoDiagnostico(null)
     try {
-      const res = await fetch(`/api/whatsapp/diagnostico?empresa_id=${empresaAtual.id}`)
-      setResultadoDiagnostico(await res.json())
+      const targetNum = testNumber.replace(/\D/g, '') || testNumberTrigger.replace(/\D/g, '') || '62993885258'
+      const [diagRes, metaTestRes] = await Promise.all([
+        fetch(`/api/whatsapp/diagnostico?empresa_id=${empresaAtual.id}`).then(r => r.json()),
+        fetch(`/api/whatsapp/testar-diagnostico?numero=${targetNum}`).then(r => r.json()),
+      ])
+      setResultadoDiagnostico({
+        ...diagRes,
+        testeMeta: metaTestRes,
+      })
     } catch (e: any) {
       setResultadoDiagnostico({ ok: false, checks: [{ ok: false, msg: 'Falha: ' + e.message }], recentLogs: [] })
     } finally {
@@ -839,16 +846,49 @@ export default function WhatsAppConexaoPage() {
                   {loadingDiagnostico ? (
                     <div className="flex items-center gap-2 text-slate-400 text-sm py-4"><Loader2 className="animate-spin" size={18} />Verificando...</div>
                   ) : resultadoDiagnostico ? (
-                    <div className="space-y-1.5">
-                      {resultadoDiagnostico.checks.map((check, i) => (
-                        <div key={i} className={`flex items-start gap-2 p-2.5 rounded-lg text-xs ${check.ok ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
-                          {check.ok ? <CheckCircle size={13} className="text-green-600 mt-0.5 flex-shrink-0" /> : <XCircle size={13} className="text-red-600 mt-0.5 flex-shrink-0" />}
-                          <div>
-                            <p className={`font-semibold ${check.ok ? 'text-green-800' : 'text-red-800'}`}>{check.msg}</p>
-                            {check.detail && <p className="text-slate-500 mt-0.5">{check.detail}</p>}
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        {resultadoDiagnostico.checks.map((check, i) => (
+                          <div key={i} className={`flex items-start gap-2 p-2.5 rounded-lg text-xs ${check.ok ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
+                            {check.ok ? <CheckCircle size={13} className="text-green-600 mt-0.5 flex-shrink-0" /> : <XCircle size={13} className="text-red-600 mt-0.5 flex-shrink-0" />}
+                            <div>
+                              <p className={`font-semibold ${check.ok ? 'text-green-800' : 'text-red-800'}`}>{check.msg}</p>
+                              {check.detail && <p className="text-slate-500 mt-0.5">{check.detail}</p>}
+                            </div>
                           </div>
+                        ))}
+                      </div>
+
+                      {/* Análise Direta de Envio para a Meta */}
+                      {(resultadoDiagnostico as any).testeMeta && (
+                        <div className={`p-3.5 rounded-xl border text-xs space-y-2 ${
+                          (resultadoDiagnostico as any).testeMeta.isPaymentError 
+                            ? 'bg-red-50 border-red-200 text-red-900' 
+                            : (resultadoDiagnostico as any).testeMeta.ok 
+                            ? 'bg-green-50 border-green-200 text-green-900' 
+                            : 'bg-amber-50 border-amber-200 text-amber-900'
+                        }`}>
+                          <div className="font-bold flex items-center justify-between">
+                            <span>Análise Direta do Envio para {(resultadoDiagnostico as any).testeMeta.envCheck?.TELEFONE_TESTADO}</span>
+                            <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-white/80 border">
+                              HTTP {(resultadoDiagnostico as any).testeMeta.httpStatus}
+                            </span>
+                          </div>
+                          <p className="font-semibold text-xs leading-relaxed">
+                            {(resultadoDiagnostico as any).testeMeta.analiseConclusao}
+                          </p>
+                          {(resultadoDiagnostico as any).testeMeta.metaApiResponse?.error && (
+                            <div className="bg-white/90 p-2.5 rounded-lg border border-slate-200 font-mono text-[11px] space-y-1 text-slate-800">
+                              <p><strong>Mensagem Meta:</strong> {(resultadoDiagnostico as any).testeMeta.metaApiResponse.error.message}</p>
+                              <p>
+                                <strong>Código:</strong> {(resultadoDiagnostico as any).testeMeta.metaApiResponse.error.code} | 
+                                <strong> Subcode:</strong> {(resultadoDiagnostico as any).testeMeta.metaApiResponse.error.error_subcode ?? 'N/A'} | 
+                                <strong> Tipo:</strong> {(resultadoDiagnostico as any).testeMeta.metaApiResponse.error.type ?? 'OAuthException'}
+                              </p>
+                            </div>
+                          )}
                         </div>
-                      ))}
+                      )}
                     </div>
                   ) : null}
                 </CardContent>
