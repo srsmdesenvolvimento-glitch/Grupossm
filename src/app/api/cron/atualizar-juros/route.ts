@@ -313,14 +313,15 @@ export async function GET(request: NextRequest) {
     let alertasTresDias = 0
 
     for (const [days, companyIds] of companiesByPreVencDays.entries()) {
-      const dataTresDias = new Date(hoje.getTime() + days * 86_400_000)
-      const dataTresDiasStr = dataTresDias.toISOString().split('T')[0]
+      const dataMax = new Date(hoje.getTime() + days * 86_400_000)
+      const dataMaxStr = dataMax.toISOString().split('T')[0]
 
       const { data: parcelasPre, error: tdError } = await supabase
         .from('parcelas_emprestimo')
         .select('*, clientes_factoring(*), emprestimos(*)')
         .eq('status', 'pendente')
-        .eq('data_vencimento', dataTresDiasStr)
+        .gt('data_vencimento', hojeStr)
+        .lte('data_vencimento', dataMaxStr)
         .in('empresa_id', companyIds)
 
       if (tdError) throw tdError
@@ -334,7 +335,9 @@ export async function GET(request: NextRequest) {
 
           const cliente = p.clientes_factoring
           const emprestimo = p.emprestimos
-          const preVenc = cfg.lembrete_pre_vencimento
+
+          const vencDate = new Date(p.data_vencimento + 'T00:00:00')
+          const diasFaltantes = Math.max(1, Math.ceil((vencDate.getTime() - hoje.getTime()) / 86_400_000))
 
           const deveEnviarMensagem = !idsEnviadosHoje.has(p.id)
 
@@ -347,7 +350,7 @@ export async function GET(request: NextRequest) {
                 numero_parcela: String(p.numero_parcela),
                 total_parcelas: String(p.total_parcelas),
                 numero_contrato: emprestimo?.numero_contrato ?? '',
-                dias_antes: String(days),
+                dias_antes: String(diasFaltantes),
                 data_vencimento: formatarDataBR(p.data_vencimento),
                 valor: formatarMoeda(Number(p.valor)),
                 whatsapp_padrao: cfg.whatsapp_padrao,
@@ -358,8 +361,8 @@ export async function GET(request: NextRequest) {
               empresa_id: p.empresa_id,
               canal: 'whatsapp',
               destinatario: cliente.telefone,
-              assunto: `Aviso de Vencimento em ${days} Dias - Parcela ${p.numero_parcela}`,
-              mensagem: `Template srsm2_lembrete_vencimento — parcela ${p.numero_parcela}/${p.total_parcelas} vence em ${days}d`,
+              assunto: `Aviso de Vencimento em ${diasFaltantes} Dia(s) - Parcela ${p.numero_parcela}`,
+              mensagem: `Template srsm2_lembrete_vencimento — parcela ${p.numero_parcela}/${p.total_parcelas} vence em ${diasFaltantes}d`,
               referencia_tipo: 'parcela',
               referencia_id: p.id,
               status: result.ok ? 'enviado' : 'erro',
@@ -368,7 +371,7 @@ export async function GET(request: NextRequest) {
               enviado_em: result.ok ? new Date().toISOString() : null,
             })
             if (notifTresDiasError) {
-              console.error('Falha ao registrar notificação de pré-vencimento:', notifTresDiasError.message)
+              console.error('Falha ao registrar notificação pré-vencimento:', notifTresDiasError.message)
             } else {
               idsEnviadosHoje.add(p.id)
             }

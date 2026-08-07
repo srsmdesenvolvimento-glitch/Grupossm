@@ -1131,14 +1131,22 @@ export default function WhatsAppConexaoPage() {
                     )}
 
                     {/* Agendamento de Horários e Repetições Diárias por Gatilho */}
-                    <div className="pt-3 border-t border-slate-100 bg-slate-50/70 p-3.5 rounded-xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                          <Clock size={14} className="text-[#1E5AA8]" />
-                          Agendamento & Horário de Disparo de "{FLOW_DETAILS[activeTrigger].titulo}"
-                        </Label>
-                        <span className="text-[10px] font-semibold text-slate-400">Personalizado por mensagem</span>
+                    {(activeTrigger === 'contrato_criado' || activeTrigger === 'contrato_assinado') ? (
+                      <div className="pt-3 border-t border-slate-100 bg-amber-50/70 p-3.5 rounded-xl flex items-center gap-2.5 text-xs text-amber-900 font-medium">
+                        <Zap className="text-amber-600 shrink-0" size={16} />
+                        <span>
+                          <strong>Disparo Instantâneo em Tempo Real:</strong> Esta mensagem é enviada <u>no momento exato</u> em que o contrato for {activeTrigger === 'contrato_criado' ? 'criado/gerado' : 'assinado pelo cliente'}, sem qualquer fila de atraso ou dependência de horário fixo.
+                        </span>
                       </div>
+                    ) : (
+                      <div className="pt-3 border-t border-slate-100 bg-slate-50/70 p-3.5 rounded-xl space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <Clock size={14} className="text-[#1E5AA8]" />
+                            Agendamento & Horário de Disparo de "{FLOW_DETAILS[activeTrigger].titulo}"
+                          </Label>
+                          <span className="text-[10px] font-semibold text-slate-400">Personalizado por mensagem</span>
+                        </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         {/* Horário Principal */}
@@ -1213,6 +1221,7 @@ export default function WhatsAppConexaoPage() {
                         )}
                       </div>
                     </div>
+                    )}
                   </CardContent>
                 </Card>
 
