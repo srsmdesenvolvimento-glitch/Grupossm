@@ -10,7 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { VARIAVEIS_FACTORING, VARIAVEIS_EMPORIO, previewMensagem } from '@/lib/utils/mensagens'
 import { toast } from 'sonner'
-import { Save, Eye, FileText } from 'lucide-react'
+import { Save, Eye, FileText, RotateCcw } from 'lucide-react'
 
 // ── Template definitions ────────────────────────────────────────────────────
 
@@ -50,6 +50,113 @@ const TEMPLATES_EMPORIO: TemplateEmporio[] = [
   { chave: 'msg_aniversario', nome: 'Aniversário' },
 ]
 
+const DEFAULT_FACTORING_TEMPLATES: Record<TriggerKey, string> = {
+  contrato_criado: `🏦 *SRS M FACTORING — CONTRATO APROVADO* ✅
+
+Olá, *{{nome}}*! Ótimas notícias!
+
+Seu contrato de crédito foi aprovado e gerado com sucesso pela *SRS M FACTORING*.
+
+📋 *Dados do Contrato:*
+• Nº: {{numero_contrato}}
+• Valor Liberado: *{{valor_principal}}*
+
+✍️ *Assine agora (link exclusivo):*
+{{link_assinatura}}
+
+ℹ️ A assinatura é digital, segura e tem validade jurídica.
+
+_SRS M Factoring — Crédito com Responsabilidade_`,
+
+  contrato_assinado: `✅ *CONTRATO ASSINADO — SRS M FACTORING*
+
+Olá, *{{nome}}*!
+
+Seu contrato *{{numero_contrato}}* com a *SRS M FACTORING* foi assinado digitalmente com sucesso. O documento tem plena validade jurídica conforme MP 2.200-2/2001.
+
+📄 *Acesse e salve seu contrato:*
+{{link_contrato}}
+
+Dúvidas? Estamos à disposição.
+_SRS M Factoring_`,
+
+  lembrete_pre_vencimento: `🔔 *LEMBRETE DE VENCIMENTO — SRS M FACTORING*
+
+Olá, *{{nome}}*!
+
+Sua parcela com a *SRS M FACTORING* vence em *{{dias_antes}} dias*. Não esqueça!
+
+📋 *Detalhes:*
+• Contrato: {{numero_contrato}}
+• Parcela: {{numero_parcela}}/{{total_parcelas}}
+• Vencimento: *{{data_vencimento}}*
+• Valor: *{{valor}}*
+
+💳 *Pague via PIX:*
+\`{{whatsapp_padrao}}\`
+
+Pagando antes do vencimento você evita encargos. 😊
+
+_SRS M Factoring — Financeiro_`,
+
+  lembrete_vencimento: `📅 *PARCELA VENCE HOJE — SRS M FACTORING*
+
+Olá, *{{nome}}*!
+
+⚠️ Sua parcela com a *SRS M FACTORING* vence *HOJE*. Evite juros de atraso efetuando o pagamento.
+
+📋 *Detalhes:*
+• Contrato: {{numero_contrato}}
+• Parcela: {{numero_parcela}}/{{total_parcelas}}
+• Valor: *{{valor}}*
+
+💳 *Pague agora via PIX:*
+\`{{whatsapp_padrao}}\`
+
+Após o vencimento são cobrados multa + juros diários.
+_SRS M Factoring — Setor Financeiro_`,
+
+  cobranca_pos_vencimento: `⚠️ *PARCELA EM ATRASO — SRS M FACTORING*
+
+Olá, *{{nome}}*.
+
+Identificamos parcela(s) em aberto na *SRS M FACTORING*.
+
+📋 *Situação atual:*
+• Contrato: {{numero_contrato}}
+• Parcela: {{numero_parcela}}/{{total_parcelas}}
+• Vencimento: {{data_vencimento}}
+• ⏱ Dias em atraso: *{{dias_atraso}} dias*
+
+💰 *Valores atualizados:*
+• Valor original: {{valor}}
+• Multa: +{{multa}}
+• Juros acumulados: +{{juros_mora}}
+• *Total a pagar: {{valor_total}}*
+
+💳 *Regularize via PIX:*
+\`{{whatsapp_padrao}}\`
+
+⚡ Os juros aumentam a cada dia. Regularize o quanto antes.
+
+_SRS M Factoring — Departamento de Cobranças_`,
+
+  pagamento_confirmado: `🏦 *SRS M FACTORING — COMPROVANTE DE RECEBIMENTO* ✅
+
+Olá, *{{nome}}*! Confirmação de recebimento da *SRS M FACTORING*:
+
+📄 *Dados do Pagamento:*
+• Contrato: {{numero_contrato}}
+• Parcela: {{numero_parcela}}/{{total_parcelas}}
+• Data do Pagamento: *{{data_pagamento}}*
+• Forma: {{tipo_pagamento}}
+• Valor Quitado: *{{valor_pago}}*
+
+Agradecemos a sua parceria!
+Atenciosamente,
+*SRS M FACTORING*`,
+}
+
 // ── Variable insertion ──────────────────────────────────────────────────────
 
 function inserirVariavel(
@@ -82,16 +189,9 @@ export default function TemplatesMensagensPage() {
   const [loading,  setLoading]  = useState(true)
   const [saving,   setSaving]   = useState(false)
 
-  // Factoring: armazena os 5 templates de automação + o objeto raw do BD para não perder outros campos
+  // Factoring: armazena os 6 templates de automação + o objeto raw do BD para não perder outros campos
   const [rawSettings, setRawSettings] = useState<Record<string, any>>({})
-  const [templatesFactoring, setTemplatesFactoring] = useState<Record<TriggerKey, string>>({
-    contrato_criado:         '',
-    contrato_assinado:       '',
-    lembrete_pre_vencimento: '',
-    lembrete_vencimento:     '',
-    cobranca_pos_vencimento: '',
-    pagamento_confirmado:    '',
-  })
+  const [templatesFactoring, setTemplatesFactoring] = useState<Record<TriggerKey, string>>(DEFAULT_FACTORING_TEMPLATES)
 
   // Empório
   const [configEmporio, setConfigEmporio] = useState<ConfigEmporio>({
@@ -142,12 +242,12 @@ export default function TemplatesMensagensPage() {
         const ws = (data?.whatsapp_settings ?? {}) as Record<string, any>
         setRawSettings(ws)
         setTemplatesFactoring({
-          contrato_criado:         ws.contrato_criado?.template         ?? '',
-          contrato_assinado:       ws.contrato_assinado?.template       ?? '',
-          lembrete_pre_vencimento: ws.lembrete_pre_vencimento?.template ?? '',
-          lembrete_vencimento:     ws.lembrete_vencimento?.template     ?? '',
-          cobranca_pos_vencimento: ws.cobranca_pos_vencimento?.template ?? '',
-          pagamento_confirmado:    ws.pagamento_confirmado?.template    ?? '',
+          contrato_criado:         ws.contrato_criado?.template         || DEFAULT_FACTORING_TEMPLATES.contrato_criado,
+          contrato_assinado:       ws.contrato_assinado?.template       || DEFAULT_FACTORING_TEMPLATES.contrato_assinado,
+          lembrete_pre_vencimento: ws.lembrete_pre_vencimento?.template || DEFAULT_FACTORING_TEMPLATES.lembrete_pre_vencimento,
+          lembrete_vencimento:     ws.lembrete_vencimento?.template     || DEFAULT_FACTORING_TEMPLATES.lembrete_vencimento,
+          cobranca_pos_vencimento: ws.cobranca_pos_vencimento?.template || DEFAULT_FACTORING_TEMPLATES.cobranca_pos_vencimento,
+          pagamento_confirmado:    ws.pagamento_confirmado?.template    || DEFAULT_FACTORING_TEMPLATES.pagamento_confirmado,
         })
       }
     } catch {
@@ -242,15 +342,31 @@ export default function TemplatesMensagensPage() {
                 WhatsApp
               </span>
             </div>
-            <Button
-              onClick={salvar}
-              disabled={saving}
-              className="bg-[#1E5AA8] hover:bg-[#1a4f94] text-white"
-              size="sm"
-            >
-              <Save size={14} className="mr-2" />
-              {saving ? 'Salvando...' : 'Salvar templates'}
-            </Button>
+            <div className="flex items-center gap-2">
+              {!isEmporio && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setTemplatesFactoring(DEFAULT_FACTORING_TEMPLATES)
+                    toast.success('Templates restaurados com a identificação SRS M Factoring! Clique em Salvar para gravar no banco.')
+                  }}
+                  className="border-slate-300 text-slate-700 hover:bg-slate-100"
+                >
+                  <RotateCcw size={14} className="mr-1.5" />
+                  Restaurar Padrões SRS M Factoring
+                </Button>
+              )}
+              <Button
+                onClick={salvar}
+                disabled={saving}
+                className="bg-[#1E5AA8] hover:bg-[#1a4f94] text-white"
+                size="sm"
+              >
+                <Save size={14} className="mr-2" />
+                {saving ? 'Salvando...' : 'Salvar templates'}
+              </Button>
+            </div>
           </div>
 
           {/* Variables */}

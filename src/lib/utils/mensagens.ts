@@ -38,6 +38,9 @@ export const VARIAVEIS_FACTORING: VariavelTemplate[] = [
   { chave: 'prazo_meses', descricao: 'Prazo em meses', exemplo: '12' },
   { chave: 'data_primeiro_vencimento', descricao: '1ª data de vencimento', exemplo: '10/06/2026' },
   { chave: 'data_quitacao', descricao: 'Data de quitação', exemplo: '15/05/2026' },
+  { chave: 'data_pagamento', descricao: 'Data do pagamento da parcela', exemplo: '07/08/2026' },
+  { chave: 'tipo_pagamento', descricao: 'Forma de pagamento (PIX, etc)', exemplo: 'PIX' },
+  { chave: 'valor_pago', descricao: 'Valor quitado/recebido', exemplo: 'R$ 562,50' },
   { chave: 'total_pago', descricao: 'Total pago no contrato', exemplo: 'R$ 5.472,00' },
 ]
 
