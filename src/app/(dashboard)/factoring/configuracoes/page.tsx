@@ -178,11 +178,12 @@ export default function ConfiguracoesFactoringPage() {
     if (!empresaAtual) return
     setSaving(true)
     try {
-      const basePayload = {
+      const payload = {
         empresa_id: empresaAtual.id,
         taxa_juros_padrao: parseFloat(taxaJurosPadrao.replace(',', '.')) || 5,
         multa_atraso: parseFloat(multaAtraso.replace(',', '.')) || 2,
         juros_mora_diario: parseFloat(jurosMoraDiario.replace(',', '.')) || 0.0333,
+        saldo_inicial_caixa: parseBRL(saldoInicialCaixa),
         tipo_taxa_padrao: config?.tipo_taxa_padrao ?? 'mensal',
         dias_carencia: config?.dias_carencia ?? 0,
         prazo_minimo_meses: config?.prazo_minimo_meses ?? 3,
@@ -193,20 +194,17 @@ export default function ConfiguracoesFactoringPage() {
         prefixo_contrato: config?.prefixo_contrato ?? 'FAC',
       }
 
-      // Try with saldo; fall back without if column not in DB yet
-      const { error: errComSaldo } = await supabase
-        .from('config_factoring')
-        .upsert({ ...basePayload, saldo_inicial_caixa: parseBRL(saldoInicialCaixa) }, { onConflict: 'empresa_id' })
+      const { error } = config
+        ? await supabase
+            .from('config_factoring')
+            .update(payload)
+            .eq('empresa_id', empresaAtual.id)
+        : await supabase
+            .from('config_factoring')
+            .insert(payload)
 
-      if (errComSaldo) {
-        const { error: errSemSaldo } = await supabase
-          .from('config_factoring')
-          .upsert(basePayload, { onConflict: 'empresa_id' })
-        if (errSemSaldo) throw errSemSaldo
-        toast.success('Configurações salvas! (rode a migration add_saldo_inicial_caixa.sql para habilitar o saldo de caixa)')
-      } else {
-        toast.success('Configurações salvas!')
-      }
+      if (error) throw error
+      toast.success('Configurações financeiras e saldo inicial salvos com sucesso!')
 
       await carregarDados()
     } catch (err: any) {

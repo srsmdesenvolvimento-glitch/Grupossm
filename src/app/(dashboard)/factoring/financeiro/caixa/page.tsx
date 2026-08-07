@@ -80,9 +80,20 @@ export default function CaixaPage() {
     setSalvandoSaldo(true)
     try {
       const valorNum = parseBRL(novoSaldoStr)
-      const { error } = await supabase
+      const { data: existingConfig } = await supabase
         .from('config_factoring')
-        .upsert({ empresa_id: empresaAtual.id, saldo_inicial_caixa: valorNum }, { onConflict: 'empresa_id' })
+        .select('id')
+        .eq('empresa_id', empresaAtual.id)
+        .maybeSingle()
+
+      const { error } = existingConfig
+        ? await supabase
+            .from('config_factoring')
+            .update({ saldo_inicial_caixa: valorNum })
+            .eq('empresa_id', empresaAtual.id)
+        : await supabase
+            .from('config_factoring')
+            .insert({ empresa_id: empresaAtual.id, saldo_inicial_caixa: valorNum })
 
       if (error) throw error
       toast.success('Saldo inicial do caixa atualizado com sucesso!')
