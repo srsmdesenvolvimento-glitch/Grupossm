@@ -31,13 +31,14 @@ type TriggerConfig = {
   hora_envio_2?: string
   hora_envio_3?: string
 }
-type TriggerKey = 'contrato_criado' | 'contrato_assinado' | 'lembrete_pre_vencimento' | 'lembrete_vencimento' | 'cobranca_pos_vencimento'
+type TriggerKey = 'contrato_criado' | 'contrato_assinado' | 'lembrete_pre_vencimento' | 'lembrete_vencimento' | 'cobranca_pos_vencimento' | 'pagamento_confirmado'
 type WhatsappSettings = {
   contrato_criado: TriggerConfig
   contrato_assinado: TriggerConfig
   lembrete_pre_vencimento: TriggerConfig
   lembrete_vencimento: TriggerConfig
   cobranca_pos_vencimento: TriggerConfig
+  pagamento_confirmado: TriggerConfig
   hora_envio?: string | null
   max_dias_atraso?: number
   frequencia_cobranca?: number
@@ -65,7 +66,7 @@ const DEFAULT_SETTINGS: WhatsappSettings = {
 
 Olá, *{{nome}}*! Ótimas notícias!
 
-Seu contrato de crédito foi aprovado e gerado com sucesso.
+Seu contrato de crédito foi aprovado e gerado com sucesso pela *SRS M FACTORING*.
 
 📋 *Dados do Contrato:*
 • Nº: {{numero_contrato}}
@@ -84,7 +85,7 @@ _SRS M Factoring — Crédito com Responsabilidade_`
 
 Olá, *{{nome}}*!
 
-Seu contrato *{{numero_contrato}}* foi assinado digitalmente com sucesso. O documento tem plena validade jurídica conforme MP 2.200-2/2001.
+Seu contrato *{{numero_contrato}}* com a *SRS M FACTORING* foi assinado digitalmente com sucesso. O documento tem plena validade jurídica conforme MP 2.200-2/2001.
 
 📄 *Acesse e salve seu contrato:*
 {{link_contrato}}
@@ -99,7 +100,7 @@ _SRS M Factoring_`
 
 Olá, *{{nome}}*!
 
-Sua parcela vence em *{{dias_antes}} dias*. Não esqueça!
+Sua parcela com a *SRS M FACTORING* vence em *{{dias_antes}} dias*. Não esqueça!
 
 📋 *Detalhes:*
 • Contrato: {{numero_contrato}}
@@ -120,7 +121,7 @@ _SRS M Factoring — Financeiro_`
 
 Olá, *{{nome}}*!
 
-⚠️ Sua parcela vence *HOJE*. Evite multa e juros efetuando o pagamento.
+⚠️ Sua parcela com a *SRS M FACTORING* vence *HOJE*. Evite juros de atraso efetuando o pagamento.
 
 📋 *Detalhes:*
 • Contrato: {{numero_contrato}}
@@ -139,7 +140,7 @@ _SRS M Factoring — Setor Financeiro_`
 
 Olá, *{{nome}}*.
 
-Identificamos que há parcela(s) em aberto no seu contrato.
+Identificamos parcela(s) em aberto na *SRS M FACTORING*.
 
 📋 *Situação atual:*
 • Contrato: {{numero_contrato}}
@@ -160,6 +161,23 @@ Identificamos que há parcela(s) em aberto no seu contrato.
 
 _SRS M Factoring — Departamento de Cobranças_`
   },
+  pagamento_confirmado: {
+    ativo: true,
+    template: `🏦 *SRS M FACTORING — COMPROVANTE DE RECEBIMENTO* ✅
+
+Olá, *{{nome}}*! Confirmação de recebimento da *SRS M FACTORING*:
+
+📄 *Dados do Pagamento:*
+• Contrato: {{numero_contrato}}
+• Parcela: {{numero_parcela}}/{{total_parcelas}}
+• Data do Pagamento: *{{data_pagamento}}*
+• Forma: {{tipo_pagamento}}
+• Valor Quitado: *{{valor_pago}}*
+
+Agradecemos a sua parceria!
+Atenciosamente,
+*SRS M FACTORING*`
+  },
   hora_envio: '09:00',
   max_dias_atraso: 60,
   frequencia_cobranca: 1,
@@ -168,9 +186,10 @@ _SRS M Factoring — Departamento de Cobranças_`
 const FLOW_DETAILS = {
   contrato_criado: { titulo: 'Contrato Criado', icone: FileText, cor: 'text-blue-600 bg-blue-50 border-blue-200', variaveis: ['nome', 'numero_contrato', 'valor_principal', 'link_assinatura'], descricao: 'Enviado ao criar o empréstimo para que o cliente realize a assinatura eletrônica.' },
   contrato_assinado: { titulo: 'Contrato Assinado', icone: CheckSquare, cor: 'text-green-600 bg-green-50 border-green-200', variaveis: ['nome', 'numero_contrato', 'link_contrato'], descricao: 'Confirmação de assinatura com link para download do PDF.' },
-  lembrete_pre_vencimento: { titulo: 'Lembrete Pré-Vencimento', icone: Calendar, cor: 'text-amber-600 bg-amber-50 border-amber-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'dias_antes', 'data_vencimento', 'valor', 'whatsapp_padrao'], descricao: 'Alerta X dias antes do vencimento com chave PIX para pagamento.' },
-  lembrete_vencimento: { titulo: 'Vencimento Hoje', icone: Clock, cor: 'text-purple-600 bg-purple-50 border-purple-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'data_vencimento', 'valor', 'whatsapp_padrao'], descricao: 'Enviado no dia do vencimento com urgência e chave PIX.' },
-  cobranca_pos_vencimento: { titulo: 'Cobrança Pós-Vencimento', icone: AlertOctagon, cor: 'text-red-600 bg-red-50 border-red-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'dias_atraso', 'valor', 'valor_total', 'multa', 'juros_mora', 'whatsapp_padrao'], descricao: 'Enviada após o vencimento com valores atualizados (multa + juros). Repete conforme configuração.' },
+  lembrete_pre_vencimento: { titulo: 'Lembrete Pré-Vencimento', icone: Calendar, cor: 'text-amber-600 bg-amber-50 border-amber-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'dias_antes', 'data_vencimento', 'valor', 'whatsapp_padrao'], descricao: 'Alerta X dias antes do vencimento com demonstrativo visual da fatura.' },
+  lembrete_vencimento: { titulo: 'Vencimento Hoje', icone: Clock, cor: 'text-purple-600 bg-purple-50 border-purple-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'data_vencimento', 'valor', 'whatsapp_padrao'], descricao: 'Enviado no dia do vencimento com imagem de fatura e chave PIX.' },
+  cobranca_pos_vencimento: { titulo: 'Cobrança Pós-Vencimento', icone: AlertOctagon, cor: 'text-red-600 bg-red-50 border-red-200', variaveis: ['nome', 'numero_parcela', 'total_parcelas', 'numero_contrato', 'dias_atraso', 'valor', 'valor_total', 'multa', 'juros_mora', 'whatsapp_padrao'], descricao: 'Enviada diariamente após o vencimento com fatura visual e juros/multa recalculados do dia.' },
+  pagamento_confirmado: { titulo: 'Comprovante de Pagamento', icone: CheckCircle, cor: 'text-emerald-600 bg-emerald-50 border-emerald-200', variaveis: ['nome', 'numero_contrato', 'numero_parcela', 'total_parcelas', 'data_pagamento', 'tipo_pagamento', 'valor_pago'], descricao: 'Disparado instantaneamente no momento da baixa da parcela com comprovante de recebimento.' },
 }
 
 const STATUS_FILTERS = [

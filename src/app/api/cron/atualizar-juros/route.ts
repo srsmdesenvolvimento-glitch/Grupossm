@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { enviarTemplate } from '@/lib/utils/whatsapp'
+import { enviarTemplate, enviarMensagem } from '@/lib/utils/whatsapp'
 
 function formatarMoeda(val: number): string {
   return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -203,12 +203,19 @@ export async function GET(request: NextRequest) {
             },
             p.empresa_id,
           )
+
+          // Envia Fatura Visual em Imagem (com valores atualizados)
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://grupo-srsm.vercel.app'
+          const faturaImgUrl = `${baseUrl}/api/fatura-imagem?tipo=atraso&nome=${encodeURIComponent(cliente.nome)}&contrato=${encodeURIComponent(emprestimo?.numero_contrato ?? '')}&parcela=${p.numero_parcela}/${p.total_parcelas}&vencimento=${encodeURIComponent(formatarDataBR(p.data_vencimento))}&valor=${encodeURIComponent(formatarMoeda(p.valor))}&multa=${encodeURIComponent(formatarMoeda(novaMulta))}&juros=${encodeURIComponent(formatarMoeda(novosJuros))}&total=${encodeURIComponent(formatarMoeda(valorTotalComEncargos))}&dias_atraso=${dias}&pix=${encodeURIComponent(cfg.whatsapp_padrao)}`
+          
+          await enviarMensagem(cliente.telefone, faturaImgUrl, p.empresa_id, true)
+
           const { error: notifCobrancaError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
-            assunto: `Cobrança de Atraso - Contrato ${emprestimo?.numero_contrato ?? ''}`,
-            mensagem: `Template srsm2_cobranca_atraso — parcela ${p.numero_parcela}/${p.total_parcelas} em atraso ${dias}d`,
+            assunto: `Cobrança de Atraso c/ Fatura Visual - Contrato ${emprestimo?.numero_contrato ?? ''}`,
+            mensagem: `Template srsm2_cobranca_atraso + Fatura Imagem — parcela ${p.numero_parcela}/${p.total_parcelas} em atraso ${dias}d`,
             referencia_tipo: 'parcela',
             referencia_id: p.id,
             status: result.ok ? 'enviado' : 'erro',
@@ -274,12 +281,19 @@ export async function GET(request: NextRequest) {
             },
             p.empresa_id,
           )
+
+          // Envia Fatura Visual em Imagem
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://grupo-srsm.vercel.app'
+          const faturaImgUrl = `${baseUrl}/api/fatura-imagem?tipo=vencimento&nome=${encodeURIComponent(cliente.nome)}&contrato=${encodeURIComponent(emprestimo?.numero_contrato ?? '')}&parcela=${p.numero_parcela}/${p.total_parcelas}&vencimento=${encodeURIComponent(formatarDataBR(p.data_vencimento))}&valor=${encodeURIComponent(formatarMoeda(p.valor))}&total=${encodeURIComponent(formatarMoeda(p.valor))}&pix=${encodeURIComponent(cfg.whatsapp_padrao)}`
+
+          await enviarMensagem(cliente.telefone, faturaImgUrl, p.empresa_id, true)
+
           const { error: notifHojeError } = await supabase.from('notificacoes_log').insert({
             empresa_id: p.empresa_id,
             canal: 'whatsapp',
             destinatario: cliente.telefone,
-            assunto: `Aviso de Vencimento Hoje - Parcela ${p.numero_parcela}`,
-            mensagem: `Template srsm2_vencimento_hoje — parcela ${p.numero_parcela}/${p.total_parcelas} vence hoje`,
+            assunto: `Aviso de Vencimento Hoje c/ Fatura Visual - Parcela ${p.numero_parcela}`,
+            mensagem: `Template srsm2_vencimento_hoje + Fatura Imagem — parcela ${p.numero_parcela}/${p.total_parcelas} vence hoje`,
             referencia_tipo: 'parcela',
             referencia_id: p.id,
             status: result.ok ? 'enviado' : 'erro',
@@ -357,12 +371,19 @@ export async function GET(request: NextRequest) {
               },
               p.empresa_id,
             )
+
+            // Envia Fatura Visual em Imagem
+            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://grupo-srsm.vercel.app'
+            const faturaImgUrl = `${baseUrl}/api/fatura-imagem?tipo=pre_vencimento&nome=${encodeURIComponent(cliente.nome)}&contrato=${encodeURIComponent(emprestimo?.numero_contrato ?? '')}&parcela=${p.numero_parcela}/${p.total_parcelas}&vencimento=${encodeURIComponent(formatarDataBR(p.data_vencimento))}&valor=${encodeURIComponent(formatarMoeda(p.valor))}&total=${encodeURIComponent(formatarMoeda(p.valor))}&pix=${encodeURIComponent(cfg.whatsapp_padrao)}`
+
+            await enviarMensagem(cliente.telefone, faturaImgUrl, p.empresa_id, true)
+
             const { error: notifTresDiasError } = await supabase.from('notificacoes_log').insert({
               empresa_id: p.empresa_id,
               canal: 'whatsapp',
               destinatario: cliente.telefone,
-              assunto: `Aviso de Vencimento em ${diasFaltantes} Dia(s) - Parcela ${p.numero_parcela}`,
-              mensagem: `Template srsm2_lembrete_vencimento — parcela ${p.numero_parcela}/${p.total_parcelas} vence em ${diasFaltantes}d`,
+              assunto: `Aviso de Vencimento em ${diasFaltantes} Dia(s) c/ Fatura Visual - Parcela ${p.numero_parcela}`,
+              mensagem: `Template srsm2_lembrete_vencimento + Fatura Imagem — parcela ${p.numero_parcela}/${p.total_parcelas} vence em ${diasFaltantes}d`,
               referencia_tipo: 'parcela',
               referencia_id: p.id,
               status: result.ok ? 'enviado' : 'erro',

@@ -22,6 +22,10 @@ export const TEMPLATE_MAP = {
     name: 'srsm2_cobranca_atraso',
     vars: (v: Record<string, string>) => [v.nome, v.numero_contrato, v.numero_parcela, v.total_parcelas, v.data_vencimento, v.dias_atraso, v.valor_total, v.whatsapp_padrao],
   },
+  pagamento_confirmado: {
+    name: 'srsm2_pagamento_confirmado',
+    vars: (v: Record<string, string>) => [v.nome, v.numero_contrato, v.numero_parcela, v.total_parcelas, v.data_pagamento, v.tipo_pagamento, v.valor_pago],
+  },
 } as const
 
 export type TriggerKey = keyof typeof TEMPLATE_MAP
@@ -62,23 +66,34 @@ export async function enviarMensagem(
   }
 
   const pdfRegex = /(https?:\/\/[^\s]+\.pdf[^\s]*)/i
-  const match = mensagem.match(pdfRegex)
-  const linkPdf = match?.[0] ?? null
-  const textoFinal = linkPdf ? mensagem.replace(pdfRegex, '').trim() : mensagem
+  const imgRegex = /(https?:\/\/[^\s]+\.(png|jpg|jpeg|svg)[^\s]*|https?:\/\/[^\s]+\/api\/fatura-imagem[^\s]*)/i
+  
+  const matchPdf = mensagem.match(pdfRegex)?.[0] ?? null
+  const matchImg = mensagem.match(imgRegex)?.[0] ?? null
 
   const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`
 
   let body: Record<string, any>
-  if (linkPdf) {
+  if (matchImg) {
+    const textoSemImg = mensagem.replace(imgRegex, '').trim()
+    body = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: numeroFormatado,
+      type: 'image',
+      image: { link: matchImg, caption: textoSemImg || undefined },
+    }
+  } else if (matchPdf) {
+    const textoSemPdf = mensagem.replace(pdfRegex, '').trim()
     let filename = 'documento.pdf'
-    if (linkPdf.includes('contrato')) filename = 'contrato.pdf'
-    else if (linkPdf.includes('recibo')) filename = 'recibo.pdf'
+    if (matchPdf.includes('contrato')) filename = 'contrato.pdf'
+    else if (matchPdf.includes('recibo')) filename = 'recibo.pdf'
     body = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: numeroFormatado,
       type: 'document',
-      document: { link: linkPdf, filename, caption: textoFinal || undefined },
+      document: { link: matchPdf, filename, caption: textoSemPdf || undefined },
     }
   } else {
     body = {
@@ -86,7 +101,7 @@ export async function enviarMensagem(
       recipient_type: 'individual',
       to: numeroFormatado,
       type: 'text',
-      text: { body: textoFinal },
+      text: { body: mensagem },
     }
   }
 

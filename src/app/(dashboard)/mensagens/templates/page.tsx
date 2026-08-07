@@ -20,6 +20,7 @@ type TriggerKey =
   | 'lembrete_pre_vencimento'
   | 'lembrete_vencimento'
   | 'cobranca_pos_vencimento'
+  | 'pagamento_confirmado'
 
 type TemplateFactoring = { chave: TriggerKey; nome: string }
 type TemplateEmporio   = { chave: keyof ConfigEmporio; nome: string }
@@ -38,6 +39,7 @@ const TEMPLATES_FACTORING: TemplateFactoring[] = [
   { chave: 'lembrete_pre_vencimento', nome: 'Lembrete Pré-Vencimento' },
   { chave: 'lembrete_vencimento',     nome: 'Vence Hoje' },
   { chave: 'cobranca_pos_vencimento', nome: 'Cobrança em Atraso' },
+  { chave: 'pagamento_confirmado',    nome: 'Comprovante de Pagamento' },
 ]
 
 const TEMPLATES_EMPORIO: TemplateEmporio[] = [
@@ -88,6 +90,7 @@ export default function TemplatesMensagensPage() {
     lembrete_pre_vencimento: '',
     lembrete_vencimento:     '',
     cobranca_pos_vencimento: '',
+    pagamento_confirmado:    '',
   })
 
   // Empório
@@ -144,6 +147,7 @@ export default function TemplatesMensagensPage() {
           lembrete_pre_vencimento: ws.lembrete_pre_vencimento?.template ?? '',
           lembrete_vencimento:     ws.lembrete_vencimento?.template     ?? '',
           cobranca_pos_vencimento: ws.cobranca_pos_vencimento?.template ?? '',
+          pagamento_confirmado:    ws.pagamento_confirmado?.template    ?? '',
         })
       }
     } catch {

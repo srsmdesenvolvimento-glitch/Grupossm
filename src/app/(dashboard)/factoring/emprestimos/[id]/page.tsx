@@ -598,7 +598,31 @@ export default function EmprestimoDetalhePage() {
               const formas: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', transferencia: 'Transferência', boleto: 'Boleto', cheque: 'Cheque' }
               const formaLabel = formas[pagForma] ?? 'PIX'
 
-              const msgTexto = `Confirmamos o recebimento de ${formatarMoeda(valorFinal)} referente à parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} do contrato ${emprestimo.numero_contrato} via ${formaLabel}. Segue seu recibo em anexo.\n\n${publicUrl}`
+              // 1. Dispara o template oficial de pagamento_confirmado
+              fetch('/api/whatsapp/enviar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  empresa_id: empresaAtual.id,
+                  destinatario: cliente.telefone,
+                  triggerKey: 'pagamento_confirmado',
+                  variaveis: {
+                    nome: cliente.nome,
+                    numero_contrato: emprestimo.numero_contrato,
+                    numero_parcela: String(pagarParcela.numero_parcela),
+                    total_parcelas: String(pagarParcela.total_parcelas),
+                    data_pagamento: formatarData(hoje),
+                    tipo_pagamento: formaLabel,
+                    valor_pago: formatarMoeda(valorFinal),
+                  },
+                }),
+              }).catch(e => console.error('Erro ao enviar template pagamento_confirmado:', e))
+
+              // 2. Dispara o Comprovante Visual em Imagem (Card)
+              const origin = typeof window !== 'undefined' ? window.location.origin : ''
+              const comprovanteImgUrl = `${origin}/api/fatura-imagem?tipo=comprovante&nome=${encodeURIComponent(cliente.nome)}&contrato=${encodeURIComponent(emprestimo.numero_contrato)}&parcela=${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas}&data_pagamento=${encodeURIComponent(formatarData(hoje))}&forma_pagamento=${encodeURIComponent(formaLabel)}&valor=${encodeURIComponent(formatarMoeda(pagarParcela.valor))}&total=${encodeURIComponent(formatarMoeda(valorFinal))}&pix=${encodeURIComponent(empresaAtual.nome)}`
+
+              const msgTexto = `Confirmamos o recebimento de ${formatarMoeda(valorFinal)} referente à parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} do contrato ${emprestimo.numero_contrato} via ${formaLabel}. Segue seu recibo em anexo.\n\n${publicUrl}\n\n${comprovanteImgUrl}`
 
               const { error: notifReciboError } = await supabase.from('notificacoes_log').insert({
                 empresa_id: empresaAtual.id,
