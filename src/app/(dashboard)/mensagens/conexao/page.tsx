@@ -22,7 +22,15 @@ import {
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type TriggerConfig = { ativo: boolean; template: string; dias_antes?: number }
+type TriggerConfig = {
+  ativo: boolean
+  template: string
+  dias_antes?: number
+  hora_envio?: string
+  vezes_por_dia?: number
+  hora_envio_2?: string
+  hora_envio_3?: string
+}
 type TriggerKey = 'contrato_criado' | 'contrato_assinado' | 'lembrete_pre_vencimento' | 'lembrete_vencimento' | 'cobranca_pos_vencimento'
 type WhatsappSettings = {
   contrato_criado: TriggerConfig
@@ -1061,20 +1069,21 @@ export default function WhatsAppConexaoPage() {
 
                 {/* Header do trigger selecionado */}
                 <Card className="border-slate-200 shadow-sm rounded-xl">
-                  <CardContent className="pt-4 pb-4">
+                  <CardContent className="pt-4 pb-4 space-y-4">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div>
                         <h3 className="font-bold text-slate-800 text-sm">{FLOW_DETAILS[activeTrigger].titulo}</h3>
                         <p className="text-xs text-slate-400 mt-0.5 max-w-md">{FLOW_DETAILS[activeTrigger].descricao}</p>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-xs text-slate-400">{settings[activeTrigger]?.ativo ? 'Ativo' : 'Desativado'}</span>
+                        <span className="text-xs font-bold text-slate-500">{settings[activeTrigger]?.ativo ? 'Ativo' : 'Desativado'}</span>
                         <Switch checked={settings[activeTrigger]?.ativo ?? false}
                           onCheckedChange={(v) => handleUpdateTrigger(activeTrigger, 'ativo', v)} />
                       </div>
                     </div>
+
                     {activeTrigger === 'lembrete_pre_vencimento' && (
-                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs font-semibold text-slate-600">
+                      <div className="pt-3 border-t border-slate-100 flex items-center gap-2 text-xs font-semibold text-slate-600">
                         <Clock className="text-amber-500" size={14} />
                         Enviar lembrete
                         <Input type="number" min={1} max={30}
@@ -1084,6 +1093,90 @@ export default function WhatsAppConexaoPage() {
                         dias antes do vencimento
                       </div>
                     )}
+
+                    {/* Agendamento de Horários e Repetições Diárias por Gatilho */}
+                    <div className="pt-3 border-t border-slate-100 bg-slate-50/70 p-3.5 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <Clock size={14} className="text-[#1E5AA8]" />
+                          Agendamento & Horário de Disparo de "{FLOW_DETAILS[activeTrigger].titulo}"
+                        </Label>
+                        <span className="text-[10px] font-semibold text-slate-400">Personalizado por mensagem</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {/* Horário Principal */}
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold text-slate-500">1º Horário de Envio</Label>
+                          <Select
+                            value={settings[activeTrigger]?.hora_envio || settings.hora_envio || '09:00'}
+                            onValueChange={(v: string | null) => handleUpdateTrigger(activeTrigger, 'hora_envio', v ?? '09:00')}
+                          >
+                            <SelectTrigger className="h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 17 }).map((_, i) => {
+                                const h = String(i + 6).padStart(2, '0') + ':00'
+                                return <SelectItem key={h} value={h}>{h}</SelectItem>
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Repetição no dia */}
+                        <div className="space-y-1">
+                          <Label className="text-[11px] font-semibold text-slate-500">Disparos por Dia</Label>
+                          <Select
+                            value={String(settings[activeTrigger]?.vezes_por_dia ?? 1)}
+                            onValueChange={(v: string | null) => handleUpdateTrigger(activeTrigger, 'vezes_por_dia', parseInt(v || '1') || 1)}
+                          >
+                            <SelectTrigger className="h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="1">1x ao dia (Único)</SelectItem>
+                              <SelectItem value="2">2x ao dia (Repetir à tarde)</SelectItem>
+                              <SelectItem value="3">3x ao dia (Manhã, Tarde e Noite)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* 2º Horário (se vezes_por_dia >= 2) */}
+                        {(settings[activeTrigger]?.vezes_por_dia ?? 1) >= 2 && (
+                          <div className="space-y-1">
+                            <Label className="text-[11px] font-semibold text-slate-500">2º Horário de Envio</Label>
+                            <Select
+                              value={settings[activeTrigger]?.hora_envio_2 || '15:00'}
+                              onValueChange={(v: string | null) => handleUpdateTrigger(activeTrigger, 'hora_envio_2', v ?? '15:00')}
+                            >
+                              <SelectTrigger className="h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: 17 }).map((_, i) => {
+                                  const h = String(i + 6).padStart(2, '0') + ':00'
+                                  return <SelectItem key={h} value={h}>{h}</SelectItem>
+                                })}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+
+                        {/* 3º Horário (se vezes_por_dia >= 3) */}
+                        {(settings[activeTrigger]?.vezes_por_dia ?? 1) >= 3 && (
+                          <div className="space-y-1">
+                            <Label className="text-[11px] font-semibold text-slate-500">3º Horário de Envio</Label>
+                            <Select
+                              value={settings[activeTrigger]?.hora_envio_3 || '19:00'}
+                              onValueChange={(v: string | null) => handleUpdateTrigger(activeTrigger, 'hora_envio_3', v ?? '19:00')}
+                            >
+                              <SelectTrigger className="h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: 17 }).map((_, i) => {
+                                  const h = String(i + 6).padStart(2, '0') + ':00'
+                                  return <SelectItem key={h} value={h}>{h}</SelectItem>
+                                })}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
 

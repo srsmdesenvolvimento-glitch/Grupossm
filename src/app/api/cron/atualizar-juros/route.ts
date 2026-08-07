@@ -32,10 +32,26 @@ export async function GET(request: NextRequest) {
   })
   const horaBrasilia = parseInt(formatter.format(new Date()))
 
-  // Verifica se horário atual está dentro da janela de envio da empresa (±1h de tolerância)
-  // Isso garante que o cron funcione mesmo rodando em intervalos de 30-60min
-  function dentroJanelaEnvio(horaEnvioNum: number): boolean {
-    return Math.abs(horaBrasilia - horaEnvioNum) <= 1
+  // Verifica se horário atual de Brasília está dentro da janela de envio (±1h) de um determinado gatilho
+  function dentroJanelaEnvioTrigger(triggerConfig: any, horaGlobalNum: number): boolean {
+    const hora1Str = triggerConfig?.hora_envio
+    const hora1Num = hora1Str ? (parseInt(hora1Str.split(':')[0]) || 9) : horaGlobalNum
+    if (Math.abs(horaBrasilia - hora1Num) <= 1) return true
+
+    const vezesPorDia = Number(triggerConfig?.vezes_por_dia ?? 1)
+    if (vezesPorDia >= 2) {
+      const hora2Str = triggerConfig?.hora_envio_2 || '15:00'
+      const hora2Num = parseInt(hora2Str.split(':')[0]) || 15
+      if (Math.abs(horaBrasilia - hora2Num) <= 1) return true
+    }
+
+    if (vezesPorDia >= 3) {
+      const hora3Str = triggerConfig?.hora_envio_3 || '19:00'
+      const hora3Num = parseInt(hora3Str.split(':')[0]) || 19
+      if (Math.abs(horaBrasilia - hora3Num) <= 1) return true
+    }
+
+    return false
   }
 
   try {
@@ -71,15 +87,23 @@ export async function GET(request: NextRequest) {
       }),
     )
 
-    // 2. Carregar Cache de Idempotência: Notificações de parcelas já criadas/enviadas hoje
-    const { data: notificacoesHoje, error: notifErr } = await supabase
-      .from('notificacoes_log')
-      .select('referencia_id')
-      .eq('referencia_tipo', 'parcela')
-      .gte('created_at', hojeStr)
+    // 2. Carregar Cache de Idempotência: Notificações de parcelas criadas/enviadas hoje e nas últimas 3h
+    const tresHorasAtras = new Date(Date.now() - 3 * 3600 * 1000).toISOString()
+    const [notifHojeRes, notifRecentesRes] = await Promise.all([
+      supabase
+        .from('notificacoes_log')
+        .select('referencia_id')
+        .eq('referencia_tipo', 'parcela')
+        .gte('created_at', hojeStr),
+      supabase
+        .from('notificacoes_log')
+        .select('referencia_id')
+        .eq('referencia_tipo', 'parcela')
+        .gte('created_at', tresHorasAtras),
+    ])
 
-    if (notifErr) throw notifErr
-    const idsEnviadosHoje = new Set((notificacoesHoje ?? []).map(n => n.referencia_id))
+    const idsEnviadosHoje = new Set((notifHojeRes.data ?? []).map(n => n.referencia_id))
+    const idsEnviadosRecentes = new Set((notifRecentesRes.data ?? []).map(n => n.referencia_id))
 
     // ── PARTE A: Atualização de Parcelas Atrasadas (Juros e Multa Diários) ──
     const { data: parcelasAtrasadas, error: pError } = await supabase
@@ -153,12 +177,15 @@ export async function GET(request: NextRequest) {
         const dentroFrequencia = freqDias <= 1 || ((dias - 1) % freqDias === 0)
         const dentroLimiteMax = dias <= maxDias
 
+        const vezesPorDiaCob = Number(cobranca?.vezes_por_dia ?? 1)
+        const jaEnviadoCob = vezesPorDiaCob > 1 ? idsEnviadosRecentes.has(p.id) : idsEnviadosHoje.has(p.id)
+
         const deveEnviarMensagem = 
           cobranca.ativo && 
-          dentroJanelaEnvio(cfg.hora_envio_num) && 
+          dentroJanelaEnvioTrigger(cobranca, cfg.hora_envio_num) && 
           dentroLimiteMax &&
           dentroFrequencia &&
-          !idsEnviadosHoje.has(p.id)
+          !jaEnviadoCob
 
         if (deveEnviarMensagem && cliente && cliente.telefone) {
           const result = await enviarTemplate(
@@ -225,10 +252,13 @@ export async function GET(request: NextRequest) {
         const emprestimo = p.emprestimos
         const venc = cfg.lembrete_vencimento
 
+        const vezesPorDiaVenc = Number(venc?.vezes_por_dia ?? 1)
+        const jaEnviadoVenc = vezesPorDiaVenc > 1 ? idsEnviadosRecentes.has(p.id) : idsEnviadosHoje.has(p.id)
+
         const deveEnviarMensagem = 
           venc.ativo && 
-          dentroJanelaEnvio(cfg.hora_envio_num) && 
-          !idsEnviadosHoje.has(p.id)
+          dentroJanelaEnvioTrigger(venc, cfg.hora_envio_num) && 
+          !jaEnviadoVenc
 
         if (deveEnviarMensagem && cliente && cliente.telefone) {
           const result = await enviarTemplate(
@@ -273,7 +303,7 @@ export async function GET(request: NextRequest) {
     const companiesByPreVencDays = new Map<number, string[]>()
     for (const [empresaId, cfg] of configMap.entries()) {
       // Apenas enfileira se o horário atual de Brasília coincidir com a hora configurada para a empresa
-      if (cfg.lembrete_pre_vencimento.ativo && dentroJanelaEnvio(cfg.hora_envio_num)) {
+      if (cfg.lembrete_pre_vencimento.ativo && dentroJanelaEnvioTrigger(cfg.lembrete_pre_vencimento, cfg.hora_envio_num)) {
         const days = Number(cfg.lembrete_pre_vencimento.dias_antes ?? 3)
         const currentList = companiesByPreVencDays.get(days) || []
         companiesByPreVencDays.set(days, [...currentList, empresaId])
