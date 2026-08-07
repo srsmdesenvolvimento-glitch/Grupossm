@@ -322,6 +322,8 @@ export default function WhatsAppConexaoPage() {
 
   // Automações
   const [activeTrigger, setActiveTrigger] = useState<TriggerKey>('contrato_criado')
+  const [testNumberTrigger, setTestNumberTrigger] = useState('')
+  const [sendingTestTrigger, setSendingTestTrigger] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   // Diagnostics
@@ -481,6 +483,40 @@ export default function WhatsAppConexaoPage() {
       toast.error('Erro: ' + e.message)
     } finally {
       setSendingTest(false)
+    }
+  }
+
+  const handleEnviarTesteInstantaneo = async () => {
+    if (!empresaAtual?.id) return
+    const numLimpo = testNumberTrigger.replace(/\D/g, '')
+    if (!numLimpo || numLimpo.length < 10) {
+      toast.error('Informe um número de WhatsApp válido com DDD (ex: 51999999999).')
+      return
+    }
+
+    setSendingTestTrigger(true)
+    try {
+      const mensagemCompilada = renderPreview()
+      const res = await fetch('/api/whatsapp/testar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empresa_id: empresaAtual.id,
+          destinatario: numLimpo,
+          mensagem: mensagemCompilada,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.erro || 'Falha ao disparar mensagem de teste.')
+      }
+      toast.success(`Mensagem de teste de "${FLOW_DETAILS[activeTrigger].titulo}" enviada com sucesso para ${numLimpo}!`)
+      setTimeout(() => loadStats(), 2000)
+    } catch (err: any) {
+      console.error('Erro no envio de teste instantâneo:', err)
+      toast.error(err.message || 'Erro ao disparar mensagem de teste.')
+    } finally {
+      setSendingTestTrigger(false)
     }
   }
 
@@ -1266,6 +1302,43 @@ export default function WhatsAppConexaoPage() {
                     </Card>
                   </div>
                 </div>
+
+                {/* Disparo de Teste Instantâneo do Gatilho Selecionado */}
+                <Card className="border-[#1E5AA8]/20 bg-[#EDF4FE]/50 shadow-sm rounded-xl">
+                  <CardContent className="pt-4 pb-4">
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                      <div className="space-y-0.5">
+                        <h4 className="text-xs font-bold text-[#1E5AA8] flex items-center gap-1.5">
+                          <Zap size={15} className="text-[#1E5AA8]" />
+                          Testar Envio Instantâneo de "{FLOW_DETAILS[activeTrigger].titulo}"
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Dispare esta mensagem imediatamente com dados hipotéticos de demonstração para qualquer número para mostrar ao seu cliente em tempo real.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+                        <Input
+                          type="text"
+                          placeholder="DDD + Celular (ex: 51999999999)"
+                          value={testNumberTrigger}
+                          onChange={(e) => setTestNumberTrigger(e.target.value)}
+                          className="h-9 text-xs bg-white border-slate-200 focus:ring-[#1E5AA8] w-full md:w-56 font-mono font-medium"
+                        />
+                        <Button
+                          type="button"
+                          onClick={handleEnviarTesteInstantaneo}
+                          disabled={sendingTestTrigger || !testNumberTrigger}
+                          size="sm"
+                          className="h-9 px-4 bg-[#1E5AA8] hover:bg-[#154687] text-white font-bold text-xs gap-1.5 shrink-0 cursor-pointer shadow-sm disabled:opacity-50"
+                        >
+                          {sendingTestTrigger ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                          <span>Enviar Agora</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             </div>
           </TabsContent>
