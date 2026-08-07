@@ -1139,8 +1139,13 @@ export async function gerarContratoComAssinaturaPDF(
   doc.setTextColor(30, 90, 168)
   doc.text('TRILHA DE AUDITORIA: EVIDÊNCIAS TÉCNICAS', 14, 61)
 
-  const signedDate = fmtData(params.assinatura.signed_at.split('T')[0])
-  const signedTime = params.assinatura.signed_at.split('T')[1]?.substring(0, 8) ?? ''
+  const dObj = new Date(params.assinatura.signed_at)
+  const signedDate = !isNaN(dObj.getTime())
+    ? dObj.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    : fmtData(params.assinatura.signed_at.split('T')[0])
+  const signedTime = !isNaN(dObj.getTime())
+    ? dObj.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false })
+    : (params.assinatura.signed_at.split('T')[1]?.substring(0, 8) ?? '')
   const signedBrasilia = `${signedDate} às ${signedTime} (UTC-3 Brasília)`
 
   const auditFields = [

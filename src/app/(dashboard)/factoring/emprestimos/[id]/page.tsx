@@ -1649,7 +1649,15 @@ export default function EmprestimoDetalhePage() {
                   <div className="text-[11px] space-y-2 font-semibold text-muted-foreground leading-normal">
                     <div className="flex justify-between">
                       <span>Assinado em:</span>
-                      <span className="text-foreground font-mono">{formatarData(meta.signed_at.split('T')[0])} {meta.signed_at.split('T')[1]?.substring(0, 5)}</span>
+                      <span className="text-foreground font-mono">
+                        {(() => {
+                          const d = new Date(meta.signed_at)
+                          if (!isNaN(d.getTime())) {
+                            return `${d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} ${d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}`
+                          }
+                          return `${formatarData(meta.signed_at.split('T')[0])} ${meta.signed_at.split('T')[1]?.substring(0, 5)}`
+                        })()}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span>IP de Origem:</span>
