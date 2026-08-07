@@ -294,7 +294,7 @@ export default function NovoEmprestimoPage() {
   const tabelaColumns: Column<TabelaLinha>[] = [
     { key: 'numero', header: 'Nº', render: r => <span className="text-muted-foreground/60 font-semibold tabular-nums text-xs">{r.numero}</span> },
     { key: 'vencimento', header: 'Vencimento', render: r => <span className="tabular-nums font-semibold text-xs">{formatarData(r.vencimento)}</span> },
-    { key: 'principal', header: 'Amortização', render: r => <span className="tabular-nums font-semibold text-xs text-foreground">{formatarMoeda(r.principal)}</span> },
+    { key: 'principal', header: 'Capital', render: r => <span className="tabular-nums font-semibold text-xs text-foreground">{formatarMoeda(r.principal)}</span> },
     { key: 'juros', header: 'Juros', render: r => <span className="tabular-nums font-semibold text-xs text-[#FA903E]">{formatarMoeda(r.juros)}</span> },
     { key: 'parcela', header: 'Parcela', render: r => <span className="tabular-nums font-bold text-xs text-foreground">{formatarMoeda(r.parcela)}</span> },
   ]
@@ -968,7 +968,7 @@ export default function NovoEmprestimoPage() {
               <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-[#1A73E8]" />
               <CheckCircle2 className="text-[#1A73E8] shrink-0 mt-0.5" size={18} />
               <p className="text-xs text-[#1557B0] leading-relaxed font-semibold">
-                Ao prosseguir com a liberação, o contrato digital será lavrado no sistema, a amortização em <strong>{parcelasNum} parcelas</strong> será estabelecida para o sacado
+                Ao prosseguir com a liberação, o contrato digital será lavrado no sistema, o parcelamento em <strong>{parcelasNum} parcelas</strong> será estabelecido para o sacado
                 e uma transação financeira de <strong>{formatarMoeda(valorNum)}</strong> constará como débito no caixa interno da empresa.
               </p>
             </div>

@@ -165,7 +165,7 @@ export default function EmprestimosPage() {
     },
     {
       key: 'parcelas',
-      header: 'Parcelas Amortizadas',
+      header: 'Parcelas Pagas',
       render: e => (
         <span className="text-xs text-muted-foreground font-mono font-semibold">
           {e.parcelas_pagas} de {e.prazo_meses}
@@ -216,7 +216,7 @@ export default function EmprestimosPage() {
 
         <PageHeader
           titulo="Contratos de Empréstimo"
-          descricao="Monitore a liquidez, saldo devedor e fluxos de amortização de parcelas da factoring"
+          descricao="Monitore a liquidez, saldo devedor e recebimento de parcelas da factoring"
           icone={Banknote}
           corIcone="var(--gt-blue)"
           acoes={

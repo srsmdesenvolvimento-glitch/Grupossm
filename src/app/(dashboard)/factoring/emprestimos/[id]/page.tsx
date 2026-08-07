@@ -1415,7 +1415,7 @@ export default function EmprestimoDetalhePage() {
                       {c.isText ? c.v : formatarMoeda(c.v as number)}
                     </p>
                     {c.l === 'Saldo c/ Encargos' && (
-                      <p className="text-[9px] text-[#EA4335] font-bold">+{formatarMoeda(encargosAtrasados)} mora</p>
+                      <p className="text-[9px] text-[#EA4335] font-bold">+{formatarMoeda(encargosAtrasados)} juros/multa</p>
                     )}
                   </div>
                 ))}
@@ -1434,7 +1434,7 @@ export default function EmprestimoDetalhePage() {
                   <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground flex-wrap pt-0.5">
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#1A73E8] inline-block shadow-sm" />
-                      Principal amortizado: <strong className="text-foreground">{formatarMoeda(totalPrincipalPago)}</strong>
+                      Principal recebido: <strong className="text-foreground">{formatarMoeda(totalPrincipalPago)}</strong>
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-[#FA903E] inline-block shadow-sm" />
@@ -1456,7 +1456,7 @@ export default function EmprestimoDetalhePage() {
                 <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground flex-wrap pt-0.5">
                   <span className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#1A73E8] inline-block shadow-sm" />
-                    Amortização Principal: <strong className="text-foreground">{formatarMoeda(emprestimo.valor_principal)}</strong> ({emprestimo.total_pagar > 0 ? Math.round((emprestimo.valor_principal / emprestimo.total_pagar) * 100) : 0}%)
+                    Capital Principal: <strong className="text-foreground">{formatarMoeda(emprestimo.valor_principal)}</strong> ({emprestimo.total_pagar > 0 ? Math.round((emprestimo.valor_principal / emprestimo.total_pagar) * 100) : 0}%)
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#FA903E] inline-block shadow-sm" />
@@ -1813,7 +1813,7 @@ export default function EmprestimoDetalhePage() {
 
                   {pagarParcela.valor_pago && pagarParcela.valor_pago > 0 && (
                     <div className="flex justify-between items-center text-xs font-semibold text-[#34A853]">
-                      <span>Amortizado anteriormente</span>
+                      <span>Recebido anteriormente</span>
                       <span>-{formatarMoeda(pagarParcela.valor_pago)}</span>
                     </div>
                   )}

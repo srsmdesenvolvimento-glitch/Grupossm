@@ -757,14 +757,14 @@ export default function FactoringDashboard() {
             delay={0}
           />
           <StatCard
-            titulo="Amortizado no Mês"
+            titulo="Recebido no Mês"
             valor={formatarMoeda(d.recebidoMes)}
             subtitulo="Total de parcelas quitadas no período"
             icone={CheckCircle}
             corIcone="#34A853"
             corFundo="#E6F4EA"
             onClick={() => router.push('/factoring/parcelas?filtro=pago')}
-            atalho="Relatório de Amortizações"
+            atalho="Relatório de Recebimentos"
             delay={0.06}
           />
           <StatCard

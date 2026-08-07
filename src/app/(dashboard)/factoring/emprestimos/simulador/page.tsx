@@ -356,7 +356,7 @@ export default function SimuladorPage() {
 
                 <div className="bg-card rounded-2xl border border-border/50 overflow-hidden shadow-m3-1">
                   <div className="px-6 py-4.5 border-b border-border/50 flex items-center justify-between bg-card">
-                    <h3 className="font-bold text-foreground text-sm tracking-tight">Tabela de Amortização</h3>
+                    <h3 className="font-bold text-foreground text-sm tracking-tight">Tabela de Parcelas</h3>
                     <span className="text-xs font-bold text-muted-foreground/80 bg-muted px-2.5 py-1 rounded-full">{resultado.tabela.length} parcelas fixas</span>
                   </div>
                   <DataTable

@@ -316,7 +316,7 @@ export default function ConfiguracoesFactoringPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="juros-mora" className="font-semibold text-xs text-foreground/80">Juros de mora diário (% a.d.)</Label>
+                  <Label htmlFor="juros-mora" className="font-semibold text-xs text-foreground/80">Juros por dia de atraso (% a.d.)</Label>
                   <Input
                     id="juros-mora"
                     inputMode="decimal"
