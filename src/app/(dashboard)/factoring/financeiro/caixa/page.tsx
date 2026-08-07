@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
-import { ArrowUpCircle, ArrowDownCircle, Wallet, TrendingUp, TrendingDown, Filter } from 'lucide-react'
+import { ArrowUpCircle, ArrowDownCircle, Wallet, TrendingUp, TrendingDown, Filter, Edit2, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useEmpresa } from '@/contexts/EmpresaContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -13,6 +13,11 @@ import { DataTable, type Column } from '@/components/shared/DataTable'
 import { MoneyDisplay } from '@/components/shared/MoneyDisplay'
 import { LoadingPage } from '@/components/shared/LoadingPage'
 import { formatarMoeda, formatarData } from '@/lib/utils/formatters'
+import { parseBRL, formatBRL, handleCurrencyChange } from '@/lib/utils/currency'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 
 type Mov = {
@@ -60,6 +65,36 @@ export default function CaixaPage() {
   const [filtroInicio, setFiltroInicio] = useState(primeiroDiaMes())
   const [filtroFim, setFiltroFim] = useState(ultimoDiaMes())
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'entrada' | 'saida'>('todos')
+
+  const [modalSaldoOpen, setModalSaldoOpen] = useState(false)
+  const [novoSaldoStr, setNovoSaldoStr] = useState('0,00')
+  const [salvandoSaldo, setSalvandoSaldo] = useState(false)
+
+  const handleOpenEditSaldo = () => {
+    setNovoSaldoStr(formatBRL(saldoInicial))
+    setModalSaldoOpen(true)
+  }
+
+  const handleSalvarSaldoInicial = async () => {
+    if (!empresaAtual) return
+    setSalvandoSaldo(true)
+    try {
+      const valorNum = parseBRL(novoSaldoStr)
+      const { error } = await supabase
+        .from('config_factoring')
+        .upsert({ empresa_id: empresaAtual.id, saldo_inicial_caixa: valorNum }, { onConflict: 'empresa_id' })
+
+      if (error) throw error
+      toast.success('Saldo inicial do caixa atualizado com sucesso!')
+      setModalSaldoOpen(false)
+      carregar()
+    } catch (err: any) {
+      console.error('Erro ao atualizar saldo inicial:', err)
+      toast.error(err.message || 'Erro ao salvar saldo inicial.')
+    } finally {
+      setSalvandoSaldo(false)
+    }
+  }
 
   const carregar = useCallback(async () => {
     if (!empresaAtual) return
@@ -184,6 +219,17 @@ export default function CaixaPage() {
           descricao="Monitore todas as movimentações e entradas financeiras da empresa" 
           icone={Wallet}
           corIcone="var(--gt-blue)"
+          acoes={
+            <Button
+              onClick={handleOpenEditSaldo}
+              variant="outline"
+              size="sm"
+              className="gap-2 font-bold cursor-pointer hover:bg-muted"
+            >
+              <Edit2 size={14} className="text-primary" />
+              <span>Editar Saldo Inicial</span>
+            </Button>
+          }
         />
 
         {/* Stats */}
@@ -196,15 +242,20 @@ export default function CaixaPage() {
             corFundo="var(--gt-blue-light)"
             delay={0}
           />
-          <StatCard
-            titulo="Saldo Inicial"
-            valor={formatarMoeda(saldoInicial)}
-            subtitulo="Base para o saldo do caixa"
-            icone={Wallet}
-            corIcone="var(--gt-gray)"
-            corFundo="var(--gt-gray-light)"
-            delay={0.07}
-          />
+          <div className="relative group cursor-pointer" onClick={handleOpenEditSaldo}>
+            <StatCard
+              titulo="Saldo Inicial"
+              valor={formatarMoeda(saldoInicial)}
+              subtitulo="Clique para editar valor de abertura"
+              icone={Wallet}
+              corIcone="var(--gt-gray)"
+              corFundo="var(--gt-gray-light)"
+              delay={0.07}
+            />
+            <div className="absolute top-3 right-3 p-1.5 rounded-full bg-background/80 border border-border shadow-sm opacity-70 group-hover:opacity-100 transition-opacity">
+              <Edit2 size={13} className="text-muted-foreground" />
+            </div>
+          </div>
           <StatCard
             titulo="Entradas no Período"
             valor={formatarMoeda(totalEntradas)}
@@ -300,6 +351,56 @@ export default function CaixaPage() {
           )}
         </div>
       </div>
+
+      {/* Modal para Editar Saldo Inicial */}
+      <Dialog open={modalSaldoOpen} onOpenChange={setModalSaldoOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wallet size={20} className="text-primary" />
+              Editar Saldo Inicial do Caixa
+            </DialogTitle>
+            <DialogDescription>
+              Ajuste o valor inicial de abertura do caixa. O Saldo Atual da empresa será recalculado automaticamente em tempo real.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Valor Inicial (R$)
+              </Label>
+              <Input
+                type="text"
+                value={novoSaldoStr}
+                onChange={e => setNovoSaldoStr(handleCurrencyChange(e.target.value))}
+                placeholder="R$ 0,00"
+                className="h-11 font-mono font-bold text-base"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setModalSaldoOpen(false)}
+              disabled={salvandoSaldo}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSalvarSaldoInicial}
+              disabled={salvandoSaldo}
+              className="gap-2 font-bold bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              {salvandoSaldo ? <Loader2 size={16} className="animate-spin" /> : <Wallet size={16} />}
+              <span>Salvar Alteração</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   )
 }

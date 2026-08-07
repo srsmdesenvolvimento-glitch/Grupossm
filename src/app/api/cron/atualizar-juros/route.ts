@@ -64,6 +64,8 @@ export async function GET(request: NextRequest) {
             cobranca_pos_vencimento: settings.cobranca_pos_vencimento ?? { ativo: true },
             hora_envio: horaEnvioStr,
             hora_envio_num: horaEnvioNum,
+            max_dias_atraso: Number(settings.max_dias_atraso ?? 60),
+            frequencia_cobranca: Number(settings.frequencia_cobranca ?? 1),
           }
         ]
       }),
@@ -103,6 +105,8 @@ export async function GET(request: NextRequest) {
           cobranca_pos_vencimento: { ativo: true },
           hora_envio: '09:00',
           hora_envio_num: 9,
+          max_dias_atraso: 60,
+          frequencia_cobranca: 1,
         }
 
         const venc = new Date(p.data_vencimento + 'T00:00:00Z')
@@ -144,9 +148,16 @@ export async function GET(request: NextRequest) {
         const emprestimo = p.emprestimos
         const cobranca = cfg.cobranca_pos_vencimento
 
+        const maxDias = Number(cfg.max_dias_atraso ?? 60)
+        const freqDias = Number(cfg.frequencia_cobranca ?? 1)
+        const dentroFrequencia = freqDias <= 1 || ((dias - 1) % freqDias === 0)
+        const dentroLimiteMax = dias <= maxDias
+
         const deveEnviarMensagem = 
           cobranca.ativo && 
           dentroJanelaEnvio(cfg.hora_envio_num) && 
+          dentroLimiteMax &&
+          dentroFrequencia &&
           !idsEnviadosHoje.has(p.id)
 
         if (deveEnviarMensagem && cliente && cliente.telefone) {

@@ -507,22 +507,18 @@ export default function EmprestimoDetalhePage() {
       const { error: saldoError } = await supabase.from('emprestimos').update({ saldo_devedor: novoSaldoDevedor }).eq('id', emprestimo.id).eq('empresa_id', empresaAtual.id)
       if (saldoError) throw saldoError
 
-      // Caixa: entrada separada por capital (amortização) e juros/encargos
-      const jurosTotalPago = Math.round(Math.max(0, valorFinal - principalPago) * 100) / 100
-      const { error: caixaCapError } = await supabase.from('movimentacoes_caixa').insert({
-        empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'amortizacao_emprestimo',
-        descricao: `Parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — Capital — ${cliente?.nome ?? ''}`,
-        valor: principalPago, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
+      // Caixa: lançamento único com valor total da parcela (principal + juros)
+      const { error: caixaError } = await supabase.from('movimentacoes_caixa').insert({
+        empresa_id: empresaAtual.id,
+        tipo: 'entrada',
+        categoria: 'recebimento_emprestimo',
+        descricao: `Parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — ${cliente?.nome ?? ''}`,
+        valor: valorFinal,
+        referencia_tipo: 'emprestimo',
+        referencia_id: emprestimo.id,
+        data_movimentacao: hoje,
       })
-      if (caixaCapError) throw caixaCapError
-      if (jurosTotalPago > 0) {
-        const { error: caixaJurError } = await supabase.from('movimentacoes_caixa').insert({
-          empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'juros_recebidos',
-          descricao: `Parcela ${pagarParcela.numero_parcela}/${pagarParcela.total_parcelas} — Juros — ${cliente?.nome ?? ''}`,
-          valor: jurosTotalPago, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
-        })
-        if (caixaJurError) throw caixaJurError
-      }
+      if (caixaError) throw caixaError
 
       // ── Enviar Recibo Automático via WhatsApp ──
       try {
@@ -760,24 +756,19 @@ export default function EmprestimoDetalhePage() {
           .in('status', ['pendente', 'atrasado'])
         if (parcelasQuitError) throw parcelasQuitError
 
-        // Caixa quitação: separar capital de juros
+        // Caixa: lançamento único consolidado por quitação antecipada
         const totalQuitado = pendentes.reduce((s, p) => s + (p.valor ?? 0), 0)
-        const totalPrincipalQuitado = Math.round(pendentes.reduce((s, p) => s + (p.valor_principal ?? 0), 0) * 100) / 100
-        const totalJurosQuitado = Math.round(Math.max(0, totalQuitado - totalPrincipalQuitado) * 100) / 100
-        const { error: caixaQuitCapError } = await supabase.from('movimentacoes_caixa').insert({
-          empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'quitacao_antecipada',
-          descricao: `Quitação antecipada ${emprestimo.numero_contrato} — Capital — ${pendentes.length} parcela(s)`,
-          valor: totalPrincipalQuitado, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
+        const { error: caixaQuitError } = await supabase.from('movimentacoes_caixa').insert({
+          empresa_id: empresaAtual.id,
+          tipo: 'entrada',
+          categoria: 'quitacao_antecipada',
+          descricao: `Quitação Antecipada ${emprestimo.numero_contrato} — ${cliente?.nome ?? ''} (${pendentes.length} parcela(s))`,
+          valor: totalQuitado,
+          referencia_tipo: 'emprestimo',
+          referencia_id: emprestimo.id,
+          data_movimentacao: hoje,
         })
-        if (caixaQuitCapError) throw caixaQuitCapError
-        if (totalJurosQuitado > 0) {
-          const { error: caixaQuitJurError } = await supabase.from('movimentacoes_caixa').insert({
-            empresa_id: empresaAtual.id, tipo: 'entrada', categoria: 'juros_recebidos',
-            descricao: `Quitação antecipada ${emprestimo.numero_contrato} — Juros — ${pendentes.length} parcela(s)`,
-            valor: totalJurosQuitado, referencia_tipo: 'emprestimo', referencia_id: emprestimo.id, data_movimentacao: hoje,
-          })
-          if (caixaQuitJurError) throw caixaQuitJurError
-        }
+        if (caixaQuitError) throw caixaQuitError
       }
 
       // Generate Termo de Quitação PDF and trigger notifications
